@@ -1,0 +1,661 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Jamulus.live";
+}
+
+<meta http-equiv="refresh" content="@Html.Raw(@Model.RefreshDuration)">
+
+<style>
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        grid-gap: 1rem;
+    }
+
+        .grid > div {
+            background: #EDE7F6;
+            padding: 1rem;
+            border-radius: 1rem;
+        }
+
+    body {
+        margin: 1rem;
+        background-color: lightblue;
+    }
+
+
+
+    /* Style the button that is used to open and close the collapsible content */
+    .collapsible {
+        background-color: #eee;
+        color: #444;
+        cursor: pointer;
+        padding: 18px;
+        width: 100%;
+        border: none;
+        text-align: left;
+        outline: none;
+        font-size: 15px;
+    }
+
+        /* Add a background color to the button if it is clicked on (add the .active class with JS), and when you move the mouse over it (hover) */
+        .active, .collapsible:hover {
+            background-color: #ccc;
+        }
+
+    /* Style the collapsible content. Note: hidden by default */
+    .content {
+        padding: 0 18px;
+        display: none;
+        overflow: hidden;
+        background-color: #f1f1f1;
+    }
+</style>
+
+<script>
+
+    PeopleCollection = "trackedPeople";
+
+    function getTrackedPeople(collection) {
+        var retrievedData = localStorage.getItem(collection);
+
+        if (null === retrievedData) {
+            var peep = [""];
+            localStorage.setItem(collection, JSON.stringify(peep));
+            retrievedData = localStorage.getItem(collection);
+        }
+
+        return JSON.parse(retrievedData);
+    }
+
+    function blankForRefresh() {
+        var divs = document.getElementsByTagName('span');
+        var l = divs.length;
+        for (var i = 0; i < l; i++) {
+            divs[i].style.border = "";
+            divs[i].style.background = "";
+        }
+    }
+
+    function subRefresh(collection, border, background) {
+        var divs = document.getElementsByTagName('span');
+        var l = divs.length;
+        people = getTrackedPeople(collection);
+        for (var i = 0; i < l; i++) {
+            var divId = divs[i].getAttribute("id");
+            if (people.includes(divId)) {
+                {
+                    divs[i].style.border = border;
+                    divs[i].style.background = background;
+                }
+            }
+            /*
+                        else {
+                            divs[i].style.border = "";
+                            divs[i].style.background = "";
+                        }
+                        */
+        }
+    }
+
+
+    function listRefresh(collection, border, background) {
+        var peeps = document.getElementsByClassName('musicianInList');
+        var l = peeps.length;
+        people = getTrackedPeople(collection);
+        for (var i = 0; i < l; i++) {
+            var peepId = peeps[i].getAttribute("id");
+            if (people.includes(peepId)) {
+                {
+                    peeps[i].style.border = border;
+                    peeps[i].style.background = background;
+                }
+            }
+        }
+    }
+
+    function refreshHighlights() {
+        blankForRefresh();
+        subRefresh("trackedPeople", "1px solid #FFFFCC", "#FFFFCC");
+        subRefresh("advancedTrackedPeople", "2px dashed #DDFFCC", "#DDFFCC");
+
+        listRefresh("trackedPeople", "#FFFFCC", "#FFFFCC");  // Musician's List for RickD
+        listRefresh("advancedTrackedPeople", "#DDFFCC", "#DDFFCC"); // Musician's List for RickD
+
+        // promote the server i'm on
+        var loginHash = localStorage.getItem("loginHash");
+        if (null != loginHash) {
+            console.log(loginHash);
+            var me = document.getElementsByClassName(loginHash);
+            if (me.length > 0) {
+                me[0].parentElement.style.background = "#FFD7E6"; //  .style.border = "thick solid #9Dc8d6";
+                me[0].parentElement.style.gridRowStart = 1; 
+            }
+        }
+    }
+
+    function avoidWordWrap() {
+        var divs = document.getElementsByClassName('musician');
+        var len = divs.length;
+
+        // detect the presence of a double-line
+        // by comparing each value to a running average
+        // and noting a spike.
+        // fails when spike is first item, or when very spikey.
+        /*
+        iTally = 0;
+        iCount = 0;
+        fDoubleLinesPresent = false;
+
+        for (var i = 0; i < len; i++) {
+            iTally += divs[i].offsetHeight;
+            iCount++;
+            if (divs[i].offsetHeight > (iTally / iCount + 3))
+                fDoubleLinesPresent = true;
+        }
+
+        iTallest = 0;
+        for (var i = 0; i < len; i++) {
+            if (divs[i].offsetHeight > iTallest)
+                iTallest = divs[i].offsetHeight;
+        }
+
+        if (iTallest == 0)
+            return;
+
+        // cut it in half and add 5. just do replacement on anyone larger than this.
+        iScrutinyStarts = iTallest / 2 + 5;
+        */
+
+        // AllSmall can work if I do sets... but this forces all names to small.
+        let serversToShrinkAllNames = [];
+
+        // I really should trigger on ANY wordwrap, but i rely on icon replacement
+        // even though I can't MEASURE that replacement's effectiveness.
+        // trigger words let me squish when i can't replace easily with a lil icon.
+        //
+        // First strategy: Replacements shorten the phrase.
+        // Second strategy: Shrink everyone based on presence of keywords that haven't translated easily to smaller versions.
+
+        //        for (var i = 0; i < len; i++) {
+        for (var i = len - 1; i >= 0; i--) {
+            if (-1 != divs[i].innerHTML.indexOf("Mandolin")) {
+                serversToShrinkAllNames.push(divs[i].classList[1]);
+            }
+            if (-1 != divs[i].innerHTML.indexOf("Harmonica")) {
+                serversToShrinkAllNames.push(divs[i].classList[1]);
+            }
+            if (-1 != divs[i].innerHTML.indexOf("Accordion")) {
+                serversToShrinkAllNames.push(divs[i].classList[1]);
+            }
+            if (-1 != divs[i].innerHTML.indexOf("Ukulele")) {
+                serversToShrinkAllNames.push(divs[i].classList[1]);
+            }
+            if (-1 != divs[i].innerHTML.indexOf("Vocal")) {
+                serversToShrinkAllNames.push(divs[i].classList[1]);
+            }
+            if (-1 != divs[i].innerHTML.indexOf("Bass")) {
+                serversToShrinkAllNames.push(divs[i].classList[1]);
+            }
+        }
+
+        // cramdown!
+        //        if (fDoubleLinesPresent) { // global flag.
+        //            for (var i = 0; i < len; i++) {
+        for (var i = len - 1; i >= 0; i--) {
+            // i'd be really surprised if divs[i].clientHeight changes wtih my font='-1' trick above. but i can dream!
+            // this technique shrinks ALL in a particular SERVER
+            if (serversToShrinkAllNames.includes(divs[i].classList[1]))
+                divs[i].innerHTML = divs[i].innerHTML.replace("+0", "-1"); // shrinks the font attribute value
+
+            //                if (divs[i].clientHeight > iScrutinyStarts)
+            {
+                // if the line appears to double-line, these replaces are our first line of defense.
+                divs[i].innerHTML = divs[i].innerHTML.replace("Electric Guitar", "</i>⚡️🎸<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Vocal Baritone", "Baritone");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Vocal Soprano", "Soprano");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Synthesizer", "</i>🎹<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Grand Piano", "</i>🎹<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("French Horn", "</i>📯<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Double Bass", "Bass");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Vocal Tenor", "Tenor");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Vocal Bass", "Vocal");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Microphone", "</i>🎤<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Vocal Lead", "Vocal");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Vocal Alto", "Alto");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Saxophone", "</i>🎷<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Harmonica", "Harp");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Acoustic ", "");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Streamer", "");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Keyboard", "</i>🎹<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Listener", "</i>👂<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Mountain", "</i>⛰️<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Trumpet", "</i>🎺<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Rapping", "</i>Rap<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Guitar", "</i>🎸<i>");
+                divs[i].innerHTML = divs[i].innerHTML.replace("Drums", "</i>🥁<i>");
+                //                    divs[i].innerHTML = divs[i].innerHTML.replace("Vocal", "🗣");
+            }
+
+            /*
+            divs[i].innerHTML = divs[i].innerHTML.replace('<i> </i>', '<i></i>');
+            divs[i].innerHTML = divs[i].innerHTML.replace('<b></b>', '');
+            divs[i].innerHTML = divs[i].innerHTML.replace('<i></i>', '');
+            if (divs[i].innerHTML.length < 32) {
+                console.log(divs[i].innerHTML);
+                divs[i].remove();
+            }
+            */
+        }
+    }
+
+    function showFlagsForNonWindows() {
+        if (navigator.userAgent.includes("Windows"))
+            return;
+
+        let elements = document.querySelectorAll('font')
+        for (let i = 0; i < elements.length; i++) {
+            if (elements[i].size == -2) {
+                elements[i].innerHTML = replaceCountry(elements[i].innerHTML)
+            }
+        }
+
+        function replaceCountry(country) {
+            //v1.4 all jamulus country here
+            country = country.replace(/Afghanistan/g, '🇦🇫')
+            country = country.replace(/Aland Islands/g, '🇦🇽')
+            country = country.replace(/Albania/g, '🇦🇱')
+            country = country.replace(/Algeria/g, '🇩🇿')
+            country = country.replace(/Andorra/g, '🇦🇩')
+            country = country.replace(/Angola/g, '🇦🇴')
+            country = country.replace(/Argentina/g, '🇦🇷')
+            country = country.replace(/Armenia/g, '🇦🇲')
+            country = country.replace(/Aruba/g, '🇦🇼')
+            country = country.replace(/Australia/g, '🇦🇺')
+            country = country.replace(/Austria/g, '🇦🇹')
+            country = country.replace(/Azerbaijan/g, '🇦🇿')
+            country = country.replace(/Bahrain/g, '🇧🇭')
+            country = country.replace(/Bangladesh/g, '🇧🇩')
+            country = country.replace(/Belarus/g, '🇧🇾')
+            country = country.replace(/Belgium/g, '🇧🇪')
+            country = country.replace(/Benin/g, '🇧🇯')
+            country = country.replace(/Bhutan/g, '🇧🇹')
+            country = country.replace(/Bolivia/g, '🇧🇴')
+            country = country.replace(/Bosnia And Herzegowina/g, '🇧🇦')
+            country = country.replace(/Botswana/g, '🇧🇼')
+            country = country.replace(/Brazil/g, '🇧🇷')
+            country = country.replace(/Brunei/g, '🇧🇳')
+            country = country.replace(/Bulgaria/g, '🇧🇬')
+            country = country.replace(/Burkina Faso/g, '🇧🇫')
+            country = country.replace(/Burundi/g, '🇧🇮')
+            country = country.replace(/Cambodia/g, '🇰🇭')
+            country = country.replace(/Cameroon/g, '🇨🇲')
+            country = country.replace(/Canada/g, '🇨🇦')
+            country = country.replace(/Cape Verde/g, '🇨🇻')
+            country = country.replace(/Central African Republic/g, '🇨🇫')
+            country = country.replace(/Chad/g, '🇹🇩')
+            country = country.replace(/Chile/g, '🇨🇱')
+            country = country.replace(/China/g, '🇨🇳')
+            country = country.replace(/Colombia/g, '🇨🇴')
+            country = country.replace(/Comoros/g, '🇰🇲')
+            country = country.replace(/Congo Brazzaville/g, '🇨🇬')
+            country = country.replace(/Congo Kinshasa/g, '🇨🇩')
+            country = country.replace(/Costa Rica/g, '🇨🇷')
+            country = country.replace(/Croatia/g, '🇭🇷')
+            country = country.replace(/Cuba/g, '🇨🇺')
+            country = country.replace(/Cyprus/g, '🇨🇾')
+            country = country.replace(/Czech Republic/g, '🇨🇿')
+            country = country.replace(/Denmark/g, '🇩🇰')
+            country = country.replace(/Djibouti/g, '🇩🇯')
+            country = country.replace(/Dominican Republic/g, '🇩🇴')
+            country = country.replace(/East Timor/g, '🇹🇱')
+            country = country.replace(/Ecuador/g, '🇪🇨')
+            country = country.replace(/Egypt/g, '🇪🇬')
+            country = country.replace(/El Salvador/g, '🇸🇻')
+            country = country.replace(/Equatorial Guinea/g, '🇬🇶')
+            country = country.replace(/Eritrea/g, '🇪🇷')
+            country = country.replace(/Estonia/g, '🇪🇪')
+            country = country.replace(/Ethiopia/g, '🇪🇹')
+            country = country.replace(/Faroe Islands/g, '🇫🇴')
+            country = country.replace(/Finland/g, '🇫🇮')
+            country = country.replace(/France/g, '🇫🇷')
+            country = country.replace(/French Guiana/g, '🇬🇫')
+            country = country.replace(/French Polynesia/g, '🇵🇫')
+            country = country.replace(/Gabon/g, '🇬🇦')
+            country = country.replace(/Georgia/g, '🇬🇪')
+            country = country.replace(/Germany/g, '🇩🇪')
+            country = country.replace(/Ghana/g, '🇬🇭')
+            country = country.replace(/Greece/g, '🇬🇷')
+            country = country.replace(/Greenland/g, '🇬🇱')
+            country = country.replace(/Guadeloupe/g, '🇬🇵')
+            country = country.replace(/Guatemala/g, '🇬🇹')
+            country = country.replace(/Guinea/g, '🇬🇳')
+            country = country.replace(/Guinea Bissau/g, '🇬🇼')
+            country = country.replace(/Guyana/g, '🇬🇾')
+            country = country.replace(/Honduras/g, '🇭🇳')
+            country = country.replace(/Hong Kong/g, '🇭🇰')
+            country = country.replace(/Hungary/g, '🇭🇺')
+            country = country.replace(/Iceland/g, '🇮🇸')
+            country = country.replace(/India/g, '🇮🇳')
+            country = country.replace(/Indonesia/g, '🇮🇩')
+            country = country.replace(/Iran/g, '🇮🇷')
+            country = country.replace(/Iraq/g, '🇮🇶')
+            country = country.replace(/Ireland/g, '🇮🇪')
+            country = country.replace(/Israel/g, '🇮🇱')
+            country = country.replace(/Italy/g, '🇮🇹')
+            country = country.replace(/Ivory Coast/g, '🇨🇮')
+            country = country.replace(/Japan/g, '🇯🇵')
+            country = country.replace(/Jordan/g, '🇯🇴')
+            country = country.replace(/Kazakhstan/g, '🇰🇿')
+            country = country.replace(/Kenya/g, '🇰🇪')
+            country = country.replace(/Kuwait/g, '🇰🇼')
+            country = country.replace(/Kyrgyzstan/g, '🇰🇬')
+            country = country.replace(/Laos/g, '🇱🇦')
+            country = country.replace(/Latvia/g, '🇱🇻')
+            country = country.replace(/Lebanon/g, '🇱🇧')
+            country = country.replace(/Lesotho/g, '🇱🇸')
+            country = country.replace(/Libya/g, '🇱🇾')
+            country = country.replace(/Liechtenstein/g, '🇱🇮')
+            country = country.replace(/Lithuania/g, '🇱🇹')
+            country = country.replace(/Luxembourg/g, '🇱🇺')
+            country = country.replace(/Macau/g, '🇲🇴')
+            country = country.replace(/Macedonia/g, '🇲🇰')
+            country = country.replace(/Madagascar/g, '🇲🇬')
+            country = country.replace(/Malaysia/g, '🇲🇾')
+            country = country.replace(/Mali/g, '🇲🇱')
+            country = country.replace(/Malta/g, '🇲🇹')
+            country = country.replace(/Martinique/g, '🇲🇶')
+            country = country.replace(/Mauritania/g, '🇲🇷')
+            country = country.replace(/Mauritius/g, '🇲🇺')
+            country = country.replace(/Mayotte/g, '🇾🇹')
+            country = country.replace(/Mexico/g, '🇲🇽')
+            country = country.replace(/Moldova/g, '🇲🇩')
+            country = country.replace(/Monaco/g, '🇲🇨')
+            country = country.replace(/Mongolia/g, '🇲🇳')
+            country = country.replace(/Montenegro/g, '🇲🇪')
+            country = country.replace(/Morocco/g, '🇲🇦')
+            country = country.replace(/Mozambique/g, '🇲🇿')
+            country = country.replace(/Myanmar/g, '🇲🇲')
+            country = country.replace(/Namibia/g, '🇳🇦')
+            country = country.replace(/Nepal/g, '🇳🇵')
+            country = country.replace(/Netherlands/g, '🇳🇱')
+            country = country.replace(/New Caledonia/g, '🇳🇨')
+            country = country.replace(/New Zealand/g, '🇳🇿')
+            country = country.replace(/Nicaragua/g, '🇳🇮')
+            country = country.replace(/Niger/g, '🇳🇪')
+            country = country.replace(/Nigeria/g, '🇳🇬')
+            country = country.replace(/North Korea/g, '🇰🇵')
+            country = country.replace(/Norway/g, '🇳🇴')
+            country = country.replace(/Oman/g, '🇴🇲')
+            country = country.replace(/Pakistan/g, '🇵🇰')
+            country = country.replace(/Palestinian Territories/g, '🇵🇸')
+            country = country.replace(/Panama/g, '🇵🇦')
+            country = country.replace(/Papua New Guinea/g, '🇵🇬')
+            country = country.replace(/Paraguay/g, '🇵🇾')
+            country = country.replace(/Peru/g, '🇵🇪')
+            country = country.replace(/Philippines/g, '🇵🇭')
+            country = country.replace(/Poland/g, '🇵🇱')
+            country = country.replace(/Portugal/g, '🇵🇹')
+            country = country.replace(/Puerto Rico/g, '🇵🇷')
+            country = country.replace(/Qatar/g, '🇶🇦')
+            country = country.replace(/Reunion/g, '🇷🇪')
+            country = country.replace(/Romania/g, '🇷🇴')
+            country = country.replace(/Russia/g, '🇷🇺')
+            country = country.replace(/Rwanda/g, '🇷🇼')
+            country = country.replace(/San Marino/g, '🇸🇲')
+            country = country.replace(/Sao Tome And Principe/g, '🇸🇹')
+            country = country.replace(/Saudi Arabia/g, '🇸🇦')
+            country = country.replace(/Senegal/g, '🇸🇳')
+            country = country.replace(/Serbia/g, '🇷🇸')
+            country = country.replace(/Seychelles/g, '🇸🇨')
+            country = country.replace(/Sierra Leone/g, '🇸🇱')
+            country = country.replace(/Singapore/g, '🇸🇬')
+            country = country.replace(/Slovakia/g, '🇸🇰')
+            country = country.replace(/Slovenia/g, '🇸🇮')
+            country = country.replace(/Somalia/g, '🇸🇴')
+            country = country.replace(/South Africa/g, '🇿🇦')
+            country = country.replace(/South Korea/g, '🇰🇷')
+            country = country.replace(/Spain/g, '🇪🇸')
+            country = country.replace(/Sri Lanka/g, '🇱🇰')
+            country = country.replace(/Sudan/g, '🇸🇩')
+            country = country.replace(/Suriname/g, '🇸🇷')
+            country = country.replace(/Swaziland/g, '🇸🇿')
+            country = country.replace(/Sweden/g, '🇸🇪')
+            country = country.replace(/Switzerland/g, '🇨🇭')
+            country = country.replace(/Syria/g, '🇸🇾')
+            country = country.replace(/Taiwan/g, '🇹🇼')
+            country = country.replace(/Tajikistan/g, '🇹🇯')
+            country = country.replace(/Tanzania/g, '🇹🇿')
+            country = country.replace(/Thailand/g, '🇹🇭')
+            country = country.replace(/Togo/g, '🇹🇬')
+            country = country.replace(/Tonga/g, '🇹🇴')
+            country = country.replace(/Tunisia/g, '🇹🇳')
+            country = country.replace(/Turkey/g, '🇹🇷')
+            country = country.replace(/Uganda/g, '🇺🇬')
+            country = country.replace(/Ukraine/g, '🇺🇦')
+            country = country.replace(/United Arab Emirates/g, '🇦🇪')
+            country = country.replace(/United Kingdom/g, '🇬🇧')
+            country = country.replace(/United States/g, '🇺🇸')
+            country = country.replace(/Uruguay/g, '🇺🇾')
+            country = country.replace(/Uzbekistan/g, '🇺🇿')
+            country = country.replace(/Venezuela/g, '🇻🇪')
+            country = country.replace(/Vietnam/g, '🇻🇳')
+            country = country.replace(/Western Sahara/g, '🇪🇭')
+            country = country.replace(/Yemen/g, '🇾🇪')
+            country = country.replace(/Zambia/g, '🇿🇲')
+            country = country.replace(/Zimbabwe/g, '🇿🇼')
+
+            //手動補齊
+            country = country.replace(/UK/g, "🇬🇧");
+            country = country.replace(/USA/g, "🇺🇸");
+            country = country.replace(/HK/g, "🇭🇰");
+
+            return country
+        }
+    }
+
+    function copyToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = document.getElementById("dataToExport").innerHTML;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        alert("Your musician selections are now in the clipboard. Paste the export code into a different browser's Import field and click Import.");
+    }
+
+
+    function importTracked() {
+        newpeople = JSON.parse(document.getElementById("importField").value);
+
+        // add all
+        people = getTrackedPeople(PeopleCollection);
+        for (var i = 0; i < newpeople.length; i++)
+            if (false == people.includes(newpeople[i]))
+                people.push(newpeople[i]);
+
+        localStorage.setItem(PeopleCollection, JSON.stringify(people));
+        refreshHighlights();
+    }
+
+    Hash = "";
+
+    // click handler for name
+    function toggle(hash) {
+        Hash = hash;
+    }
+
+    window.onclick = function (event) {
+        PeopleCollection = "trackedPeople"; // default
+
+        if (true == window.event.ctrlKey) {
+            PeopleCollection = "advancedTrackedPeople";
+        }
+
+        // if the hash is found, remove it.
+        // if not found, add it.
+        // get existing array, if any.
+        fPureRemoval = false; // if found, then toggling is removing from both
+        people = getTrackedPeople("trackedPeople"); // relies on the global
+
+        // if found, remove it.
+        if (people.includes(Hash)) {
+            for (var i = 0; i < people.length; i++) {
+                if (people[i] === Hash) {
+                    people.splice(i, 1);
+                    localStorage.setItem("trackedPeople", JSON.stringify(people));
+                }
+            }
+            fPureRemoval = true; // added to no list if removing from any list
+        }
+
+        people = getTrackedPeople("advancedTrackedPeople"); // relies on the global
+
+        // if found, remove it.
+        if (people.includes(Hash)) {
+            for (var i = 0; i < people.length; i++) {
+                if (people[i] === Hash) {
+                    people.splice(i, 1);
+                    localStorage.setItem("advancedTrackedPeople", JSON.stringify(people));
+                }
+            }
+            fPureRemoval = true; // added to no list if removing from any list
+        }
+
+        if (fPureRemoval) {
+            refreshHighlights();
+            Hash = ""; // forget the hash so the click zone stays properly bounded
+            return;
+        }
+
+        // not found, so add it, hopefully to the right list.
+        people = getTrackedPeople(PeopleCollection);
+        people.push(Hash);
+        localStorage.setItem(PeopleCollection, JSON.stringify(people));
+        refreshHighlights();
+
+        Hash = ""; // forget the hash so the click zone stays properly bounded
+    }
+</script>
+
+
+<div class="grid" style="font-family: Arial, Helvetica, sans-serif;">
+    @Html.Raw(@Model.RightNow)
+</div>
+
+<br />
+
+<div id="censusSection">
+    <button type="button" class="collapsible">Musicians</button>
+    <div class="content">
+        <p>
+            These musicians are connected now.
+            <b>Often with</b> is <i>probably</i> the musician online now who you've spent the most time with.
+            <b>Tot. Time</b> is every minute you've been active on a public server since this website rebooted.
+        </p>
+        <p>@Html.Raw(@Model.UniqueServerCountOfEveryActiveUser)</p>
+    </div>
+</div>
+
+<hr />
+
+<div id="censusSection">
+    <button type="button" class="collapsible">Servers</button>
+    <div class="content">
+        <p>
+            Sometimes when you can't find the server in Jamulus, you can paste the server's IP:PORT into the <b>Server Address</b>
+            field on the <b>Connection Setup</b> dialog box.
+        </p>
+        <p>@Html.Raw(@Model.ShowServerByIPPort)</p>
+    </div>
+</div>
+
+<hr />
+
+<button type="button" id="faq" class="collapsible">Frequently Asked Questions</button>
+<div class="content">
+    <p>
+        <b>Q: What is Jamulus.live?</b><br />
+        A: This web page shows who is on every public Jamulus server.
+    </p>
+
+    <p>
+        <b>Q: How often does this list update?</b><br />
+        A: See an update every 2 minutes.
+    </p>
+
+    <p>
+        <b>Q: How do I find my friends?</b><br />
+        A: Click a musician's name to select them. Selected names stay selected (until someone changes their name).
+    </p>
+</div>
+
+<hr />
+
+<div id="exportSection">
+    <button type="button" class="collapsible">Export selections to another browser</button>
+    <div class="content">
+        <p>
+            To copy your musician selections to another browser (perhaps on a different computer), paste the export code into the other browser's Import field and click <b>Import</b>.
+        </p>
+        <a href='javascript:copyToClipboard()'>Click here to export musician selections to clipboard.</a>
+        <p style="display:none" id="dataToExport"></p>
+        <hr />
+        <p>To import selections from another browser, paste their export code into this input field. (This won't delete any musicians already selected on this browser. It can only add selections.)</p>
+        <p>Import field: <form onsubmit='importTracked()'><input type='text' id='importField' /><br /><input type='submit' value="Import" /></form></p>
+    </div>
+</div>
+
+<script>
+
+    // get  my selections live!
+    refreshHighlights();
+    avoidWordWrap();
+    showFlagsForNonWindows();
+
+    // Hey, I have ctrl-click items, even if it's a secret.
+    // Create a hybrid list that contains both green and yellow, with no duplicates.
+    // and these are all just yellow on the imported browser.
+    var selected = JSON.parse(localStorage.getItem("trackedPeople"));
+    var selectedExtended = JSON.parse(localStorage.getItem("advancedTrackedPeople"));
+    let fullList = [];
+    for (i = 0; i < selected.length; i++)
+        fullList.push(selected[i]);
+    for (i = 0; i < selectedExtended.length; i++) {
+        if (false == fullList.includes(selectedExtended[i])) {
+            fullList.push(selectedExtended[i]);
+        }
+    }
+
+    // populate data to export section
+    document.getElementById("dataToExport").innerHTML = JSON.stringify(fullList);
+
+    // if they've never selected any names, auto-open the faq
+    var selected = localStorage.getItem("trackedPeople");
+    if (selected && selected.length > 0) {
+    }
+    else {
+        var faq = document.getElementById("faq");
+        var content = faq.nextElementSibling;
+        content.style.display = "block";
+    }
+
+    // set up events to toggle visibility
+    var coll = document.getElementsByClassName("collapsible");
+    var i;
+
+    for (i = 0; i < coll.length; i++) {
+        coll[i].addEventListener("click", function () {
+            this.classList.toggle("active");
+            var content = this.nextElementSibling;
+            if (content.style.display === "block") {
+                content.style.display = "none";
+            } else {
+                content.style.display = "block";
+            }
+        });
+    }
+</script>
+
+
