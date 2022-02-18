@@ -1,0 +1,19 @@
+﻿@page
+@model JamFan21.Pages.LoginModel
+@{
+    ViewData["Title"] = "Jamulus.live Login";
+}
+
+<meta http-equiv="refresh" content="60;url=https://jamulus.live/" />
+
+<script>
+    function login(hash) {
+        // Shove it into storage and pop back to root.
+        localStorage.setItem("loginHash", hash);
+    }
+</script>
+
+Click your name to login.
+
+@Html.Raw(@Model.LoginUserList)
+
