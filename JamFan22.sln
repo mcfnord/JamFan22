@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.32112.339
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JamFan22", "JamFan22\JamFan22.csproj", "{EEA6BC8D-B58E-40E6-AF4E-D73222440D2A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JamFan22", "JamFan22\JamFan22.csproj", "{EEA6BC8D-B58E-40E6-AF4E-D73222440D2A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
