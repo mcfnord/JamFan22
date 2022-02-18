@@ -16,3 +16,8 @@ html {
 body {
   margin-bottom: 60px;
 }
+
+hr {
+    margin: 0;
+    height: 4px !important;
+}
