@@ -3,6 +3,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorPages();
 
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.KestrelServerOptions>(options =>
+{
+    options.ConfigureHttpsDefaults(options =>
+        options.ClientCertificateMode = ClientCertificateMode.RequireCertificate);
+
+    options.ListenAnyIP(443, listenOptions => {
+        listenOptions.UseHttps("jamfan.pfx", "jamfan");
+    });
+});
+
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
