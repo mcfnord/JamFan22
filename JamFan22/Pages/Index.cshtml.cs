@@ -869,7 +869,8 @@ namespace JamFan22.Pages
 
                 if (ts.TotalMinutes > 5)
                 {
-                    show = "<p align='right'>(" + ts.TotalMinutes.ToString() + "m)</p>";
+                    int tot = (int)ts.TotalMinutes;
+                    show = "<p align='right'>(" + tot.ToString() + "m)</p>";
                     break;
                 }
 
