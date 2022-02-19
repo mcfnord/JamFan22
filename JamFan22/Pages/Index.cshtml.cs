@@ -195,7 +195,7 @@ namespace JamFan22.Pages
                     }
                 }
             }
-            return " " + hash;
+            return hash;
         }
 
         protected async Task MineLists()
@@ -320,30 +320,12 @@ namespace JamFan22.Pages
                                     m_everywhereWeHaveMet[us] = new HashSet<string>();
                                 m_everywhereWeHaveMet[us].Add(server.ip + ":" + server.port);
                             }
-
-                            /*
-                            // if I'm the guy, show me my top server hopper pals
-                            if(guy.name == "mcfnord")
-                            {
-                                Console.Write("mcfnord's unique server count with another party: ");
-                                foreach(var pair in m_everywhereWeHaveMet)
-                                {
-                                    if(pair.Key.Contains(stringHashOfGuy))
-                                    {
-                                        Console.Write(pair.Value.Count + " ");
-                                    }
-                                }
-                                Console.WriteLine();
-                            }
-                            */
                         }
                     }
                 }
             }
 
-            // Now I will simulate my data product.
-            // in a log!
-
+            /*
             {
                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes("mcfnord" + "United States" + "-");
                 var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
@@ -359,39 +341,6 @@ namespace JamFan22.Pages
                     {
                         //                    Console.WriteLine(them.Key + " " + them.Value.ToString());
                     }
-
-
-
-
-                    /*
-                    // 2. servers shared together with me
-                    var sortedByTotalPlacesWeMet = m_everywhereWeHaveMet.OrderBy(dude => dude.Value.Count);
-
-                    foreach (var pair in sortedByTotalPlacesWeMet)
-                        if (pair.Key.Contains(stringHashOfMe))
-                        {
-                    //        Console.WriteLine(pair.Key + " " + pair.Value.Count);
-                        }
-
-                    {
-                        // Create a new duration that is actually the old one multiplied by # of servers we shared.
-                        var cookedDurations = new Dictionary<string, TimeSpan>();
-                        foreach (var someoneElse in m_userConnectDurationPerUser[stringHashOfMe])
-                        {
-                            // make a canonical key of us
-                            string us = CanonicalTwoHashes(someoneElse.Key, stringHashOfMe);
-                            var newCookedDuration = m_everywhereWeHaveMet[us].Count * someoneElse.Value;
-                            cookedDurations[someoneElse.Key] = newCookedDuration;
-                        }
-
-                        var orderedCookedDurations = cookedDurations.OrderByDescending(dude => dude.Value);
-                        foreach (var guy in orderedCookedDurations)
-                        {
-                // we don't care about this non-actor model
-                // Console.WriteLine(guy.Key + " " + guy.Value);
-                        }
-                    }
-                    */
 
                     /////////////////////////////////////////////////////////////////////////////////
                     /////////////////////////////////////////////////////////////////////////////////
@@ -432,78 +381,8 @@ namespace JamFan22.Pages
                     }
                 }
             }
+            */
         }
-
-        ////////////////////////////////////////////////////////////////////////////
-        // Now I have the above scheme where I know how long everyone has spent
-        // with everyone else, on every server.
-        // With this current data, create and save a comma-sensitive csv
-        // of friend-pairs
-        // INCLUDING TOTAL TIME TOGETHER JUST AS AN ADDED METRIC
-        // i read you if you're among the top half of duration for people i've heard
-        // and you read me if i'm on your such list.
-        // and that makes us a friend pair
-        // with a duration, if one might use that.
-        // one's old beautiful functional proven mindmap code
-        // still based on cliques? YES.
-        // Interconnected cliques ARE GOING TO REVEAL WHOLE BANDS BRO.
-        // CLIQUES *REMAIN* AT THE *CENTER* OF MY THINKING.
-        /*
-        {
-            // it's just a big ole iteration, sorta.
-            // if i start with a COPY of my data, I can fuck it up,
-            // boil it down, etc.
-            //
-            // visualize the task first.
-            //
-            // so i want a function that just tells me who my mutual friends are...
-            // for every person...
-            // and i de-duplicate this list later...
-            //
-            // ok, but my data structure...
-            // Hey, their duration together is gonna matter or something...
-            // so i'm keeping it.
-            // in fact doesn't this boil down to knowing duration of me-you pairs?
-            //
-            // which is already collected
-
-            using a copy of my master dataset...
-            foreach( var personSdURATIONlIST in aLLPEOPLESDURATIONLISTS)
-            {
-                foreach( var otherperson in personsdurationlist[keys])
-                {
-                    NewFriendPair(persondurationlist.Key, otherperson, persondurationlist[otherperson])
-                    // we can't fuck with collections from within a for-each!
-                    // and so long as we don't mind duplicate friend pairs, we don't need to.
-                    // 
-
-                }
-                // well, for each i've spent time with, 
-                // find what they've spent with me... SAME RIGHT?
-                // just fun to compare these for a momnet...
-
-                // anyway... for EACH person I've spent time with...
-                // heck... cook this?
-                // yeah... mutual is based on relative durations!
-                // oh yeah... so... what if i just slaughtered
-                // the lower half here... 
-            }
-
-            // as a courtesy, de-duplicate pairs?
-            // no, fuck that. i've created friend pairs with a duration.
-            // a hash is a deduplication strategy, but only
-            // with canonical seeds (I think I mean alphasort first?)
-            // i guess NewFriendPair can deal with that.
-
-            var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
-            if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
-                theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
-            theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(durationBetweenSamples);
-
-
-        }
-        */
-
 
 
         const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
@@ -1390,7 +1269,7 @@ namespace JamFan22.Pages
 
         //        public static Dictionary<string, DateTime> countryLastVisit = new Dictionary<string, DateTime>();
 
-        private static System.Threading.Mutex m_serializerMutex = new System.Threading.Mutex();
+        public static System.Threading.Mutex m_serializerMutex = new System.Threading.Mutex();
 
         static string m_ThreeLetterNationCode = "USA";
 
@@ -1666,19 +1545,30 @@ namespace JamFan22.Pages
                             }
                     }
 
-                    string ret = iActiveJamFans.ToString() + " musicians from " + iNations.ToString() + " countries have viewed this page in the last hour";
+                    string ret = ""; 
+                    /*
+                    iActiveJamFans.ToString() + " musicians " + 
+//                        "from " + iNations.ToString() + " countries " +
+                        "have viewed this page in the last hour";
+                    */
 
+
+                    /*
                     if (iTopCount > iActiveJamFans)
                     {
                         if (iTopCount == iActiveJamFans + 1)
                             ret += ", which is near today's high";
                         else
+                    */
+
+
                         {
-                            ret += ". " +
+                            ret += "" +
+//                                ". " +
                             SinceNowInText(timeOfTopCount) +
                             " there were " + iTopCount.ToString() + " musicians watching this page";
                         }
-                    }
+//                    }
 
                     if (ret != lastUpdate)
                     {
@@ -1686,7 +1576,8 @@ namespace JamFan22.Pages
                         Console.WriteLine(ret);
                     }
                     CountryRefreshCountSummary(); // call it, discard output, it appears in the log and not UI.
-                    return ret + ". " + UniqueIPsByCountry();
+                                                  //                    return ret + ". " + UniqueIPsByCountry();
+                    return ret + ".";
                 }
                 finally { m_serializerMutex.ReleaseMutex(); }
             }

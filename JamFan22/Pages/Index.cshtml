@@ -10,11 +10,11 @@
     .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 10px;
+        grid-gap: 1rem;
     }
 
         .grid > div {
-            background: #EDE7F6;
+            background: #D9F9F9;
             padding: 1rem;
             border-radius: 1rem;
         }
@@ -119,10 +119,10 @@
     function refreshHighlights() {
         blankForRefresh();
         subRefresh("trackedPeople", "1px solid #FFFFCC", "#FFFFCC");
-        subRefresh("advancedTrackedPeople", "2px dashed #DDFFCC", "#DDFFCC");
+        subRefresh("advancedTrackedPeople", "2px dashed DarkOrange", "DarkOrange");
 
         listRefresh("trackedPeople", "#FFFFCC", "#FFFFCC");  // Musician's List for RickD
-        listRefresh("advancedTrackedPeople", "#DDFFCC", "#DDFFCC"); // Musician's List for RickD
+        listRefresh("advancedTrackedPeople", "#DDFFCC", "DarkOrange"); // Musician's List for RickD
 
         // promote the server i'm on
         var loginHash = localStorage.getItem("loginHash");
@@ -582,6 +582,11 @@
     </p>
 
     <p>
+        <b>Q: Who uses this?</b><br />
+        A: @Html.Raw(@Model.HowManyUsers)
+    </p>
+
+    <p>
         <b>Q: How often does this list update?</b><br />
         A: See an update every 2 minutes.
     </p>
@@ -610,10 +615,39 @@
 
 <script>
 
-    // get  my selections live!
     refreshHighlights();
     avoidWordWrap();
     showFlagsForNonWindows();
+
+    var loginHash = localStorage.getItem("loginHash");
+    if (null != loginHash) {
+        fetch('/hotties/' + encodeURIComponent(loginHash))
+            .then(res => res.json())
+            .then((data) => {
+                console.log(data);
+                for (i = 0; i < data.length; i++)
+                {
+                    var peeps = document.getElementsByClassName(data[i]);
+                    if(false == peeps[0].style.border.includes("solid"))
+                    if(false == peeps[0].style.border.includes("dashed"))
+                    if('1' !==  peeps[0].parentElement.style.gridRowStart)
+                    {
+                        var reddism = 255 - i*2;
+                        if(reddism < 16)
+                            reddism = 16 ;
+
+                        var restism = 234;
+                        restism = restism - (255 - reddism);
+                        if(restism < 16)
+                            restism = 16;
+
+                        peeps[0].style.background = "#" + reddism.toString(16) + 
+                        restism.toString(16) + restism.toString(16) ;
+//                        "EAEA";
+                    }
+                }
+            }).catch(err => console.error(err));
+    }
 
     // Hey, I have ctrl-click items, even if it's a secret.
     // Create a hybrid list that contains both green and yellow, with no duplicates.
