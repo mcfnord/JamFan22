@@ -119,10 +119,10 @@
     function refreshHighlights() {
         blankForRefresh();
         subRefresh("trackedPeople", "2px solid #FFFFCC", "#FFFFCC"); // 2px so i can see auto-selected's 1px in dark mode
-        subRefresh("advancedTrackedPeople", "2px dashed DarkOrange", "DarkOrange");
+        subRefresh("advancedTrackedPeople", "2px dashed Lime", "Lime");
 
         listRefresh("trackedPeople", "#FFFFCC", "#FFFFCC");  // Musician's List for RickD
-        listRefresh("advancedTrackedPeople", "#DDFFCC", "DarkOrange"); // Musician's List for RickD
+        listRefresh("advancedTrackedPeople", "#DDFFCC", "Lime"); // Musician's List for RickD
 
         // promote the server i'm on
         var loginHash = localStorage.getItem("loginHash");
@@ -649,9 +649,9 @@
 
                        // fade from current top color #FF4747
                        // to default background color #D9F9F9... MINUS one. dunno if they'll be visible.
-                       var red = 255 - i;  // darkens from pure red
+                       var red = 255 - (i * 3);  // darkens from pure red
                        if(red < 218) red = 218;
-                       var nonred = 138 + i; // lightens
+                       var nonred = 164 + (i * 3); // lightens at same rate
                        if(nonred > 255) nonred = 255 ;
                        var col = "#" + red.toString(16) + nonred.toString(16) + nonred.toString(16);
                        peeps[0].style.background = col;
