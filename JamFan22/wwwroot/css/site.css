@@ -21,3 +21,7 @@ hr {
     margin: 0;
     height: 4px !important;
 }
+
+.container {
+    max-width: 9999px;
+}
