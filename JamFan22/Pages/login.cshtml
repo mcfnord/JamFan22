@@ -10,10 +10,11 @@
     function login(hash) {
         // Shove it into storage and pop back to root.
         localStorage.setItem("loginHash", hash);
+        window.location='/';
     }
 </script>
 
-Click your name to login.
+<h1>Click your name to login.</h1>
 
 @Html.Raw(@Model.LoginUserList)
 

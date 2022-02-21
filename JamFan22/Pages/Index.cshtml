@@ -547,6 +547,16 @@
 
 <br />
 
+<script>
+var loginHashTest = localStorage.getItem("loginHash");
+        if (null == loginHashTest) 
+            document.write("<a href='/login'>Click here to Login</a>");
+        else
+            document.write("<a href='/login'>Click here to Login to another account</a>.");
+</script>
+
+<br /><br />
+
 <div id="censusSection">
     <button type="button" class="collapsible">Musicians</button>
     <div class="content">
@@ -651,7 +661,7 @@
                        // to default background color #D9F9F9... MINUS one. dunno if they'll be visible.
                        var red = 255 - (i * 3);  // darkens from pure red
                        if(red < 218) red = 218;
-                       var nonred = 164 + (i * 3); // lightens at same rate
+                       var nonred = 164 + (i * 3); // lightens
                        if(nonred > 255) nonred = 255 ;
                        var col = "#" + red.toString(16) + nonred.toString(16) + nonred.toString(16);
                        peeps[0].style.background = col;

@@ -52,7 +52,7 @@ namespace JamFan21.Pages
                         + dude.Value + "</tr>\n";
                 }
 
-                return "<table>" + output + "</table>";
+                return "<table class='table table-hover'>" + output + "</table>";
             }
         }
 
