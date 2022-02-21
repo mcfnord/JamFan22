@@ -39,6 +39,11 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid) =>
             string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
             if (JamFan22.Pages.IndexModel.m_userConnectDurationPerUser.ContainsKey(guid))
             {
+                // I just wanna see who, if possile.
+                if (guid != JamFan22.Pages.IndexModel.NameFromHash(guid))
+                    Console.WriteLine(">>> Hinting for " + JamFan22.Pages.IndexModel.NameFromHash(guid) + " is first half of this list:");
+
+                // Now on to the cooking...
                 var allMyDurations = JamFan22.Pages.IndexModel.m_userConnectDurationPerUser[guid];
 
                 var sortedByLongestTime = allMyDurations.OrderBy(dude => dude.Value);
@@ -71,14 +76,18 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid) =>
                     // if guy's online...
                     if (guy.Key != JamFan22.Pages.IndexModel.NameFromHash(guy.Key))
                     {
-                        Console.Write(JamFan22.Pages.IndexModel.NameFromHash(guy.Key) + " " + guy.Value + " ");
-                        string us = guid + guy.Key;
-                        if (JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou.ContainsKey(us))
+                        // if has a name
+                        if (JamFan22.Pages.IndexModel.NameFromHash(guy.Key) != "No Name")
                         {
-                            Console.Write(JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou[us].Count);
+                            Console.Write(JamFan22.Pages.IndexModel.NameFromHash(guy.Key) + " " + guy.Value + " ");
+                            string us = guid + guy.Key;
+                            if (JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou.ContainsKey(us))
+                            {
+                                Console.Write(JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou[us].Count);
+                            }
+                            Console.WriteLine();
+                            hotties.Add(guy.Key);
                         }
-                        Console.WriteLine();
-                        hotties.Add(guy.Key);
                     }
                 }
                 if (hotties.Count < 2) // if we don't even have 2, forget it. cuz we div by 2 later.
