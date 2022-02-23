@@ -285,7 +285,7 @@ namespace JamFan22.Pages
                         if (false == m_userConnectDuration.ContainsKey(stringHashOfGuy))
                             m_userConnectDuration[stringHashOfGuy] = new TimeSpan();
                         m_userConnectDuration[stringHashOfGuy] =
-                            m_userConnectDuration[stringHashOfGuy].Add(durationBetweenSamples);
+                            m_userConnectDuration[stringHashOfGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
                         //////////////////////////////////////////////////////////////////////////
                         {
                             if (false == m_userConnectDurationPerServer.ContainsKey(stringHashOfGuy))
@@ -294,7 +294,7 @@ namespace JamFan22.Pages
                             var theGuy = m_userConnectDurationPerServer[stringHashOfGuy];
                             if (false == theGuy.ContainsKey(fullIP))
                                 theGuy.Add(fullIP, TimeSpan.Zero);
-                            theGuy[fullIP] = theGuy[fullIP].Add(durationBetweenSamples);
+                            theGuy[fullIP] = theGuy[fullIP].Add(durationBetweenSamples.Divide(server.clients.Count()));
                         }
                         ////////////////////////////////////////////////////////////////////////////
                         // The real scheme: for each guy, note the duration spend with EVERY OTHER GUY
@@ -312,7 +312,7 @@ namespace JamFan22.Pages
                                 var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
                                 if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
                                     theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
-                                theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(durationBetweenSamples);
+                                theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
 
                                 // ANOTHER SCHEME, WHERE key of canonical hashes contain all server:ports where we've met
                                 string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
