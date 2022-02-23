@@ -119,10 +119,10 @@
     function refreshHighlights() {
         blankForRefresh();
         subRefresh("trackedPeople", "2px solid #FFFFCC", "#FFFFCC"); // 2px so i can see auto-selected's 1px in dark mode
-        subRefresh("advancedTrackedPeople", "2px dashed Lime", "Lime");
+        subRefresh("advancedTrackedPeople", "2px dashed #22FF22", "#22FF22"); // Lime but lighter
 
         listRefresh("trackedPeople", "#FFFFCC", "#FFFFCC");  // Musician's List for RickD
-        listRefresh("advancedTrackedPeople", "#DDFFCC", "Lime"); // Musician's List for RickD
+        listRefresh("advancedTrackedPeople", "#DDFFCC", "#22FF22"); // Musician's List for RickD
 
         // promote the server i'm on
         var loginHash = localStorage.getItem("loginHash");
@@ -543,7 +543,7 @@
 <script>
 var loginHashTest = localStorage.getItem("loginHash");
         if (null == loginHashTest) 
-            document.write("Join a server in Jamulus. Then <a href='/login'>click here to Login to Jamulus.live</a>.<br>The server you're on will appear first in a pink box, and people you play with the most will be highlighted.");
+            document.write("Join a server in Jamulus. Then <a href='/login'>login to Jamulus.live</a>.<br>");
 </script>
 
 <div class="grid" style="font-family: Arial, Helvetica, sans-serif;">
@@ -555,7 +555,7 @@ var loginHashTest = localStorage.getItem("loginHash");
 <script>
 var loginHashTest = localStorage.getItem("loginHash");
         if (null != loginHashTest) 
-            document.write("<a href='/login'>Click here to Login to another account</a>.");
+            document.write("<a href='/login'>Click here to login to a different account</a>. (Do this when you change your name, instrument, or country.)");
 </script>
 
 <br /><br />
