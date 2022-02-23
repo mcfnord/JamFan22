@@ -41,7 +41,9 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid) =>
             {
                 // I just wanna see who, if possile.
                 if (guid != JamFan22.Pages.IndexModel.NameFromHash(guid))
-                    Console.WriteLine(">>> Hinting for " + JamFan22.Pages.IndexModel.NameFromHash(guid) + " is first half of this list:");
+                    Console.WriteLine(">>> Hinting for " + JamFan22.Pages.IndexModel.NameFromHash(guid) + " (just first half):");
+
+                /*
 
                 // Now on to the cooking...
                 var allMyDurations = JamFan22.Pages.IndexModel.m_userConnectDurationPerUser[guid];
@@ -67,9 +69,23 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid) =>
                         cookedDurations[someoneElse.Key] += newCookedDuration;
                     }
                 }
+                */
+                
+                var cookedDurations = new Dictionary<string, TimeSpan>();
+                foreach (var someoneElse in JamFan22.Pages.IndexModel.m_userConnectDurationPerUser[guid])
+                {
+                    string us = guid + someoneElse.Key;
+                    var timesIJoinedThem = 0.5F;
+                    if (JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou.ContainsKey(us))
+                    {
+                        timesIJoinedThem = JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou[us].Count;
+                        if (timesIJoinedThem == 0)
+                            timesIJoinedThem = 0.5F; // If I've never joined them, then they just joined me. .5 is multiplier.
+                    }
+                    cookedDurations[someoneElse.Key] = someoneElse.Value * timesIJoinedThem;
+                }
 
                 List<string> hotties = new List<string>();
-
                 var orderedCookedDurations = cookedDurations.OrderByDescending(dude => dude.Value);
                 foreach (var guy in orderedCookedDurations)
                 {
