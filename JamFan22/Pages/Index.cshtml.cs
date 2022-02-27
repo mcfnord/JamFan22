@@ -136,7 +136,7 @@ namespace JamFan22.Pages
                 m_everywhereIveJoinedYou[key] = new HashSet<string>();
             m_everywhereIveJoinedYou[key].Add(server + ":" + port);
 
-            Console.Write(actor.name + " joined " + target.name + " | ");
+//            Console.Write(actor.name + " joined " + target.name + " | ");
         }
 
         public static void DetectJoiners(string was, string isnow)
@@ -161,12 +161,12 @@ namespace JamFan22.Pages
                             foreach (var actor in joiners)
                             {
                                 // assure the actor->target key contains this ip:port in its hashset.
-                                Console.Write("On " + server.name + ": ");
+//                                Console.Write("On " + server.name + ": ");
                                 foreach (var guyHere in server.clients)
                                 {
                                     NoteJoinerTargetServer(actor, guyHere, server.ip, server.port);
                                 }
-                                Console.WriteLine();
+//                                Console.WriteLine();
                             }
                         }
                 }

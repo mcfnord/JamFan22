@@ -42,6 +42,8 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid) =>
                 // I just wanna see who, if possile.
                 if (guid != JamFan22.Pages.IndexModel.NameFromHash(guid))
                     Console.WriteLine(">>> Hinting for " + JamFan22.Pages.IndexModel.NameFromHash(guid) + " (just first half):");
+                else
+                    Console.WriteLine(">>> Hinting for offline user (just first half):");
 
                 /*
 
