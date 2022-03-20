@@ -57,10 +57,9 @@ namespace JamFan22.Pages
 
         static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
-{"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" }
-,{"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
-,
-{"Any Genre 3", "https://jamulus.softins.co.uk/servers.php?central=anygenre3.jamulus.io:22624" }
+{"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" },
+            {"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
+,{"Any Genre 3", "https://jamulus.softins.co.uk/servers.php?central=anygenre3.jamulus.io:22624" }
 ,{"Genre Rock",  "https://jamulus.softins.co.uk/servers.php?central=rock.jamulus.io:22424" }
 ,{"Genre Jazz",  "https://jamulus.softins.co.uk/servers.php?central=jazz.jamulus.io:22324" }
 ,{"Genre Classical/Folk",  "https://jamulus.softins.co.uk/servers.php?central=classical.jamulus.io:22524" }
@@ -542,7 +541,6 @@ namespace JamFan22.Pages
         {
             if (placeName.Length < 3)
                 return false;
-            /*
             string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
             string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
             using var client = new HttpClient();
@@ -569,7 +567,6 @@ namespace JamFan22.Pages
                     return true;
                 }
             }
-            */
 
 //            MaxMind.GeoIP2
 
@@ -609,6 +606,7 @@ namespace JamFan22.Pages
             if (serverPlace.Length > 1)
                 if (serverPlace != "yourCity")
                 {
+           //         serverPlace = serverPlace.Replace(", UNITED STATES", "");
                     if (CallOpenCage(serverPlace, ref lat, ref lon))
                     {
                         Console.WriteLine("Used server location: " + serverPlace);
@@ -1639,6 +1637,17 @@ namespace JamFan22.Pages
                 try
                 {
                     string ipaddr = HttpContext.Connection.RemoteIpAddress.ToString();
+
+                    if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
+                        ipaddr = HttpContext.Request.Headers["X-Forwarded-For"];
+
+                    if (null == ipaddr)
+                    {
+                        Console.WriteLine("A null IP address replaced by Microsoft's IP.");
+                        ipaddr = "104.247.82.34"; // microsoft
+                    }
+
+                    Console.WriteLine("Client IP: " + ipaddr);
 
                     if (ipaddr.Length > 5)
                     {
