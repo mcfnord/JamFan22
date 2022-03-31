@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
+using MongoDB.Driver;
 
 namespace JamFan22.Pages
 {
@@ -55,7 +56,7 @@ namespace JamFan22.Pages
         }
 
 
-        static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
+        public static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
 {"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" },
             {"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
@@ -409,13 +410,13 @@ namespace JamFan22.Pages
                 IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
                 GeolocationParams geoParams = new GeolocationParams();
                 geoParams.SetIp(ip);
-//                geoParams.SetIPAddress(ip);
+//                geoParams.SetIPAddress(ip); 
                 geoParams.SetFields("geo,time_zone,currency");
                 Geolocation geolocation = api.GetGeolocation(geoParams);
                 latitude = Convert.ToDouble(geolocation.GetLatitude());
                 longitude = Convert.ToDouble(geolocation.GetLongitude());
                 m_ipAddrToLatLong[ip] = new LatLong(latitude.ToString(), longitude.ToString());
-                Console.WriteLine("A client IP has been cached: " + ip + " " + geolocation.GetCity());
+                Console.WriteLine("A client IP has been cached: " + ip + " " + geolocation.GetCity() + " " + latitude + " " + longitude);
             }
             catch (Exception e)
             {
@@ -434,7 +435,7 @@ namespace JamFan22.Pages
 
             string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
             if (clientIP.Length < 5)
-                clientIP = "104.215.148.63"; //microsoft as test 
+                clientIP = "75.172.123.21"; // hardcode to make same code outcome as server
             double clientLatitude = 0.0;
             double clientLongitude = 0.0;
             SmartGeoLocate(clientIP, ref clientLatitude, ref clientLongitude);
@@ -535,9 +536,14 @@ namespace JamFan22.Pages
         }
 
         protected static Dictionary<string, LatLong> m_PlaceNameToLatLong = new Dictionary<string, LatLong>();
-        protected static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
+        public static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
 
-        protected static bool CallOpenCage(string placeName, ref string lat, ref string lon)
+        /*
+        public static Dictionary<string, string> m_latFromDisclosedCityCountry = new Dictionary<string, string>();
+        public static Dictionary<string, string> m_lonFromDisclosedCityCountry = new Dictionary<string, string>();
+        */
+
+        public static bool CallOpenCage(string placeName, ref string lat, ref string lon)
         {
             if (placeName.Length < 3)
                 return false;
@@ -965,25 +971,6 @@ namespace JamFan22.Pages
                         if (slimmerInstrument.Length > 0) // if there's no length to instrument, don't add a space for it.
                             slimmerInstrument = " " + slimmerInstrument;
 
-                        /*
-
-                        if (slimmerInstrument == " Electric Guitar")
-                            slimmerInstrument = " 🎸";
-
-                        if (slimmerInstrument.Contains("Keyboard"))
-                            slimmerInstrument = slimmerInstrument.Replace("Keyboard", "🎹");
-
-                        if (slimmerInstrument.Contains("Piano"))
-                            slimmerInstrument = slimmerInstrument.Replace("Piano", "🎹");
-
-                        if (slimmerInstrument.Contains("Microphone"))
-                            slimmerInstrument = slimmerInstrument.Replace("Microphone", "🎤");
-
-                        if (slimmerInstrument.Contains("Vocal Soprano"))
-                            slimmerInstrument = slimmerInstrument.Replace("Vocal Soprano", "Soprano");
-
-                        */
-
                         var nam = guy.name.Trim();
                         nam = nam.Replace("  ", " "); // don't want crazy space names
                         nam = nam.Replace("  ", " "); // don't want crazy space names
@@ -1114,6 +1101,11 @@ namespace JamFan22.Pages
 
             IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
             //IEnumerable<ServersForMe> sortedByMusicianCount = allMyServers.OrderByDescending(svr => svr.usercount);
+
+            foreach( var item in sortedByDistanceAway)
+            {
+                Console.WriteLine("> " + item.city + " " + item.country);
+            }
 
             string output = "";
 
@@ -1643,8 +1635,8 @@ namespace JamFan22.Pages
 
                     if (null == ipaddr)
                     {
-                        Console.WriteLine("A null IP address replaced by Microsoft's IP.");
-                        ipaddr = "104.247.82.34"; // microsoft
+//                        Console.WriteLine("A null IP address replaced by Microsoft's IP.");
+                        ipaddr = "75.172.123.21"; // me now
                     }
 
                     Console.WriteLine("Client IP: " + ipaddr);
