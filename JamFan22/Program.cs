@@ -69,7 +69,7 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                             // try to get a lat-long from the city-country
                                             string lat = "";
                                             string lon = "";
-                                            if (true == JamFan22.Pages.IndexModel.CallOpenCage(guy.city + ", " + guy.country, ref lat, ref lon))
+                                            if (true == JamFan22.Pages.IndexModel.CallOpenCageCached(guy.city + ", " + guy.country, ref lat, ref lon))
                                             {
                                                 // assoc this lat-lon with this ip address
                                                 string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();

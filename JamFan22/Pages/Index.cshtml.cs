@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
-using MongoDB.Driver;
+// using MongoDB.Driver;
 
 namespace JamFan22.Pages
 {
@@ -542,6 +542,31 @@ namespace JamFan22.Pages
         public static Dictionary<string, string> m_latFromDisclosedCityCountry = new Dictionary<string, string>();
         public static Dictionary<string, string> m_lonFromDisclosedCityCountry = new Dictionary<string, string>();
         */
+
+        static Dictionary<string, LatLong> m_openCageCache = new Dictionary<string, LatLong>();
+        public static bool CallOpenCageCached(string placeName, ref string lat, ref string lon)
+        {
+            if (m_openCageCache.ContainsKey(placeName))
+            {
+                if (m_openCageCache[placeName] == null)
+                    return false;
+
+                lat = m_openCageCache[placeName].lat;
+                lon = m_openCageCache[placeName].lon;
+                return true;
+            }
+
+            if(CallOpenCage(placeName, ref lat, ref lon))
+            {
+                m_openCageCache[placeName] = new LatLong(lat, lon);
+                return true;
+            }
+
+            m_openCageCache[placeName] = null; // I couldn't map yuour name to a lat-long, but i store null so i don't keep asking.
+            return false;
+        }
+
+
 
         public static bool CallOpenCage(string placeName, ref string lat, ref string lon)
         {
