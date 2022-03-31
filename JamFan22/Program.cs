@@ -31,12 +31,85 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 
-app.MapGet("/hotties/{encodedGuid}", (string encodedGuid) =>
+app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =>
     {
         JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
         try
         {
             string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
+
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+
+            // If the user is online...
+            string res = JamFan22.Pages.IndexModel.NameFromHash(guid);
+            if (guid != res)
+                if (guid != "No Name")
+                {
+                    // find the user's city-nation. If they don't have one, then we don't do nothin.
+                    foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
+                    {
+                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Pages.JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
+                        foreach (var server in serversOnList)
+                        {
+                            if (server.clients != null)
+                            {
+                                foreach (var guy in server.clients)
+                                {
+                                    byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
+                                    var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
+                                    string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                                    if (guid == stringHashOfGuy)
+                                    {
+                                        if ((guy.city != "") && (guy.country != ""))
+                                        {
+                                            // try to get a lat-long from the city-country
+                                            string lat = "";
+                                            string lon = "";
+                                            if (true == JamFan22.Pages.IndexModel.CallOpenCage(guy.city + ", " + guy.country, ref lat, ref lon))
+                                            {
+                                                // assoc this lat-lon with this ip address
+                                                string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
+                                                if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
+                                                    ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+
+                                                if (null != ipaddr)
+                                                {
+                                                    JamFan22.Pages.IndexModel.m_ipAddrToLatLong[ipaddr] = new JamFan22.Pages.IndexModel.LatLong(lat, lon);
+
+                                                    Console.Write("From " + ipaddr + " ");
+                                                    Console.Write(res + " / ");
+                                                    Console.Write(guy.city + ", " + guy.country + " ");
+                                                    Console.WriteLine(lat + "-" + lon);
+                                                    
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    /*
+                    // then map the guid to the lat-long. I'll use these rather than the IP map from geolocate, which is junk.
+                    string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
+
+                    if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
+                        ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                    */
+
+                }
+
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+
             if (JamFan22.Pages.IndexModel.m_userConnectDurationPerUser.ContainsKey(guid))
             {
                 // I just wanna see who, if possile.
