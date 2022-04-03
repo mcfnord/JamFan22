@@ -73,6 +73,9 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                             {
                                                 // assoc this lat-lon with this ip address
                                                 string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
+                                                Console.WriteLine("initial ipaddr: " + ipaddr);
+
+                                                // ::1 appears in local debugging, but also possibly in reverse-proxy :o
                                                 if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
                                                     ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
 
@@ -83,10 +86,13 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                                     Console.Write("From " + ipaddr + " ");
                                                     Console.Write(res + " / ");
                                                     Console.Write(guy.city + ", " + guy.country + " ");
-                                                    Console.WriteLine(lat + "-" + lon);
-                                                    
+                                                    Console.WriteLine(lat + ", " + lon);
                                                 }
+                                                else
+                                                    Console.WriteLine("no ipaddr. could be bug.");
                                             }
+                                            else
+                                                Console.WriteLine("Failed to map " + guy.city + ", " + guy.country + " to a lat-long.");
                                         }
                                     }
                                 }
