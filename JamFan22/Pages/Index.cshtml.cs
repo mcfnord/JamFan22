@@ -435,7 +435,15 @@ namespace JamFan22.Pages
 
             string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
             if (clientIP.Length < 5)
-                clientIP = "75.172.123.21"; // hardcode to make same code outcome as server
+            {
+                Console.WriteLine("initial ipaddr: " + clientIP);
+
+                // ::1 appears in local debugging, but also possibly in reverse-proxy :o
+                if (clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
+                    clientIP = HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+            }
+            // clientIP = "75.172.123.21"; // hardcode to make same code outcome as server THIS IS FOR LOCAL DEBUGGING ONLY. DON'T DEPLOY.
+
             double clientLatitude = 0.0;
             double clientLongitude = 0.0;
             SmartGeoLocate(clientIP, ref clientLatitude, ref clientLongitude);
@@ -1129,7 +1137,7 @@ namespace JamFan22.Pages
 
             foreach( var item in sortedByDistanceAway)
             {
-                Console.WriteLine("> " + item.city + " " + item.country);
+                Console.WriteLine("## " + item.city + " " + item.country);
             }
 
             string output = "";
