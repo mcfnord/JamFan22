@@ -493,8 +493,14 @@ namespace JamFan22.Pages
                 if (clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
                 {
                     var xff = (string) HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                    // xff from the proxy doesn't include the ::ffff: prefix, which I believe causes failures to match.
+                    // so I re-add
+
                     if (null != xff)
                     {
+                        if (false == xff.Contains("::ffff"))
+                            xff = "::ffff:" + xff;
+
                         Console.WriteLine("XFF was non-null, value: " + xff);
                         clientIP = xff;
                     }

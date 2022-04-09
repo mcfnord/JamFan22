@@ -79,6 +79,12 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                                 if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
                                                 {
                                                     ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                                                    if (null != ipaddr)
+                                                    {
+                                                        if (false == ipaddr.Contains("::ffff"))
+                                                            ipaddr = "::ffff:" + ipaddr;
+                                                    }
+
                                                     Console.WriteLine("Due to localhost IP, switched to XFF IP: " + ipaddr);
                                                 }
 
