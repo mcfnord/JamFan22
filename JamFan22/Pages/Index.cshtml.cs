@@ -1191,6 +1191,7 @@ namespace JamFan22.Pages
                     ///  
 
                     PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), server.ip, ref lat, ref lon);
+                    Console.WriteLine(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
 
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
