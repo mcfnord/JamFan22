@@ -448,7 +448,7 @@ namespace JamFan22.Pages
                 {
                     latitude = double.Parse(cached.lat);
                     longitude = double.Parse(cached.lon);
-                    //Console.Write("."); //an actual user refresh so let's see a visual indication
+                    Console.Write(ip + ": " + latitude + ", " + longitude);
                     return;
                 }
             }
@@ -1770,6 +1770,7 @@ namespace JamFan22.Pages
                                 Console.WriteLine("Error in geolocation: " + e.Message);
                             }
                         }
+                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
 
                         m_ThreeLetterNationCode = userIpCachedItems[ipaddr].countryCode3; // global for this call (cuz of the mutex)
 
