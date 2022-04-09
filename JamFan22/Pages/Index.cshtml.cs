@@ -448,7 +448,7 @@ namespace JamFan22.Pages
                 {
                     latitude = double.Parse(cached.lat);
                     longitude = double.Parse(cached.lon);
-                    Console.WriteLine(ip + ": " + latitude + ", " + longitude);
+//                    Console.WriteLine(ip + ": " + latitude + ", " + longitude);
                     return;
                 }
             }
