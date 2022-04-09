@@ -501,7 +501,7 @@ namespace JamFan22.Pages
                         if (false == xff.Contains("::ffff"))
                             xff = "::ffff:" + xff;
 
-                        Console.WriteLine("XFF was non-null, value: " + xff);
+//                        Console.WriteLine("XFF was non-null, value: " + xff);
                         clientIP = xff;
                     }
                     else

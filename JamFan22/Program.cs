@@ -73,7 +73,7 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                             {
                                                 // assoc this lat-lon with this ip address
                                                 string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-                                                Console.WriteLine("initial ipaddr: " + ipaddr);
+//                                                Console.WriteLine("initial ipaddr: " + ipaddr);
 
                                                 // ::1 appears in local debugging, but also possibly in reverse-proxy :o
                                                 if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
