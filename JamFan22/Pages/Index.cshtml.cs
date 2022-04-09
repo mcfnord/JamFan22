@@ -448,7 +448,7 @@ namespace JamFan22.Pages
                 {
                     latitude = double.Parse(cached.lat);
                     longitude = double.Parse(cached.lon);
-                    Console.Write(ip + ": " + latitude + ", " + longitude);
+                    Console.WriteLine(ip + ": " + latitude + ", " + longitude);
                     return;
                 }
             }
@@ -485,7 +485,7 @@ namespace JamFan22.Pages
             var serverLongitude = float.Parse(lon);
 
             string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
-            if (clientIP.Length < 5)
+            if ((clientIP.Length < 5) || clientIP.Contains("127.0.0.1"))
             {
 //                Console.WriteLine("initial ipaddr: " + clientIP);
 
