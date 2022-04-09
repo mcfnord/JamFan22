@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
+using System.Text.Json;
 // using MongoDB.Driver;
 
 namespace JamFan22.Pages
@@ -198,6 +199,34 @@ namespace JamFan22.Pages
             return hash;
         }
 
+        Dictionary<string, TimeSpan> m_secondsTogether = new Dictionary<string, TimeSpan>();
+        int? m_lastSaveHourNumber = null;
+        protected void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
+        {
+            // we are assured this is reported one time for this pair per duration elapse.
+            // so go ahead and add the quantum.
+            // and once per hour, save data to disk.
+            if (false == m_secondsTogether.ContainsKey(us))
+                m_secondsTogether[us] = new TimeSpan();
+            m_secondsTogether[us] += durationBetweenSamples;
+
+            if (null == m_lastSaveHourNumber)
+                m_lastSaveHourNumber = DateTime.Now.Hour;
+            else
+            {
+                if (m_lastSaveHourNumber != DateTime.Now.Hour)
+                {
+                    m_lastSaveHourNumber = DateTime.Now.Hour;
+
+                    // Save data to disk.
+                    string jsonString = JsonSerializer.Serialize(m_secondsTogether);
+                    Console.WriteLine("I wanna save this:");
+                    Console.WriteLine(jsonString);
+                }
+            }
+        }
+
+
         protected async Task MineLists()
         {
             if (LastReportedListGatheredAt != null)
@@ -259,6 +288,10 @@ namespace JamFan22.Pages
             await System.IO.File.WriteAllLinesAsync("allSvrIpPorts.txt", svrIpPort);
             await System.IO.File.WriteAllLinesAsync("activeSvrIpPorts.txt", svrActivesIpPort);
 
+            // We only push a canonical pair once.
+            // so we track whether we've pushed each before
+            HashSet<string> alreadyPushed = new HashSet<string>();
+
             // Each time we mine the list, we construct a hash for every active user
             // and that hash is a key of a hash list that contains the ip:port servers
             // where i've seen them.
@@ -319,6 +352,24 @@ namespace JamFan22.Pages
                                 if (false == m_everywhereWeHaveMet.ContainsKey(us))
                                     m_everywhereWeHaveMet[us] = new HashSet<string>();
                                 m_everywhereWeHaveMet[us].Add(server.ip + ":" + server.port);
+                            }
+                        }
+                        ///////////////////////////////////////////////////////////////////////////////////////////////////////
+                        /// Now use an interface that abstracts and ultimately replaces all of these other ad hoc dictionaries
+                        {
+                            foreach (var otherguy in server.clients)
+                            {
+                                byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
+                                var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
+                                string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
+
+                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
+
+                                if (false == alreadyPushed.Contains(us))
+                                {
+                                    alreadyPushed.Add(us);
+                                    ReportPairTogether(us, durationBetweenSamples);
+                                }
                             }
                         }
                     }
@@ -440,7 +491,19 @@ namespace JamFan22.Pages
 
                 // ::1 appears in local debugging, but also possibly in reverse-proxy :o
                 if (clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
-                    clientIP = HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                {
+                    var xff = (string) HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                    if (null != xff)
+                    {
+                        Console.WriteLine("XFF was non-null, value: " + xff);
+                        clientIP = xff;
+                    }
+                    else
+                    {
+                        Console.WriteLine("XFF was null, clientIP hardcoded to 75.172.123.21, Monroe, Louisiana.");
+                        clientIP = "75.172.123.21";
+                    }
+                }
             }
             // clientIP = "75.172.123.21"; // hardcode to make same code outcome as server THIS IS FOR LOCAL DEBUGGING ONLY. DON'T DEPLOY.
 
