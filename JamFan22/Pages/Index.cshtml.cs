@@ -487,7 +487,7 @@ namespace JamFan22.Pages
             string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
             if (clientIP.Length < 5)
             {
-                Console.WriteLine("initial ipaddr: " + clientIP);
+//                Console.WriteLine("initial ipaddr: " + clientIP);
 
                 // ::1 appears in local debugging, but also possibly in reverse-proxy :o
                 if (clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
@@ -1740,6 +1740,9 @@ namespace JamFan22.Pages
 //                        Console.WriteLine("A null IP address replaced by Microsoft's IP.");
                         ipaddr = "75.172.123.21"; // me now
                     }
+
+                    if (false == ipaddr.Contains("::ffff"))
+                        ipaddr = "::ffff:" + ipaddr;
 
                     Console.WriteLine("Client IP: " + ipaddr);
 
