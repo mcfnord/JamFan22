@@ -77,7 +77,10 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
 
                                                 // ::1 appears in local debugging, but also possibly in reverse-proxy :o
                                                 if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
+                                                {
                                                     ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                                                    Console.WriteLine("Due to localhost IP, switched to XFF IP: " + ipaddr);
+                                                }
 
                                                 if (null != ipaddr)
                                                 {
