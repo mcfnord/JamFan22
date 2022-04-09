@@ -1205,10 +1205,7 @@ namespace JamFan22.Pages
             IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
             //IEnumerable<ServersForMe> sortedByMusicianCount = allMyServers.OrderByDescending(svr => svr.usercount);
 
-            foreach( var item in sortedByDistanceAway)
-            {
-                Console.WriteLine("## " + item.city + " " + item.country);
-            }
+            Console.WriteLine("First nearest server: " + sortedByDistanceAway.First().city + sortedByDistanceAway.First().country);
 
             string output = "";
 
