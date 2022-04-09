@@ -127,12 +127,19 @@
         // promote the server i'm on
         var loginHash = localStorage.getItem("loginHash");
         if (null != loginHash) {
-            console.log(loginHash);
+//            console.log(loginHash);
             var me = document.getElementsByClassName(loginHash);
             if (me.length > 0) {
                 me[0].parentElement.style.background = "#FFD7E6"; //  .style.border = "thick solid #9Dc8d6";
                 me[0].parentElement.style.gridRowStart = 1; 
             }
+
+            // scroll to top so current server always visible.
+            window.scroll({
+                top: 0,
+                left: 0,   
+                behavior: 'smooth'
+            });
         }
     }
 
@@ -638,7 +645,7 @@ var loginHashTest = localStorage.getItem("loginHash");
         fetch('/hotties/' + encodeURIComponent(loginHash))
             .then(res => res.json())
             .then((data) => {
-                console.log(data);
+                //console.log(data);
                 for (i = 0; i < data.length; i++)
                 {
                     var peeps = document.getElementsByClassName(data[i]);
@@ -717,6 +724,14 @@ var loginHashTest = localStorage.getItem("loginHash");
             }
         });
     }
+
+    // i just want this
+    window.scroll({
+        top: 0,
+        left: 0,   
+        behavior: 'smooth'
+    });
+
 </script>
 
 
