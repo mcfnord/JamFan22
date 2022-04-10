@@ -108,15 +108,6 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                             }
                         }
                     }
-
-                    /*
-                    // then map the guid to the lat-long. I'll use these rather than the IP map from geolocate, which is junk.
-                    string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-
-                    if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
-                        ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-                    */
-
                 }
 
             /////////////////////////////////////////////////////////////////
@@ -124,6 +115,9 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
+
+            /*
+             * THIS VERSION OF HOTTIES USES RAM-BASED DATA. BUT I STORE IN THE FILE SYSTEM NOW.
 
             if (JamFan22.Pages.IndexModel.m_userConnectDurationPerUser.ContainsKey(guid))
             {
@@ -133,34 +127,6 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                 else
                     Console.WriteLine(">>> Hinting for offline user (just first half):");
 
-                /*
-
-                // Now on to the cooking...
-                var allMyDurations = JamFan22.Pages.IndexModel.m_userConnectDurationPerUser[guid];
-
-                var sortedByLongestTime = allMyDurations.OrderBy(dude => dude.Value);
-
-                // Create a new duration that is actually the old one multiplied by # of servers where i joined you
-                var cookedDurations = new Dictionary<string, TimeSpan>();
-                foreach (var someoneElse in JamFan22.Pages.IndexModel.m_userConnectDurationPerUser[guid])
-                {
-
-                    // Just start duration with total time togetther,
-                    // regardless of who joined who.
-                    cookedDurations[someoneElse.Key] = someoneElse.Value;
-                    // and this shoots up for people I've joined, but even true north accrues here.
-                    // even if he just joined me.
-
-                    // make a key with me as actor, you as target
-                    string us = guid + someoneElse.Key;
-                    if (JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou.ContainsKey(us))
-                    {
-                        var newCookedDuration = JamFan22.Pages.IndexModel.m_everywhereIveJoinedYou[us].Count * someoneElse.Value;
-                        cookedDurations[someoneElse.Key] += newCookedDuration;
-                    }
-                }
-                */
-                
                 var cookedDurations = new Dictionary<string, TimeSpan>();
                 foreach (var someoneElse in JamFan22.Pages.IndexModel.m_userConnectDurationPerUser[guid])
                 {
@@ -207,7 +173,43 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                 ret += "]";
                 return ret;
             }
-            return "";
+
+
+            */
+
+            //////////////////////////////////////////////////////////
+            //////////////////////////////////////////////////////////
+            //////////////////////////////////////////////////////////
+            //////////////////////////////////////////////////////////
+            ///
+            /// FIND ALL KEYS THIS GUY'S IN
+            /// 
+
+            if (null != JamFan22.Pages.IndexModel.m_secondsTogether)
+            {
+                List<string> hotties = new List<string>();
+
+                foreach (var pair in JamFan22.Pages.IndexModel.m_secondsTogether)
+                {
+                    if (pair.Key.Contains(guid))
+                    {
+                        hotties.Add(pair.Key.Replace(guid, "")); // the guid that isn't me is left!
+                    }
+                }
+
+                // now cut it in half.
+                if (hotties.Count < 2) // if we don't even have 2, forget it. cuz we div by 2 later.
+                    return "[]";
+                const string QUOT = "\"";
+                string ret = "[";
+                //foreach (var str in hotties)
+                for (int i = 0; i < hotties.Count / 2; i++) // of the top half...
+                    ret += QUOT + hotties[i] + QUOT + ", ";
+                ret = ret.Substring(0, ret.Length - 2);
+                ret += "]";
+                return ret;
+            }
+            return "[]";
         }
         finally { JamFan22.Pages.IndexModel.m_serializerMutex.ReleaseMutex(); }
     });

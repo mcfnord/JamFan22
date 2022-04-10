@@ -199,13 +199,24 @@ namespace JamFan22.Pages
             return hash;
         }
 
-        static Dictionary<string, TimeSpan> m_secondsTogether = new Dictionary<string, TimeSpan>();
+        string TIME_TOGETHER = "timeTogether.json";
+        public static Dictionary<string, TimeSpan> m_secondsTogether = null;
         static int? m_lastSaveHourNumber = null;
         protected void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
-            // we are assured this is reported one time for this pair per duration elapse.
-            // so go ahead and add the quantum.
-            // and once per hour, save data to disk.
+            if (null == m_secondsTogether)
+            {
+                m_secondsTogether = new Dictionary<string, TimeSpan>();
+                var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]> (System.IO.File.ReadAllText(TIME_TOGETHER));
+
+                foreach (var item in a)
+                {
+                    m_secondsTogether[item.Key] = item.Value;
+                }
+
+                Console.WriteLine(m_secondsTogether.Count + " pairs loaded.");
+            }
+
             if (false == m_secondsTogether.ContainsKey(us))
                 m_secondsTogether[us] = new TimeSpan();
             m_secondsTogether[us] += durationBetweenSamples;
@@ -221,9 +232,8 @@ namespace JamFan22.Pages
                     var sortedByLongest = m_secondsTogether.OrderByDescending(x => x.Value).ToList();
 
                     string jsonString = JsonSerializer.Serialize(sortedByLongest);
-                    Console.WriteLine("I wanna save this:");
                     Console.WriteLine(jsonString);
-                    System.IO.File.WriteAllText("timeTogether.json", jsonString);
+                    System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
                 }
             }
         }
