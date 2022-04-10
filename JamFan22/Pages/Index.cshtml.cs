@@ -199,8 +199,8 @@ namespace JamFan22.Pages
             return hash;
         }
 
-        Dictionary<string, TimeSpan> m_secondsTogether = new Dictionary<string, TimeSpan>();
-        int? m_lastSaveHourNumber = null;
+        static Dictionary<string, TimeSpan> m_secondsTogether = new Dictionary<string, TimeSpan>();
+        static int? m_lastSaveHourNumber = null;
         protected void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
             // we are assured this is reported one time for this pair per duration elapse.
@@ -218,10 +218,12 @@ namespace JamFan22.Pages
                 {
                     m_lastSaveHourNumber = DateTime.Now.Hour;
 
-                    // Save data to disk.
-                    string jsonString = JsonSerializer.Serialize(m_secondsTogether);
+                    var sortedByLongest = m_secondsTogether.OrderByDescending(x => x.Value).ToList();
+
+                    string jsonString = JsonSerializer.Serialize(sortedByLongest);
                     Console.WriteLine("I wanna save this:");
                     Console.WriteLine(jsonString);
+                    System.IO.File.WriteAllText("timeTogether.json", jsonString);
                 }
             }
         }
@@ -357,18 +359,24 @@ namespace JamFan22.Pages
                         ///////////////////////////////////////////////////////////////////////////////////////////////////////
                         /// Now use an interface that abstracts and ultimately replaces all of these other ad hoc dictionaries
                         {
-                            foreach (var otherguy in server.clients)
+                            if (durationBetweenSamples.TotalSeconds > 0)
                             {
-                                byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
-                                var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
-                                string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
-
-                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
-
-                                if (false == alreadyPushed.Contains(us))
+                                foreach (var otherguy in server.clients)
                                 {
-                                    alreadyPushed.Add(us);
-                                    ReportPairTogether(us, durationBetweenSamples);
+                                    byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
+                                    var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
+                                    string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
+
+                                    if (stringHashOfGuy != stringHashOfOtherGuy)
+                                    {
+                                        string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
+
+                                        if (false == alreadyPushed.Contains(us))
+                                        {
+                                            alreadyPushed.Add(us);
+                                            ReportPairTogether(us, durationBetweenSamples);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1767,7 +1775,7 @@ namespace JamFan22.Pages
                                 Console.WriteLine("Error in geolocation: " + e.Message);
                             }
                         }
-                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
+//                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
 
                         m_ThreeLetterNationCode = userIpCachedItems[ipaddr].countryCode3; // global for this call (cuz of the mutex)
 
