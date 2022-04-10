@@ -193,7 +193,9 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                 {
                     if (pair.Key.Contains(guid))
                     {
-                        hotties.Add(pair.Key.Replace(guid, "")); // the guid that isn't me is left!
+                        var otherGuysGuid = pair.Key.Replace(guid, "");
+                        if(otherGuysGuid != JamFan22.Pages.IndexModel.NameFromHash(otherGuysGuid)) // if they have a name, they're online
+                            hotties.Add(otherGuysGuid); // the guid that isn't me is left!
                     }
                 }
 
