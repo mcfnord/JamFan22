@@ -200,26 +200,26 @@ namespace JamFan22.Pages
         }
 
         string TIME_TOGETHER = "timeTogether.json";
-        public static Dictionary<string, TimeSpan> m_secondsTogether = null;
+        public static Dictionary<string, TimeSpan> m_timeTogether = null;
         static int? m_lastSaveHourNumber = null;
         protected void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
-            if (null == m_secondsTogether)
+            if (null == m_timeTogether)
             {
-                m_secondsTogether = new Dictionary<string, TimeSpan>();
+                m_timeTogether = new Dictionary<string, TimeSpan>();
                 var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]> (System.IO.File.ReadAllText(TIME_TOGETHER));
 
                 foreach (var item in a)
                 {
-                    m_secondsTogether[item.Key] = item.Value;
+                    m_timeTogether[item.Key] = item.Value;
                 }
 
-                Console.WriteLine(m_secondsTogether.Count + " pairs loaded.");
+                Console.WriteLine(m_timeTogether.Count + " pairs loaded.");
             }
 
-            if (false == m_secondsTogether.ContainsKey(us))
-                m_secondsTogether[us] = new TimeSpan();
-            m_secondsTogether[us] += durationBetweenSamples;
+            if (false == m_timeTogether.ContainsKey(us))
+                m_timeTogether[us] = new TimeSpan();
+            m_timeTogether[us] += durationBetweenSamples;
 
             if (null == m_lastSaveHourNumber)
                 m_lastSaveHourNumber = DateTime.Now.Hour;
@@ -229,10 +229,11 @@ namespace JamFan22.Pages
                 {
                     m_lastSaveHourNumber = DateTime.Now.Hour;
 
-                    var sortedByLongest = m_secondsTogether.OrderByDescending(x => x.Value).ToList();
+                    var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
 
                     string jsonString = JsonSerializer.Serialize(sortedByLongest);
-                    Console.WriteLine(jsonString);
+                    //                  Console.WriteLine(jsonString);
+                    Console.WriteLine(sortedByLongest.Count + " pairs saved.");
                     System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
                 }
             }
