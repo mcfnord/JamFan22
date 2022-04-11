@@ -185,17 +185,21 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
             /// FIND ALL KEYS THIS GUY'S IN
             /// 
 
-            if (null != JamFan22.Pages.IndexModel.m_secondsTogether)
+            if (null != JamFan22.Pages.IndexModel.m_timeTogether)
             {
                 List<string> hotties = new List<string>();
 
-                foreach (var pair in JamFan22.Pages.IndexModel.m_secondsTogether)
+                var timeTogetherDescending =  JamFan22.Pages.IndexModel.m_timeTogether.OrderByDescending(dude => dude.Value);
+
+                foreach (var pair in timeTogetherDescending)
                 {
                     if (pair.Key.Contains(guid))
                     {
                         var otherGuysGuid = pair.Key.Replace(guid, "");
-                        if(otherGuysGuid != JamFan22.Pages.IndexModel.NameFromHash(otherGuysGuid)) // if they have a name, they're online
-                            hotties.Add(otherGuysGuid); // the guid that isn't me is left!
+                        var friendlyName = JamFan22.Pages.IndexModel.NameFromHash(otherGuysGuid);
+                        if (otherGuysGuid != friendlyName) // if they have a name, they're online
+                            if ("No Name" != friendlyName)
+                                hotties.Add(otherGuysGuid); // the guid that isn't me is left!
                     }
                 }
 
