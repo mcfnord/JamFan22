@@ -1045,6 +1045,7 @@ namespace JamFan22.Pages
             return "";
         }
 
+        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
 
         public async Task<string> GetGutsRightNow()
         {
@@ -1210,7 +1211,7 @@ namespace JamFan22.Pages
                     ///  
 
                     PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), server.ip, ref lat, ref lon);
-//                    Console.WriteLine(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
+                    //                    Console.WriteLine(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
 
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
@@ -1222,7 +1223,38 @@ namespace JamFan22.Pages
             }
 
             IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
-            //IEnumerable<ServersForMe> sortedByMusicianCount = allMyServers.OrderByDescending(svr => svr.usercount);
+
+            //////////////////////////////////////////////////////////////
+            //////////////////////////////////////////////////////////////
+            // MY METHOD OF RELOCATING THE SERVER USER'S ON TO THE FRONT
+            // CAUSES VERT SCROLL BAR TO GET MESSED UP.
+            // BUT I CAN PREVENT THIS IF THE SERVER USER'S ON IS ALREADY FIRST POSITION.
+            string ipaddr = HttpContext.Request.HttpContext.Connection.RemoteIpAddress.ToString();
+            if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
+            {
+                ipaddr = HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                if (null != ipaddr)
+                    if (false == ipaddr.Contains("::ffff"))
+                        ipaddr = "::ffff:" + ipaddr;
+            }
+            if (ipaddr != null)
+            {
+                if (m_ipToGuid.ContainsKey(ipaddr))
+                {
+                    string guidAssocWithIP = m_ipToGuid[ipaddr];
+                    foreach (var svr in sortedByDistanceAway)
+                    {
+                        if (svr.who.Contains(guidAssocWithIP))
+                        {
+                            sortedByDistanceAway.Prepend(svr); // we see it twice this way?
+                            break;
+                        }
+                    }
+                }
+            }
+            //////////////////////////////////////////////////////////////
+            //////////////////////////////////////////////////////////////
+
 
             Console.WriteLine("First nearest server: " + sortedByDistanceAway.First().city + ", " + sortedByDistanceAway.First().country);
 

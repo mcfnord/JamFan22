@@ -43,6 +43,22 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
+            // to fix bug, i match IP with guid
+            string useripaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
+            if (useripaddr.Contains("127.0.0.1") || useripaddr.Contains("::1"))
+            {
+                useripaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                if (null != useripaddr)
+                    if (false == useripaddr.Contains("::ffff"))
+                        useripaddr = "::ffff:" + useripaddr;
+            }
+            JamFan22.Pages.IndexModel.m_ipToGuid[useripaddr] = guid;
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////
+
 
             // If the user is online...
             string res = JamFan22.Pages.IndexModel.NameFromHash(guid);
@@ -73,7 +89,6 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                             {
                                                 // assoc this lat-lon with this ip address
                                                 string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-//                                                Console.WriteLine("initial ipaddr: " + ipaddr);
 
                                                 // ::1 appears in local debugging, but also possibly in reverse-proxy :o
                                                 if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
