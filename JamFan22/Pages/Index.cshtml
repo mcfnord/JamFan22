@@ -132,6 +132,7 @@
             if (me.length > 0) {
                 me[0].parentElement.style.background = "#FFD7E6"; //  .style.border = "thick solid #9Dc8d6";
                 me[0].parentElement.style.gridRowStart = 1; 
+//              me[0].parentElement.scrollIntoView(); // didn't fix the bug
             }
 
             // scroll to top so current server always visible.
@@ -722,7 +723,16 @@ var loginHashTest = localStorage.getItem("loginHash");
         });
     }
 
-    // i just want this
+    // try scroll-to-top surgery
+    var loginHash = localStorage.getItem("loginHash");
+    if (null != loginHash) {
+        var me = document.getElementsByClassName(loginHash);
+        if (me.length > 0) {
+              me[0].parentElement.scrollIntoView();
+        }
+    }
+
+    // this didn't provide scroll-to-top, but might be helpful so leaveing it in for now
     window.scroll({
         top: 0,
         left: 0,   
