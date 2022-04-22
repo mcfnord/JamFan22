@@ -1045,7 +1045,7 @@ namespace JamFan22.Pages
             return "";
         }
 
-        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
+// didn't work        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
 
         public async Task<string> GetGutsRightNow()
         {
@@ -1229,6 +1229,7 @@ namespace JamFan22.Pages
             // MY METHOD OF RELOCATING THE SERVER USER'S ON TO THE FRONT
             // CAUSES VERT SCROLL BAR TO GET MESSED UP.
             // BUT I CAN PREVENT THIS IF THE SERVER USER'S ON IS ALREADY FIRST POSITION.
+            /*
             string ipaddr = HttpContext.Request.HttpContext.Connection.RemoteIpAddress.ToString();
             if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
             {
@@ -1252,6 +1253,7 @@ namespace JamFan22.Pages
                     }
                 }
             }
+            */
             //////////////////////////////////////////////////////////////
             //////////////////////////////////////////////////////////////
 
