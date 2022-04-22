@@ -44,6 +44,7 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
             // to fix bug, i match IP with guid
+            /*
             string useripaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
             if (useripaddr.Contains("127.0.0.1") || useripaddr.Contains("::1"))
             {
@@ -53,6 +54,7 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                         useripaddr = "::ffff:" + useripaddr;
             }
             JamFan22.Pages.IndexModel.m_ipToGuid[useripaddr] = guid;
+            */
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
