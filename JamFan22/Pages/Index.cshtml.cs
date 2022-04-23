@@ -202,6 +202,8 @@ namespace JamFan22.Pages
         string TIME_TOGETHER = "timeTogether.json";
         public static Dictionary<string, TimeSpan> m_timeTogether = null;
         static int? m_lastSaveHourNumber = null;
+        static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
+        static DateTime m_lastSift = DateTime.Now; // Time since boot or since last culling of unmentioned pairs
         protected void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
             if (null == m_timeTogether)
@@ -220,7 +222,10 @@ namespace JamFan22.Pages
             if (false == m_timeTogether.ContainsKey(us))
                 m_timeTogether[us] = new TimeSpan();
             m_timeTogether[us] += durationBetweenSamples;
+            m_updatedPairs.Add(us);
 
+            // Note current hour on first pass.
+            // Then note if hour has changed.
             if (null == m_lastSaveHourNumber)
                 m_lastSaveHourNumber = DateTime.Now.Hour;
             else
@@ -228,6 +233,26 @@ namespace JamFan22.Pages
                 if (m_lastSaveHourNumber != DateTime.Now.Hour)
                 {
                     m_lastSaveHourNumber = DateTime.Now.Hour;
+
+                    // If 30 days of uptime pass,
+                    // I will remove pairs that haven't been updated in that period
+                    //                    if (m_lastSift.AddMonths(1) < DateTime.Now)
+                    if (m_lastSift.AddMonths(1) < DateTime.Now)
+                    {
+                        m_lastSift = DateTime.Now;
+                        // First, kill every entry that doesn't appear in our running list of updated pairs
+                        var newTimeTogether = new Dictionary<string, TimeSpan>();
+                        foreach(var pair in m_timeTogether)
+                        {
+                            if (m_updatedPairs.Contains(pair.Key))
+                            {
+                                newTimeTogether[pair.Key] = pair.Value;
+                                m_updatedPairs.Remove(pair.Key);
+                            }
+                        }
+                        m_updatedPairs = new HashSet<string>();
+                        m_timeTogether = newTimeTogether;
+                    }
 
                     var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
 
