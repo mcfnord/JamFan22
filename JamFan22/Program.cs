@@ -77,9 +77,12 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                             {
                                 foreach (var guy in server.clients)
                                 {
+                                    string stringHashOfGuy = JamFan22.Pages.IndexModel.GetHash(guy.name, guy.country, guy.instrument);
+                                    /*
                                     byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                                     var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
                                     string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                                    */
                                     if (guid == stringHashOfGuy)
                                     {
                                         if ((guy.city != "") && (guy.country != ""))

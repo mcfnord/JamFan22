@@ -118,11 +118,14 @@ namespace JamFan22.Pages
             return joiners.ToArray();
         }
 
+        public static Dictionary<string, string> m_guidNamePairs = new Dictionary<string, string>();
         public static string GetHash(string name, string country, string instrument)
         {
             byte[] bytes = System.Text.Encoding.UTF8.GetBytes(name + country + instrument);
             var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-            return System.Convert.ToBase64String(hashOfGuy);
+            var h = System.Convert.ToBase64String(hashOfGuy);
+            m_guidNamePairs[h] = System.Web.HttpUtility.HtmlEncode(name);
+            return h;
         }
 
         public static void NoteJoinerTargetServer(Client actor, Client target, string server, long port)
@@ -187,9 +190,12 @@ namespace JamFan22.Pages
                     {
                         foreach (var guy in server.clients)
                         {
+                            var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                            /*
                             byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                             var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
                             string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                            */
                             if (hash == stringHashOfGuy)
                                 return guy.name;
                         }
@@ -200,6 +206,7 @@ namespace JamFan22.Pages
         }
 
         string TIME_TOGETHER = "timeTogether.json";
+        string GUID_NAME_PAIRS = "guidNamePairs.json";
         public static Dictionary<string, TimeSpan> m_timeTogether = null;
         static int? m_lastSaveHourNumber = null;
         static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
@@ -242,7 +249,7 @@ namespace JamFan22.Pages
                         m_lastSift = DateTime.Now;
                         // First, kill every entry that doesn't appear in our running list of updated pairs
                         var newTimeTogether = new Dictionary<string, TimeSpan>();
-                        foreach(var pair in m_timeTogether)
+                        foreach (var pair in m_timeTogether)
                         {
                             if (m_updatedPairs.Contains(pair.Key))
                             {
@@ -254,12 +261,20 @@ namespace JamFan22.Pages
                         m_timeTogether = newTimeTogether;
                     }
 
-                    var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
+                    {
+                        var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
+                        string jsonString = JsonSerializer.Serialize(sortedByLongest);
+                        Console.WriteLine(sortedByLongest.Count + " pairs saved.");
+                        System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
+                    }
 
-                    string jsonString = JsonSerializer.Serialize(sortedByLongest);
-                    //                  Console.WriteLine(jsonString);
-                    Console.WriteLine(sortedByLongest.Count + " pairs saved.");
-                    System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
+                    {
+                        // Each time we save the durations, we also save the guid-name pairs.
+                        var sortedByAlpha = m_guidNamePairs.OrderBy(x => x.Value).ToList();
+                        string jsonString = JsonSerializer.Serialize(sortedByAlpha);
+                        System.IO.File.WriteAllText(GUID_NAME_PAIRS, jsonString);
+                    }
+
                 }
             }
         }
@@ -345,9 +360,12 @@ namespace JamFan22.Pages
                         continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
                     foreach (var guy in server.clients)
                     {
+                        string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                        /*
                         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                         var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
                         string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                        */
                         //////////////////////////////////////////////////////////////////////////
                         if (false == m_userServerViewTracker.ContainsKey(stringHashOfGuy))
                             m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
@@ -377,9 +395,12 @@ namespace JamFan22.Pages
                                 if (otherguy == guy)
                                     continue; // just don't track me with me. Let the entry exist but fuck it.
 
+                                string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
+                                /*
                                 byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
                                 var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
                                 string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
+                                */
                                 var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
                                 if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
                                     theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
@@ -399,9 +420,12 @@ namespace JamFan22.Pages
                             {
                                 foreach (var otherguy in server.clients)
                                 {
+                                    string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
+                                    /*
                                     byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
                                     var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
                                     string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
+                                    */
 
                                     if (stringHashOfGuy != stringHashOfOtherGuy)
                                     {
@@ -1148,9 +1172,12 @@ namespace JamFan22.Pages
                         string hash = guy.name + guy.country;
 
                         // give the musician a distinctive encoding class
+                        string encodedHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                        /*
                         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                         var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
                         string encodedHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                        */
 
                         var newpart = "<span class=\"musician " +
                             server.ip + " "
