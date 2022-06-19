@@ -244,7 +244,7 @@ namespace JamFan22.Pages
                     // If 30 days of uptime pass,
                     // I will remove pairs that haven't been updated in that period
                     //                    if (m_lastSift.AddMonths(1) < DateTime.Now)
-                    if (m_lastSift.AddMonths(1) < DateTime.Now)
+                    if (m_lastSift.AddDays(21) < DateTime.Now)
                     {
                         m_lastSift = DateTime.Now;
                         // First, kill every entry that doesn't appear in our running list of updated pairs
@@ -1650,9 +1650,7 @@ namespace JamFan22.Pages
                                 if (guy.name == "jammer")
                                     continue;
 
-                                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
-                                var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-                                string encodedHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                                string encodedHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
 
                                 if (false == peopleOnNow.ContainsKey(encodedHashOfGuy))
                                 {

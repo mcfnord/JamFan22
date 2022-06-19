@@ -28,9 +28,12 @@ namespace JamFan21.Pages
                         {
                             foreach (var guy in server.clients)
                             {
+                                string encodedHashOfGuy = JamFan22.Pages.IndexModel.GetHash(guy.name, guy.country, guy.instrument);
+                                /*
                                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                                 var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
                                 string encodedHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                                */
                                 allEm[encodedHashOfGuy] = "<td>" + guy.name
                                     + "<td>" + guy.instrument
                                     + "<td>" + guy.country;
