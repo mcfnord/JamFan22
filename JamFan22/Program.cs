@@ -36,7 +36,8 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
         JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
         try
         {
-            string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
+            // fuck do i not decode?            string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
+            string guid = encodedGuid;
 
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
