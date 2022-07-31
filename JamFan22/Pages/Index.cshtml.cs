@@ -1403,6 +1403,10 @@ namespace JamFan22.Pages
                         continue; // if they have sat there for 6 hours, don't show them.
                                   //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
 
+                    // If their fucking name is Studio Bridge, just fuckin don't show them.
+                    if (s.name == "Studio Bridge")
+                        continue;
+
                     string smartcity = SmartCity(s.city, s.whoObjectFromSourceData);
 
                     string noBRName = s.who;
