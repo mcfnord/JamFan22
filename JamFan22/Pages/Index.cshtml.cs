@@ -1404,7 +1404,7 @@ namespace JamFan22.Pages
                                   //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
 
                     // If their fucking name is Studio Bridge, just fuckin don't show them.
-                    if (s.name == "Studio Bridge")
+                    if (s.whoObjectFromSourceData[0].name == "Studio Bridge")
                         continue;
 
                     string smartcity = SmartCity(s.city, s.whoObjectFromSourceData);
