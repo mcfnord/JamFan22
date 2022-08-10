@@ -1321,6 +1321,9 @@ namespace JamFan22.Pages
             {
                 if (s.usercount > 1)
                 {
+if(s.name == "JamPad")
+continue;
+
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
                     foreach (var user in s.whoObjectFromSourceData)
@@ -1406,6 +1409,17 @@ namespace JamFan22.Pages
                     // If their fucking name is Studio Bridge, just fuckin don't show them.
                     if (s.whoObjectFromSourceData[0].name == "Studio Bridge")
                         continue;
+
+                    if (s.whoObjectFromSourceData[0].name == "Jamonet'")
+                        continue;
+
+                    if (s.whoObjectFromSourceData[0].name == "Jamonet")
+                        continue;
+
+if(s.name == "JamPad")
+continue;
+
+
 
                     string smartcity = SmartCity(s.city, s.whoObjectFromSourceData);
 
