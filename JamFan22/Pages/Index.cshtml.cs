@@ -1321,8 +1321,15 @@ namespace JamFan22.Pages
             {
                 if (s.usercount > 1)
                 {
-if(s.name == "JamPad")
-continue;
+                    if (s.name == "JamPad")
+                        continue;
+
+                    if (s.name.Contains("RussellGaming"))
+                        continue;
+
+                    if (s.whoObjectFromSourceData[0].name == "Jamonet")
+                        if (s.whoObjectFromSourceData[1].name == "jam feed")
+                            continue;
 
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
