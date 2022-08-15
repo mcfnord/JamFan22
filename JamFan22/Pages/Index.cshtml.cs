@@ -1094,7 +1094,28 @@ namespace JamFan22.Pages
             return "";
         }
 
-// didn't work        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
+        // didn't work        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
+
+        static bool NukeThisUsername(string name, string instrument)
+        {
+            var trimmed = name.Trim();
+            switch (trimmed)
+            {
+                case "Jamonet": return true;
+                case "Jamsucker": return true;
+                case "jam feed": return true;
+                case "Studio Bridge": return true;
+                case "Click": return true;
+                case "Reference": return true;
+                case "":
+                    if (instrument == "Streamer")
+                        return true;
+                    return false;
+
+                default:
+                    return false;
+            }
+        }
 
         public async Task<string> GetGutsRightNow()
         {
@@ -1134,6 +1155,9 @@ namespace JamFan22.Pages
                             continue; // no XSS please
                         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
                         NotateWhoHere(server.name, guy.name);
+
+                        if (NukeThisUsername(guy.name, guy.instrument))
+                            continue;
 
                         string slimmerInstrument = guy.instrument;
                         if (slimmerInstrument == "-")
@@ -1317,9 +1341,20 @@ namespace JamFan22.Pages
             //            output += "<center><table class='table table-light table-hover table-striped'><tr><u><th>Genre<th>Name<th>City<th>Who</u></tr>";
 
             // First all with more than one musician:
+                List<Client> myCopyOfWho = new List<Client>();
             foreach (var s in sortedByDistanceAway)
             {
-                if (s.usercount > 1)
+                myCopyOfWho.Clear();
+                // Copy to a list I can screw up:
+                foreach (var cat in s.whoObjectFromSourceData)
+                {
+                    if (NukeThisUsername(cat.name, cat.instrument))
+                        continue;
+                    myCopyOfWho.Add(cat);
+                }
+                var s_myUserCount = myCopyOfWho.Count;
+
+                if (s_myUserCount > 1)
                 {
                     if (s.name == "JamPad")
                         continue;
@@ -1327,13 +1362,21 @@ namespace JamFan22.Pages
                     if (s.name.Contains("RussellGaming"))
                         continue;
 
-                    if (s.whoObjectFromSourceData[0].name == "Jamonet")
-                        if (s.whoObjectFromSourceData[1].name == "jam feed")
+                    /*
+                    if (myCopyOfWho[0].name == "Jamonet")
+                        if (myCopyOfWho[1].name == "jam feed")
                             continue;
+
+                    if (myCopyOfWho[0].name == "jam feed")
+                        if (myCopyOfWho[1].name == "Jamonet")
+                            continue;
+
+                    */
+
 
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
-                    foreach (var user in s.whoObjectFromSourceData)
+                    foreach (var user in myCopyOfWho)
                     {
                         if (DurationHereInMins(s.name, user.name) < 8 * 60)
                         {
@@ -1346,7 +1389,7 @@ namespace JamFan22.Pages
 
                     // if everyone here got here less than 14 minutes ago, then this is just assembled
                     string newJamFlag = "";
-                    foreach (var user in s.whoObjectFromSourceData)
+                    foreach (var user in myCopyOfWho)
                     {
                         string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
                         newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ") : "") + translatedPhrase + ")";
@@ -1365,7 +1408,7 @@ namespace JamFan22.Pages
                         break;
                     }
 
-                    string smartcity = SmartCity(s.city, s.whoObjectFromSourceData);
+                    string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
 
                     var serverAddress = s.serverIpAddress + ":" + s.serverPort;
 
@@ -1376,7 +1419,7 @@ namespace JamFan22.Pages
                         newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
 
                     // smart nation returns nations that aren't (probably) obvious by server city.
-                    string smartNations = SmartNations(s.whoObjectFromSourceData, s.country);
+                    string smartNations = SmartNations(myCopyOfWho.ToArray(), s.country);
 
                     if (smartcity.Length > 0)
                         newline += "<b>" + smartcity + "</b><br>";
@@ -1407,28 +1450,26 @@ namespace JamFan22.Pages
 
             foreach (var s in sortedByDistanceAway)
             {
-                if (s.usercount == 1)
+                myCopyOfWho.Clear();
+                // Copy to a list I can screw up:
+                foreach (var cat in s.whoObjectFromSourceData)
                 {
-                    if (DurationHereInMins(s.name, s.whoObjectFromSourceData[0].name) > 6 * 60)
+                    if (NukeThisUsername(cat.name, cat.instrument))
+                        continue;
+                    myCopyOfWho.Add(cat);
+                }
+                var s_myUserCount = myCopyOfWho.Count;
+
+                if (s_myUserCount == 1)
+                {
+                    if (DurationHereInMins(s.name, myCopyOfWho[0].name) > 6 * 60)
                         continue; // if they have sat there for 6 hours, don't show them.
                                   //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
 
-                    // If their fucking name is Studio Bridge, just fuckin don't show them.
-                    if (s.whoObjectFromSourceData[0].name == "Studio Bridge")
+                    if (s.name == "JamPad")
                         continue;
 
-                    if (s.whoObjectFromSourceData[0].name == "Jamonet'")
-                        continue;
-
-                    if (s.whoObjectFromSourceData[0].name == "Jamonet")
-                        continue;
-
-if(s.name == "JamPad")
-continue;
-
-
-
-                    string smartcity = SmartCity(s.city, s.whoObjectFromSourceData);
+                    string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
 
                     string noBRName = s.who;
                     noBRName = noBRName.Replace("<br/>", " ");
@@ -1449,7 +1490,7 @@ continue;
                         //                        newJamFlag +
                         "</center><hr>" +
                         noBRName +
-                        DurationHere(s.name, s.whoObjectFromSourceData[0].name) + "</div>";  // we know there's just one! i hope!
+                        DurationHere(s.name, myCopyOfWho[0].name) + "</div>";  // we know there's just one! i hope!
 
                     output += newline;
                 }
