@@ -1099,17 +1099,18 @@ namespace JamFan22.Pages
         static bool NukeThisUsername(string name, string instrument)
         {
             var trimmed = name.Trim();
-            switch (trimmed)
+            switch (trimmed.ToUpper())
             {
-                case "Jamonet": return true;
-                case "Jamsucker": return true;
-                case "jam feed": return true;
-                case "Studio Bridge": return true;
-                case "Click": return true;
-                case "Reference": return true;
+                case "JAMONET": return true;
+                case "JAMSUCKER": return true;
+                case "JAM FEED": return true;
+                case "STUDIO BRIDGE": return true;
+                case "CLICK": return true;
+                case "REFERENCE": return true;
                 case "":
                     if (instrument == "Streamer")
                         return true;
+                    // if (instrument == "-") return true; // maybe
                     return false;
 
                 default:
@@ -1362,18 +1363,6 @@ namespace JamFan22.Pages
                     if (s.name.Contains("RussellGaming"))
                         continue;
 
-                    /*
-                    if (myCopyOfWho[0].name == "Jamonet")
-                        if (myCopyOfWho[1].name == "jam feed")
-                            continue;
-
-                    if (myCopyOfWho[0].name == "jam feed")
-                        if (myCopyOfWho[1].name == "Jamonet")
-                            continue;
-
-                    */
-
-
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
                     foreach (var user in myCopyOfWho)
@@ -1399,7 +1388,7 @@ namespace JamFan22.Pages
                         // I guess Just Gatghered can only appear after the gathering period has elapsed. Maybe that's ok.
                         newJamFlag = "";
                         if (s.usercount == s.maxusercount)
-                            newJamFlag = "(" + LocalizedText("Full", "滿房", "เต็ม", "Voll") + ")";
+                            newJamFlag = "<b>(" + LocalizedText("Full", "滿房", "เต็ม", "Voll") + ")</b>";
                         else
                             if (s.usercount + 1 == s.maxusercount)
                             newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)");
