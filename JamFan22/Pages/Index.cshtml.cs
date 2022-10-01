@@ -1846,14 +1846,14 @@ namespace JamFan22.Pages
                     try
                     {
 
-                        string ret = "<table><tr><th>Server<th>IP:PORT</tr>\n";
+                        string ret = "<table><tr><th>Server<th>Server Address</tr>\n";
 
-                        foreach (var s in m_allMyServers)
+                        foreach (var s in m_allMyServers.OrderBy(x => x.name).ToList())
                         {
                             ret += "<tr><td>" + s.name + "<td>" +
                                 //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
                                 //                        s.serverIpAddress + ":" + s.serverPort + "&quot;)'>" +
-                                s.serverIpAddress + ":" + s.serverPort +
+                                s.serverIpAddress +
                                 //                        "</a>" + 
                                 "</tr>\n";
                         }
