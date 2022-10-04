@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
+using System.Diagnostics;
 using System.Text.Json;
 // using MongoDB.Driver;
 
@@ -1416,7 +1417,10 @@ namespace JamFan22.Pages
                     // if we find this server address in the activity report, show its url
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
-                    newline +=
+                    string FULLPATH = "/root/JamFan22/JamFan22/wwwroot/" + serverAddress + ".mp3" ;
+                    string liveSnippet = (System.IO.File.Exists(FULLPATH) ? "\"<audio controls style='width: 150px;' src='" + serverAddress + ".mp3' />\" + " : "");
+
+                        newline +=
                         "<font size='-1'>" +
                         s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
                         newJamFlag +
@@ -1425,6 +1429,7 @@ namespace JamFan22.Pages
                             //                        ((true) ?
                             "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
                         "</center><hr>" +
+                        liveSnippet +
                         s.who;
                     if (smartcity != smartNations) // it happens
                     {
