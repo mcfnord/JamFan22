@@ -1418,7 +1418,7 @@ namespace JamFan22.Pages
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
                     string FULLPATH = "/root/JamFan22/JamFan22/wwwroot/mp3s/" + serverAddress + ".mp3" ;
-                    string liveSnippet = (System.IO.File.Exists(FULLPATH) ? "<audio controls style='width: 150px;' src='" + serverAddress + ".mp3' />" : "");
+                    string liveSnippet = (System.IO.File.Exists(FULLPATH) ? "<audio controls style='width: 150px;' src='mp3s/" + serverAddress + ".mp3' />" : "");
 
                         newline +=
                         "<font size='-1'>" +
