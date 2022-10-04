@@ -1790,6 +1790,51 @@ namespace JamFan22.Pages
 
                     m_usersCounted.Add(DateTime.Now, iActiveJamFans);
 
+
+                    // If iActiveJamFans is active, list all active servers to a file
+//                    if (iActiveJamFans > 9)
+                    {
+                        Console.WriteLine("I'd like to refresh teh audo samples of the active servers.");
+
+                        List<string> svrActivesIpPort = new List<string>();
+
+                        foreach (var key in LastReportedList.Keys)
+                        {
+                            var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                            foreach (var server in serversOnList)
+                            {
+                                int peepCount = 0;
+                                if (server.clients != null)
+                                    peepCount = server.clients.GetLength(0);
+                                if (peepCount < 2)
+                                    continue; // just fuckin don't care about 0 or even 1
+
+                                svrActivesIpPort.Add(server.ip + ":" + server.port);
+                            }
+                        }
+
+                        System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
+                    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     int iTopCount = 0;
                     DateTime timeOfTopCount = DateTime.Now;
 
