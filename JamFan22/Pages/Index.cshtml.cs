@@ -1791,12 +1791,18 @@ namespace JamFan22.Pages
                     m_usersCounted.Add(DateTime.Now, iActiveJamFans);
 
 
+                    List<string> svrActivesIpPort = new List<string>();
+
                     // If iActiveJamFans is active, list all active servers to a file
-//                    if (iActiveJamFans > 9)
+                    if (false)  //  if (iActiveJamFans < 10)
+                    {
+                        // later i might assure the top two by activity are always listed... but at this point it's just off
+                        svrActivesIpPort.Add("");
+                        System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
+                    }
+                    else
                     {
                         Console.WriteLine("I'd like to refresh teh audo samples of the active servers.");
-
-                        List<string> svrActivesIpPort = new List<string>();
 
                         foreach (var key in LastReportedList.Keys)
                         {
@@ -1812,6 +1818,12 @@ namespace JamFan22.Pages
                                 svrActivesIpPort.Add(server.ip + ":" + server.port);
                             }
                         }
+
+                        // apparently only the first line gets processed
+                        // so gimme some rando line please
+                        var rng = new Random();
+                        while (svrActivesIpPort.Count > 1)
+                            svrActivesIpPort.RemoveAt(rng.Next() % svrActivesIpPort.Count);
 
                         System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
                     }
@@ -1835,34 +1847,34 @@ namespace JamFan22.Pages
 
 
 
-                    int iTopCount = 0;
-                    DateTime timeOfTopCount = DateTime.Now;
+                            int iTopCount = 0;
+                            DateTime timeOfTopCount = DateTime.Now;
 
-                    foreach (var timeski in m_usersCounted.Keys)
-                    {
-                        if (DateTime.Now < timeski.AddHours(24))
-                            if (m_usersCounted[timeski] > iTopCount)
+                            foreach (var timeski in m_usersCounted.Keys)
                             {
-                                iTopCount = m_usersCounted[timeski];
-                                timeOfTopCount = timeski;
+                                if (DateTime.Now < timeski.AddHours(24))
+                                    if (m_usersCounted[timeski] > iTopCount)
+                                    {
+                                        iTopCount = m_usersCounted[timeski];
+                                        timeOfTopCount = timeski;
+                                    }
                             }
-                    }
 
-                    string ret = ""; 
-                    /*
-                    iActiveJamFans.ToString() + " musicians " + 
-//                        "from " + iNations.ToString() + " countries " +
-                        "have viewed this page in the last hour";
-                    */
+                            string ret = ""; 
+                            /*
+                            iActiveJamFans.ToString() + " musicians " + 
+        //                        "from " + iNations.ToString() + " countries " +
+                                "have viewed this page in the last hour";
+                            */
 
 
-                    /*
-                    if (iTopCount > iActiveJamFans)
-                    {
-                        if (iTopCount == iActiveJamFans + 1)
-                            ret += ", which is near today's high";
-                        else
-                    */
+                        /*
+                        if (iTopCount > iActiveJamFans)
+                        {
+                            if (iTopCount == iActiveJamFans + 1)
+                                ret += ", which is near today's high";
+                            else
+                        */
 
 
                         {
