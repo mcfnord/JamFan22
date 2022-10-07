@@ -132,6 +132,13 @@
             if (me.length > 0) {
                 me[0].parentElement.style.background = "#FFD7E6"; //  .style.border = "thick solid #9Dc8d6";
                 me[0].parentElement.style.gridRowStart = 1; 
+
+                // hide playback, if any
+                var audio = me[0].parentElement.getElementsByTagName("audio");
+                if(audio != null)
+                    if(audio.item(0) != null)
+                        audio.item(0).style.display = "none"; 
+
 //              me[0].parentElement.scrollIntoView(); // didn't fix the bug
             }
 
