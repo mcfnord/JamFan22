@@ -1815,7 +1815,11 @@ namespace JamFan22.Pages
                                 if (peepCount < 2)
                                     continue; // just fuckin don't care about 0 or even 1
 
-                                svrActivesIpPort.Add(server.ip + ":" + server.port);
+                                string fullAddress = server.ip + ":" + server.port;
+
+                                // Don't want to re-sample if this one's sampled now:
+                                if (false == System.IO.File.Exists("wwwroot/mp3/" + fullAddress + ".mp3"))
+                                    svrActivesIpPort.Add(fullAddress);
                             }
                         }
 
@@ -1828,62 +1832,43 @@ namespace JamFan22.Pages
                         System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
                     }
 
+                    int iTopCount = 0;
+                    DateTime timeOfTopCount = DateTime.Now;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                            int iTopCount = 0;
-                            DateTime timeOfTopCount = DateTime.Now;
-
-                            foreach (var timeski in m_usersCounted.Keys)
+                    foreach (var timeski in m_usersCounted.Keys)
+                    {
+                        if (DateTime.Now < timeski.AddHours(24))
+                            if (m_usersCounted[timeski] > iTopCount)
                             {
-                                if (DateTime.Now < timeski.AddHours(24))
-                                    if (m_usersCounted[timeski] > iTopCount)
-                                    {
-                                        iTopCount = m_usersCounted[timeski];
-                                        timeOfTopCount = timeski;
-                                    }
+                                iTopCount = m_usersCounted[timeski];
+                                timeOfTopCount = timeski;
                             }
+                    }
 
-                            string ret = ""; 
-                            /*
-                            iActiveJamFans.ToString() + " musicians " + 
-        //                        "from " + iNations.ToString() + " countries " +
-                                "have viewed this page in the last hour";
-                            */
-
-
-                        /*
-                        if (iTopCount > iActiveJamFans)
-                        {
-                            if (iTopCount == iActiveJamFans + 1)
-                                ret += ", which is near today's high";
-                            else
-                        */
+                    string ret = "";
+                    /*
+                    iActiveJamFans.ToString() + " musicians " + 
+//                        "from " + iNations.ToString() + " countries " +
+                        "have viewed this page in the last hour";
+                    */
 
 
-                        {
-                            ret += "" +
-//                                ". " +
-                            SinceNowInText(timeOfTopCount) +
-                            " there were " + iTopCount.ToString() + " musicians watching this page";
-                        }
-//                    }
+                    /*
+                    if (iTopCount > iActiveJamFans)
+                    {
+                        if (iTopCount == iActiveJamFans + 1)
+                            ret += ", which is near today's high";
+                        else
+                    */
+
+
+                    {
+                        ret += "" +
+                        //                                ". " +
+                        SinceNowInText(timeOfTopCount) +
+                        " there were " + iTopCount.ToString() + " musicians watching this page";
+                    }
+                    //                    }
 
                     if (ret != lastUpdate)
                     {
