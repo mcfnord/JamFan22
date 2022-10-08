@@ -1802,7 +1802,7 @@ namespace JamFan22.Pages
                     }
                     else
                     {
-                        Console.WriteLine("I'd like to refresh teh audo samples of the active servers.");
+                        Console.WriteLine("I wanna choose which server to sample.");
 
                         foreach (var key in LastReportedList.Keys)
                         {
@@ -1819,17 +1819,29 @@ namespace JamFan22.Pages
 
                                 // Don't want to re-sample if this one's sampled now:
                                 if (false == System.IO.File.Exists("wwwroot/mp3/" + fullAddress + ".mp3"))
+                                {
                                     svrActivesIpPort.Add(fullAddress);
+                                }
+                                else
+                                {
+                                    Console.WriteLine(fullAddress + "has an active sample already.");
+                                }
+                            }
                             }
                         }
 
                         // apparently only the first line gets processed
-                        // so gimme some rando line please
+                        // so gimme one rando line please
                         var rng = new Random();
-                        while (svrActivesIpPort.Count > 1)
-                            svrActivesIpPort.RemoveAt(rng.Next() % svrActivesIpPort.Count);
-
-                        System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
+                    if (svrActivesIpPort.Count > 1)
+                    {
+                        string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
+                        System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
+                        Console.WriteLine("I chose: " + chosen);
+                    }
+                    else
+                    {
+                        System.IO.File.WriteAllLines("serversToSample.txt", new string[] { "" });
                     }
 
                     int iTopCount = 0;
