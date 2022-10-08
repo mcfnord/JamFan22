@@ -1,12 +1,12 @@
 var builder = WebApplication.CreateBuilder(args);
 
-/* removed for localhost usage.
+///* removed for localhost usage.
 builder.WebHost.UseKestrel(serverOptions =>
 {
     serverOptions.ListenAnyIP(80);
-    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("jamfan.pfx", "jamfan"));
+    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("rootca.pfx", "jamfan"));
 });
-*/
+//*/
 
 
 // Add services to the container.
