@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
+using System.Diagnostics;
 using System.Text.Json;
 // using MongoDB.Driver;
 
@@ -1416,7 +1417,10 @@ namespace JamFan22.Pages
                     // if we find this server address in the activity report, show its url
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
-                    newline +=
+                    string FULLPATH = "/root/JamFan22/JamFan22/wwwroot/mp3s/" + serverAddress + ".mp3" ;
+                    string liveSnippet = (System.IO.File.Exists(FULLPATH) ? "<audio controls style='width: 150px;' src='mp3s/" + serverAddress + ".mp3' />" : "");
+
+                        newline +=
                         "<font size='-1'>" +
                         s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
                         newJamFlag +
@@ -1424,6 +1428,7 @@ namespace JamFan22.Pages
                         ((activeJitsi.Length > 0) ?
                             //                        ((true) ?
                             "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
+                        liveSnippet +
                         "</center><hr>" +
                         s.who;
                     if (smartcity != smartNations) // it happens
@@ -1785,6 +1790,48 @@ namespace JamFan22.Pages
 
                     m_usersCounted.Add(DateTime.Now, iActiveJamFans);
 
+
+                    List<string> svrActivesIpPort = new List<string>();
+
+                    // If iActiveJamFans is active, list all active servers to a file
+                    if (false)  //  if (iActiveJamFans < 10)
+                    {
+                        // later i might assure the top two by activity are always listed... but at this point it's just off
+                        svrActivesIpPort.Add("");
+                        System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
+                    }
+                    else
+                    {
+                        Console.WriteLine("I'd like to refresh teh audo samples of the active servers.");
+
+                        foreach (var key in LastReportedList.Keys)
+                        {
+                            var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                            foreach (var server in serversOnList)
+                            {
+                                int peepCount = 0;
+                                if (server.clients != null)
+                                    peepCount = server.clients.GetLength(0);
+                                if (peepCount < 2)
+                                    continue; // just fuckin don't care about 0 or even 1
+
+                                string fullAddress = server.ip + ":" + server.port;
+
+                                // Don't want to re-sample if this one's sampled now:
+                                if (false == System.IO.File.Exists("wwwroot/mp3/" + fullAddress + ".mp3"))
+                                    svrActivesIpPort.Add(fullAddress);
+                            }
+                        }
+
+                        // apparently only the first line gets processed
+                        // so gimme some rando line please
+                        var rng = new Random();
+                        while (svrActivesIpPort.Count > 1)
+                            svrActivesIpPort.RemoveAt(rng.Next() % svrActivesIpPort.Count);
+
+                        System.IO.File.WriteAllLines("serversToSample.txt", svrActivesIpPort);
+                    }
+
                     int iTopCount = 0;
                     DateTime timeOfTopCount = DateTime.Now;
 
@@ -1798,7 +1845,7 @@ namespace JamFan22.Pages
                             }
                     }
 
-                    string ret = ""; 
+                    string ret = "";
                     /*
                     iActiveJamFans.ToString() + " musicians " + 
 //                        "from " + iNations.ToString() + " countries " +
@@ -1815,13 +1862,13 @@ namespace JamFan22.Pages
                     */
 
 
-                        {
-                            ret += "" +
-//                                ". " +
-                            SinceNowInText(timeOfTopCount) +
-                            " there were " + iTopCount.ToString() + " musicians watching this page";
-                        }
-//                    }
+                    {
+                        ret += "" +
+                        //                                ". " +
+                        SinceNowInText(timeOfTopCount) +
+                        " there were " + iTopCount.ToString() + " musicians watching this page";
+                    }
+                    //                    }
 
                     if (ret != lastUpdate)
                     {
@@ -1846,14 +1893,14 @@ namespace JamFan22.Pages
                     try
                     {
 
-                        string ret = "<table><tr><th>Server<th>IP:PORT</tr>\n";
+                        string ret = "<table><tr><th>Server<th>Server Address</tr>\n";
 
-                        foreach (var s in m_allMyServers)
+                        foreach (var s in m_allMyServers.OrderBy(x => x.name).ToList())
                         {
                             ret += "<tr><td>" + s.name + "<td>" +
                                 //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
                                 //                        s.serverIpAddress + ":" + s.serverPort + "&quot;)'>" +
-                                s.serverIpAddress + ":" + s.serverPort +
+                                s.serverIpAddress +
                                 //                        "</a>" + 
                                 "</tr>\n";
                         }

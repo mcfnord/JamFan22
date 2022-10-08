@@ -132,6 +132,13 @@
             if (me.length > 0) {
                 me[0].parentElement.style.background = "#FFD7E6"; //  .style.border = "thick solid #9Dc8d6";
                 me[0].parentElement.style.gridRowStart = 1; 
+
+                // hide playback, if any
+                var audio = me[0].parentElement.getElementsByTagName("audio");
+                if(audio != null)
+                    if(audio.item(0) != null)
+                        audio.item(0).style.display = "none"; 
+
 //              me[0].parentElement.scrollIntoView(); // didn't fix the bug
             }
 
@@ -583,7 +590,7 @@ var loginHashTest = localStorage.getItem("loginHash");
     <button type="button" class="collapsible">Servers</button>
     <div class="content">
         <p>
-            Sometimes when you can't find the server in Jamulus, you can paste the server's IP:PORT into the <b>Server Address</b>
+            Sometimes when you can't find the server in Jamulus, you can paste the server's Server address into the <b>Server Address</b>
             field on the <b>Connection Setup</b> dialog box.
         </p>
         <p>@Html.Raw(@Model.ShowServerByIPPort)</p>
