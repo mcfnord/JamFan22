@@ -1818,7 +1818,7 @@ namespace JamFan22.Pages
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-                                if (false == System.IO.File.Exists("wwwroot/mp3/" + fullAddress + ".mp3"))
+                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3")) 
                                 {
                                     svrActivesIpPort.Add(fullAddress);
                                 }
@@ -1830,10 +1830,10 @@ namespace JamFan22.Pages
                             }
                         }
 
-                        // apparently only the first line gets processed
-                        // so gimme one rando line please
-                        var rng = new Random();
-                    if (svrActivesIpPort.Count > 1)
+                    // apparently only the first line gets processed
+                    // so gimme one rando line please
+                    var rng = new Random();
+                    if (svrActivesIpPort.Count > 1) // when there's just one active server, Ear doesn't visit. This really means just one unsampled server.
                     {
                         string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
                         System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
