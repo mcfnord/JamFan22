@@ -1111,7 +1111,10 @@ namespace JamFan22.Pages
                 case "":
                     if (instrument == "Streamer")
                         return true;
-                    // if (instrument == "-") return true; // maybe
+                    return false;
+                case "PLAYER":
+                    if (instrument == "Conductor")
+                        return true;
                     return false;
 
                 default:
