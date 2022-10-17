@@ -285,7 +285,7 @@ namespace JamFan22.Pages
         {
             if (LastReportedListGatheredAt != null)
             {
-                if (DateTime.Now < LastReportedListGatheredAt.Value.AddSeconds(35))
+                if (DateTime.Now < LastReportedListGatheredAt.Value.AddSeconds(25))
                 {
                     //                    Console.WriteLine("Data is less than 60 seconds old, and cached data is adequate.");
                     return; // data we have was gathered within the last minute.
