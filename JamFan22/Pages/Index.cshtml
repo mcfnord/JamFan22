@@ -492,6 +492,36 @@
         refreshHighlights();
     }
 
+
+    PlayedTracks = "playedTracks";
+    function PlayedBefore(src)
+    {
+        var retrievedData = localStorage.getItem(PlayedTracks) ;
+
+        if (null === retrievedData) {
+            return false;
+        }
+
+        var strings = JSON.parse(retrievedData);
+        if(strings.includes(src))
+            return true;
+        return false;
+    }
+
+    function AddToPlayed(src)
+    {
+        var retrievedData = localStorage.getItem(PlayedTracks) ;
+
+        if (null === retrievedData) {
+            localStorage.setItem(PlayedTracks, JSON.stringify([""]));
+            retrievedData = localStorage.getItem(PlayedTracks);
+        }
+
+        var played = JSON.parse(retrievedData);
+        played.push(src);
+        localStorage.setItem(PlayedTracks, JSON.stringify(played));
+    }
+
     Hash = "";
 
     // click handler for name
@@ -550,6 +580,9 @@
 
         Hash = ""; // forget the hash so the click zone stays properly bounded
     }
+
+
+
 </script>
 
 <script>
@@ -751,12 +784,21 @@ var loginHashTest = localStorage.getItem("loginHash");
 
     for(var i=0; i<allPlayers.length; i++)
     {
-        allPlayers[i].addEventListener('play', function(event)
+        // is allPlayers[i].src on the list? show as played if so. add event listener if not
+        if(PlayedBefore(allPlayers[i].src))
         {
-            this.style.border = "2px solid #f1f1f1";
-            this.style.background = "#f1f1f1";
-            console.log(this.src);
-        });
+            allPlayers[i].style.border = "2px solid #CCCCFF";
+            allPlayers[i].style.background = "#f1f1f1";
+        }
+        else // if we've never played this, set an event in case we do
+        {
+            allPlayers[i].addEventListener('play', function(event)
+            {
+                this.style.border = "2px solid #CCCCFF";
+                this.style.background = "#f1f1f1";
+                AddToPlayed(this.src);
+            });
+        }
     }
 
 </script>
