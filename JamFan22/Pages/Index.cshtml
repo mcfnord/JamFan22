@@ -746,6 +746,17 @@ var loginHashTest = localStorage.getItem("loginHash");
         behavior: 'smooth'
     });
 
+    // Connect new snippets to a player sensor
+    allPlayers = document.getElementsByClassName('playa');
+
+    for(var i=0; i<allPlayers.length; i++)
+    {
+        allPlayers[i].addEventListener('play', function(event)
+        {
+            this.style.border = "2px solid #FFFFCC";
+        });
+    }
+
 </script>
 
 

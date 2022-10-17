@@ -1420,8 +1420,17 @@ namespace JamFan22.Pages
                     // if we find this server address in the activity report, show its url
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
+                    // serverAddress = "testy"; // for always finding on windows during testing.
+                    // string FULLPATH = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\" + serverAddress + ".mp3";
+
                     string FULLPATH = "/root/JamFan22/JamFan22/wwwroot/mp3s/" + serverAddress + ".mp3" ;
-                    string liveSnippet = (System.IO.File.Exists(FULLPATH) ? "<audio controls style='width: 150px;' src='mp3s/" + serverAddress + ".mp3' />" : "");
+                    
+                    string liveSnippet =
+                        (
+//                        true // for testing on Windows
+                        System.IO.File.Exists(FULLPATH)
+                            ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + serverAddress + ".mp3' />"
+                            : "");
 
                         newline +=
                         "<font size='-1'>" +
