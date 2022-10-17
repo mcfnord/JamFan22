@@ -1421,15 +1421,22 @@ namespace JamFan22.Pages
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
                     // serverAddress = "testy"; // for always finding on windows during testing.
-                    // string FULLPATH = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\" + serverAddress + ".mp3";
+                    // string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+                    string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+                    string wildcard = serverAddress + "*";
 
-                    string FULLPATH = "/root/JamFan22/JamFan22/wwwroot/mp3s/" + serverAddress + ".mp3" ;
-                    
+                    var files = Directory.GetFiles(DIR, wildcard);
+                    string myFile = null;
+                    if(files.GetLength(0) > 0)
+                    {
+                        myFile = Path.GetFileName(files[0]);
+                    }
+
                     string liveSnippet =
                         (
-//                        true // for testing on Windows
-                        System.IO.File.Exists(FULLPATH)
-                            ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + serverAddress + ".mp3' />"
+                        myFile != null
+                        //System.IO.File.Exists(FULLPATH)
+                            ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
                             : "");
 
                         newline +=
