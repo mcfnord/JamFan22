@@ -1837,8 +1837,14 @@ namespace JamFan22.Pages
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3")) 
+                                string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+                                string wildcard = fullAddress + "*";
+                                var files = Directory.GetFiles(DIR, wildcard);
+                                if (files.GetLength(0) == 0)
                                 {
+//                                }
+//                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
+//                                {
                                     svrActivesIpPort.Add(fullAddress);
                                 }
                                 else
