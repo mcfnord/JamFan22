@@ -1420,9 +1420,18 @@ namespace JamFan22.Pages
                     // if we find this server address in the activity report, show its url
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
-                    // serverAddress = "testy"; // for always finding on windows during testing.
-                    // string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
-                    string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+                    string DIR = "";
+
+                    if (false)//debugging on windows
+                    {
+                        serverAddress = "foo"; // for always finding on windows during testing.
+                        DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+                    }
+                    else // running in production
+                    {
+                        DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+                    }
+
                     string wildcard = serverAddress + "*";
 
                     var files = Directory.GetFiles(DIR, wildcard);
@@ -1837,15 +1846,24 @@ namespace JamFan22.Pages
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-                                string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for Windows debug
+                                // string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
                                 if (files.GetLength(0) == 0)
                                 {
-//                                }
-//                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
-//                                {
-                                    svrActivesIpPort.Add(fullAddress);
+                                    //                                }
+                                    //                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
+                                    //                                {
+                                    char last = server.ip[server.ip.Length - 1];
+                                    if ((last == '3') || (last == '6'))
+                                    {
+                                        Console.WriteLine("Won't consider 3 or 6 until ghosts are gone.");
+                                    }
+                                    else
+                                    {
+                                        svrActivesIpPort.Add(fullAddress);
+                                    }
                                 }
                                 else
                                 {
