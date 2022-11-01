@@ -1846,8 +1846,8 @@ namespace JamFan22.Pages
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for Windows debug
-                                // string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
+                                //string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for Windows debug
+                                string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
                                 if (files.GetLength(0) == 0)
