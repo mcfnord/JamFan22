@@ -591,6 +591,8 @@ var loginHashTest = localStorage.getItem("loginHash");
             document.write("Join a server in Jamulus. Then <a href='/login'>login to Jamulus.live</a>.<br>");
 </script>
 
+@Html.Raw(Model.SystemStatus)
+
 <div class="grid" style="font-family: Arial, Helvetica, sans-serif;">
     @Html.Raw(@Model.RightNow)
 </div>

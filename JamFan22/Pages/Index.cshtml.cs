@@ -72,6 +72,8 @@ namespace JamFan22.Pages
         public static Dictionary<string, string> LastReportedList = new Dictionary<string, string>();
         static DateTime? LastReportedListGatheredAt = null;
 
+        static List<string> ListServicesOffline = new List<string>();
+
         // Detect every joiner, and using key of actor->target, add IP:PORT to hashset
         // Then I will light up targets this actor joins.
         // i will know how many unique where actor joined target,
@@ -323,6 +325,17 @@ namespace JamFan22.Pages
                 durationBetweenSamples = DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt);
 
             LastReportedListGatheredAt = DateTime.Now;
+
+            // I think I need to know what's broken.
+            ListServicesOffline.Clear();
+            foreach (var key in JamulusListURLs.Keys)
+            {
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                if (serversOnList.Count == 0)
+                {
+                    ListServicesOffline.Add(key);
+                }
+            }
 
             // Each time we mine the list, save the ACTIVE ip:port set in a local file.
             List<string> svrIpPort = new List<string>();
@@ -1981,6 +1994,20 @@ namespace JamFan22.Pages
                 iRefreshDelay += rand.Next(-9, 9);
                 return iRefreshDelay.ToString();
             }
+        }
+
+        public string SystemStatus
+        {
+            get
+            {
+                if (ListServicesOffline.Count == 0)
+                    return "";
+                string ret = "<b>Oops!</b> Couldn't get updates for: ";
+                foreach (var list in ListServicesOffline)
+                    ret += list + ", ";
+                return ret.Substring(0, ret.Length - 2) ; // chop comma
+            }
+            set { }
         }
 
         public string RightNow
