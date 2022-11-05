@@ -1324,6 +1324,19 @@ namespace JamFan22.Pages
                     if (lat.Length > 1 || lon.Length > 1)
                         dist = DistanceFromClient(lat, lon);
 
+                    // In ONE scenario, I cut this distance in half.
+                    if (server.clients.Length == 1)
+                        if (DurationHereInMins(server.name, server.clients[0].name) < 3) // 3 mins means at least 1 refresh where it's featured
+                        {
+                            dist = dist / 2;
+                        }
+                    else
+                        {
+                            dist = dist * 3;
+
+                        }
+
+
                     m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, who, server.clients, people, (int)server.maxclients));
                 }
             }
@@ -1371,7 +1384,7 @@ namespace JamFan22.Pages
             //            output += "<center><table class='table table-light table-hover table-striped'><tr><u><th>Genre<th>Name<th>City<th>Who</u></tr>";
 
             // First all with more than one musician:
-                List<Client> myCopyOfWho = new List<Client>();
+            List<Client> myCopyOfWho = new List<Client>();
             foreach (var s in sortedByDistanceAway)
             {
                 myCopyOfWho.Clear();
@@ -1461,7 +1474,7 @@ namespace JamFan22.Pages
 
                     var files = Directory.GetFiles(DIR, wildcard);
                     string myFile = null;
-                    if(files.GetLength(0) > 0)
+                    if (files.GetLength(0) > 0)
                     {
                         myFile = Path.GetFileName(files[0]);
                     }
@@ -1469,21 +1482,21 @@ namespace JamFan22.Pages
                     string liveSnippet =
                         (
                         myFile != null
-                        //System.IO.File.Exists(FULLPATH)
+                            //System.IO.File.Exists(FULLPATH)
                             ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
                             : "");
 
-                        newline +=
-                        "<font size='-1'>" +
-                        s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
-                        newJamFlag +
-                        ((newJamFlag.Length > 0) ? "<br>" : "") +
-                        ((activeJitsi.Length > 0) ?
-                            //                        ((true) ?
-                            "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
-                        liveSnippet +
-                        "</center><hr>" +
-                        s.who;
+                    newline +=
+                    "<font size='-1'>" +
+                    s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
+                    newJamFlag +
+                    ((newJamFlag.Length > 0) ? "<br>" : "") +
+                    ((activeJitsi.Length > 0) ?
+                        //                        ((true) ?
+                        "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
+                    liveSnippet +
+                    "</center><hr>" +
+                    s.who;
                     if (smartcity != smartNations) // it happens
                     {
                         newline +=
@@ -1493,53 +1506,58 @@ namespace JamFan22.Pages
                     newline += "</div>";
                     output += newline;
                 }
-            }
+                else
+                //            }
 
-            foreach (var s in sortedByDistanceAway)
-            {
-                myCopyOfWho.Clear();
-                // Copy to a list I can screw up:
-                foreach (var cat in s.whoObjectFromSourceData)
+                //            foreach (var s in sortedByDistanceAway)
                 {
-                    if (NukeThisUsername(cat.name, cat.instrument))
-                        continue;
-                    myCopyOfWho.Add(cat);
-                }
-                var s_myUserCount = myCopyOfWho.Count;
+                    myCopyOfWho.Clear();
+                    // Copy to a list I can screw up:
+                    foreach (var cat in s.whoObjectFromSourceData)
+                    {
+                        if (NukeThisUsername(cat.name, cat.instrument))
+                            continue;
+                        myCopyOfWho.Add(cat);
+                    }
+                    //                var s_myUserCount = myCopyOfWho.Count;
 
-                if (s_myUserCount == 1)
-                {
-                    if (DurationHereInMins(s.name, myCopyOfWho[0].name) > 6 * 60)
-                        continue; // if they have sat there for 6 hours, don't show them.
-                                  //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
+                    //                if (s_myUserCount == 1)
+                    //                {
+                    if (myCopyOfWho.Count > 0)
+                    {
+                        if (DurationHereInMins(s.name, myCopyOfWho[0].name) > 6 * 60)
+                            continue; // if they have sat there for 6 hours, don't show them.
+                                      //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
 
-                    if (s.name == "JamPad")
-                        continue;
+                        if (s.name == "JamPad")
+                            continue;
 
-                    string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
+                        string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
 
-                    string noBRName = s.who;
-                    noBRName = noBRName.Replace("<br/>", " ");
+                        string noBRName = s.who;
+                        noBRName = noBRName.Replace("<br/>", " ");
 
-                    var newline = "<div><center>";
-                    //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
-                    //                        serverAddress +
+                        var newline = "<div><center>";
+                        //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
+                        //                        serverAddress +
 
-                    if (s.name.Length > 0)
-                        newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
+                        if (s.name.Length > 0)
+                            newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
 
-                    if (smartcity.Length > 0)
-                        newline += "<b>" + smartcity + "</b><br>";
+                        if (smartcity.Length > 0)
+                            newline += "<b>" + smartcity + "</b><br>";
 
-                    newline +=
-                        "<font size='-1'>" +
-                        s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
-                        //                        newJamFlag +
-                        "</center><hr>" +
-                        noBRName +
-                        DurationHere(s.name, myCopyOfWho[0].name) + "</div>";  // we know there's just one! i hope!
+                        newline +=
+                            "<font size='-1'>" +
+                            s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
+                            //                        newJamFlag +
+                            "</center><hr>" +
+                            noBRName +
+                            DurationHere(s.name, myCopyOfWho[0].name) + "</div>";  // we know there's just one! i hope!
 
-                    output += newline;
+                        output += newline;
+                    }
+                    //                }
                 }
             }
 
