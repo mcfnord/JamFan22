@@ -60,13 +60,23 @@ namespace JamFan22.Pages
 
         public static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
-{"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" },
-            {"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
+            /*
+{"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" }
+,{"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
 ,{"Any Genre 3", "https://jamulus.softins.co.uk/servers.php?central=anygenre3.jamulus.io:22624" }
 ,{"Genre Rock",  "https://jamulus.softins.co.uk/servers.php?central=rock.jamulus.io:22424" }
 ,{"Genre Jazz",  "https://jamulus.softins.co.uk/servers.php?central=jazz.jamulus.io:22324" }
 ,{"Genre Classical/Folk",  "https://jamulus.softins.co.uk/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Choral/BBShop",  "https://jamulus.softins.co.uk/servers.php?central=choral.jamulus.io:22724" }
+            */
+{"Any Genre 1", "http://147.182.226.170/servers.php?central=anygenre1.jamulus.io:22124" }
+,{"Any Genre 2", "http://147.182.226.170/servers.php?central=anygenre2.jamulus.io:22224" }
+,{"Any Genre 3", "http://147.182.226.170/servers.php?central=anygenre3.jamulus.io:22624" }
+,{"Genre Rock",  "http://147.182.226.170/servers.php?central=rock.jamulus.io:22424" }
+,{"Genre Jazz",  "http://147.182.226.170/servers.php?central=jazz.jamulus.io:22324" }
+,{"Genre Classical/Folk",  "http://147.182.226.170/servers.php?central=classical.jamulus.io:22524" }
+,{"Genre Choral/BBShop",  "http://147.182.226.170/servers.php?central=choral.jamulus.io:22724" }
+
         };
 
         public static Dictionary<string, string> LastReportedList = new Dictionary<string, string>();
