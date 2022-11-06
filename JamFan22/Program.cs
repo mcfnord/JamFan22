@@ -31,6 +31,14 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 
+app.MapGet("/servers/{target}", (string target, HttpContext context) =>
+{
+    using var client = new HttpClient();
+    System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://147.182.226.170/servers.php?central=" + target);
+    task.Wait();
+    return task.Result;
+});
+
 app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =>
     {
         JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
