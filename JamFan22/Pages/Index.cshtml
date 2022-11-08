@@ -789,14 +789,14 @@ var loginHashTest = localStorage.getItem("loginHash");
         // is allPlayers[i].src on the list? show as played if so. add event listener if not
         if(PlayedBefore(allPlayers[i].src))
         {
-            allPlayers[i].style.border = "2px solid #CCCCFF";
+            allPlayers[i].style.border = "3px solid #AAAAFF";
             allPlayers[i].style.background = "#f1f1f1";
         }
         else // if we've never played this, set an event in case we do
         {
             allPlayers[i].addEventListener('play', function(event)
             {
-                this.style.border = "2px solid #CCCCFF";
+                this.style.border = "3px solid #AAAAFF";
                 this.style.background = "#f1f1f1";
                 AddToPlayed(this.src);
             });
