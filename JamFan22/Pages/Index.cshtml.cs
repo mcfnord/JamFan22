@@ -468,64 +468,78 @@ namespace JamFan22.Pages
                 }
             }
 
-            /*
+            // I'm gonna track server sightings in a separate loop.
+            foreach (var key in JamulusListURLs.Keys)
             {
-                byte[] bytes = System.Text.Encoding.UTF8.GetBytes("mcfnord" + "United States" + "-");
-                var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-                string stringHashOfMe = System.Convert.ToBase64String(hashOfGuy);
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                foreach (var server in serversOnList)
+                {
+                    // I care when I FIRST saw this server.
+                    if (false == m_serverFirstSeen.ContainsKey(server.ip + ":" + server.port))
+                        m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
+                }
+            }
+        }
 
-                // 1) with me by duration
-                if (m_userConnectDurationPerUser.ContainsKey(stringHashOfMe))
-                    {
-                    var allMyDurations = m_userConnectDurationPerUser[stringHashOfMe];
 
-                    var sortedByLongestTime = allMyDurations.OrderBy(dude => dude.Value);
-                    foreach (var them in sortedByLongestTime)
+        /*
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes("mcfnord" + "United States" + "-");
+            var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
+            string stringHashOfMe = System.Convert.ToBase64String(hashOfGuy);
+
+            // 1) with me by duration
+            if (m_userConnectDurationPerUser.ContainsKey(stringHashOfMe))
+                {
+                var allMyDurations = m_userConnectDurationPerUser[stringHashOfMe];
+
+                var sortedByLongestTime = allMyDurations.OrderBy(dude => dude.Value);
+                foreach (var them in sortedByLongestTime)
+                {
+                    //                    Console.WriteLine(them.Key + " " + them.Value.ToString());
+                }
+
+                /////////////////////////////////////////////////////////////////////////////////
+                /////////////////////////////////////////////////////////////////////////////////
+                /////////////////////////////////////////////////////////////////////////////////
+                /////////////////////////////////////////////////////////////////////////////////
+                // Create a new duration that is actually the old one multiplied by # of servers where i joined you
+                {
+                    var cookedDurations = new Dictionary<string, TimeSpan>();
+                    foreach (var someoneElse in m_userConnectDurationPerUser[stringHashOfMe])
                     {
-                        //                    Console.WriteLine(them.Key + " " + them.Value.ToString());
+
+                        // Just start duration with total time togetther,
+                        // regardless of who joined who.
+                        cookedDurations[someoneElse.Key] = someoneElse.Value;
+                        // and this shoots up for people I've joined, but even true north accrues here.
+                        // even if he just joined me.
+
+                        // make a key with me as actor, you as target
+                        string us = stringHashOfMe + someoneElse.Key;
+                        if (m_everywhereIveJoinedYou.ContainsKey(us))
+                        {
+                            var newCookedDuration = m_everywhereIveJoinedYou[us].Count * someoneElse.Value;
+                            cookedDurations[someoneElse.Key] += newCookedDuration;
+                        }
                     }
 
-                    /////////////////////////////////////////////////////////////////////////////////
-                    /////////////////////////////////////////////////////////////////////////////////
-                    /////////////////////////////////////////////////////////////////////////////////
-                    /////////////////////////////////////////////////////////////////////////////////
-                    // Create a new duration that is actually the old one multiplied by # of servers where i joined you
+                    var orderedCookedDurations = cookedDurations.OrderByDescending(dude => dude.Value);
+                    foreach (var guy in orderedCookedDurations)
                     {
-                        var cookedDurations = new Dictionary<string, TimeSpan>();
-                        foreach (var someoneElse in m_userConnectDurationPerUser[stringHashOfMe])
+                        Console.Write(NameFromHash(guy.Key) + " " + guy.Value + " ");
+                        string us = stringHashOfMe + guy.Key;
+                        if (m_everywhereIveJoinedYou.ContainsKey(us))
                         {
-
-                            // Just start duration with total time togetther,
-                            // regardless of who joined who.
-                            cookedDurations[someoneElse.Key] = someoneElse.Value;
-                            // and this shoots up for people I've joined, but even true north accrues here.
-                            // even if he just joined me.
-
-                            // make a key with me as actor, you as target
-                            string us = stringHashOfMe + someoneElse.Key;
-                            if (m_everywhereIveJoinedYou.ContainsKey(us))
-                            {
-                                var newCookedDuration = m_everywhereIveJoinedYou[us].Count * someoneElse.Value;
-                                cookedDurations[someoneElse.Key] += newCookedDuration;
-                            }
+                            Console.Write(m_everywhereIveJoinedYou[us].Count);
                         }
-
-                        var orderedCookedDurations = cookedDurations.OrderByDescending(dude => dude.Value);
-                        foreach (var guy in orderedCookedDurations)
-                        {
-                            Console.Write(NameFromHash(guy.Key) + " " + guy.Value + " ");
-                            string us = stringHashOfMe + guy.Key;
-                            if (m_everywhereIveJoinedYou.ContainsKey(us))
-                            {
-                                Console.Write(m_everywhereIveJoinedYou[us].Count);
-                            }
-                            Console.WriteLine();
-                        }
+                        Console.WriteLine();
                     }
                 }
             }
-            */
         }
+        }
+*/
 
 
         const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
@@ -1147,6 +1161,23 @@ namespace JamFan22.Pages
             }
         }
 
+        static DateTime firstSample = DateTime.Now;
+        public bool NoticeNewbs(string server)
+        {
+            if (DateTime.Now < firstSample.AddHours(1))
+                return false; // just ignore everyone for an hour.
+
+            // was this server was first sighted over an hour ago?
+            if (false == m_serverFirstSeen.ContainsKey(server))
+                return false;
+
+            if (m_serverFirstSeen[server] < DateTime.Now.AddHours(-1))
+                    return false ; // not a noob.
+
+            return true ;
+        }
+        
+
         public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
@@ -1407,11 +1438,7 @@ namespace JamFan22.Pages
 
                 if (s_myUserCount > 1)
                 {
-                    if (s.name == "JamPad")
-                        continue;
-
-                    if (s.name.Contains("RussellGaming"))
-                        continue;
+                    if (s.name == "JamPad") continue;
 
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
@@ -1440,10 +1467,10 @@ namespace JamFan22.Pages
                         if (s.usercount == s.maxusercount)
                             newJamFlag = "<b>(" + LocalizedText("Full", "滿房", "เต็ม", "Voll") + ")</b>";
                         else
+                        {
                             if (s.usercount + 1 == s.maxusercount)
-                            newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)");
-                        //                        if (newJamFlag.Length > 0)
-                        //                            newJamFlag += "<br>";
+                                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)");
+                        }
                         break;
                     }
 
@@ -1488,9 +1515,7 @@ namespace JamFan22.Pages
                     }
 
                     string liveSnippet =
-                        (
-                        myFile != null
-                            //System.IO.File.Exists(FULLPATH)
+                        (myFile != null
                             ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
                             : "");
 
@@ -1500,8 +1525,8 @@ namespace JamFan22.Pages
                     newJamFlag +
                     ((newJamFlag.Length > 0) ? "<br>" : "") +
                     ((activeJitsi.Length > 0) ?
-                        //                        ((true) ?
                         "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
+                    (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") +
                     liveSnippet +
                     "</center><hr>" +
                     s.who;
@@ -1515,9 +1540,6 @@ namespace JamFan22.Pages
                     output += newline;
                 }
                 else
-                //            }
-
-                //            foreach (var s in sortedByDistanceAway)
                 {
                     myCopyOfWho.Clear();
                     // Copy to a list I can screw up:
@@ -1527,10 +1549,7 @@ namespace JamFan22.Pages
                             continue;
                         myCopyOfWho.Add(cat);
                     }
-                    //                var s_myUserCount = myCopyOfWho.Count;
 
-                    //                if (s_myUserCount == 1)
-                    //                {
                     if (myCopyOfWho.Count > 0)
                     {
                         if (DurationHereInMins(s.name, myCopyOfWho[0].name) > 6 * 60)
@@ -1546,8 +1565,6 @@ namespace JamFan22.Pages
                         noBRName = noBRName.Replace("<br/>", " ");
 
                         var newline = "<div><center>";
-                        //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
-                        //                        serverAddress +
 
                         if (s.name.Length > 0)
                             newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
@@ -1558,14 +1575,13 @@ namespace JamFan22.Pages
                         newline +=
                             "<font size='-1'>" +
                             s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
-                            //                        newJamFlag +
+                            (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") +
                             "</center><hr>" +
                             noBRName +
                             DurationHere(s.name, myCopyOfWho[0].name) + "</div>";  // we know there's just one! i hope!
 
                         output += newline;
                     }
-                    //                }
                 }
             }
 
@@ -1597,6 +1613,8 @@ namespace JamFan22.Pages
         public static Dictionary<string, Dictionary<string, TimeSpan>> m_userConnectDurationPerUser = new Dictionary<string, Dictionary<string, TimeSpan>>();
         public static Dictionary<string, HashSet<string>> m_everywhereWeHaveMet = new Dictionary<string, HashSet<string>>();
         public static Dictionary<string, HashSet<string>> m_everywhereIveJoinedYou = new Dictionary<string, HashSet<string>>();
+        public static Dictionary<string, DateTime> m_serverFirstSeen = new Dictionary<string, DateTime>();
+
 
         public static string CanonicalTwoHashes(string hash1, string hash2)
         {
