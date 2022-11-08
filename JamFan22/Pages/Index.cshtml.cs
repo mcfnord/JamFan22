@@ -1324,13 +1324,16 @@ namespace JamFan22.Pages
                     if (lat.Length > 1 || lon.Length > 1)
                         dist = DistanceFromClient(lat, lon);
 
+if(dist < 250)
+dist = 250;
+
                     // In ONE scenario, I cut this distance in half.
                     if (server.clients.Length == 1)
                     {
                         double boost = DurationHereInMins(server.name, server.clients[0].name);
                         if (boost < 3.0)
                             boost = 3.0;
-                        dist = (int) ((double)dist * (boost / 5)); // starts hella close, 
+                        dist = (int) ((double)dist * (boost / 6)); // starts hella close, 
                     }
                     /*
                         if (DurationHereInMins(server.name, server.clients[0].name) < 4) // 3 mins means at least 1 refresh where it's featured
