@@ -1915,8 +1915,8 @@ namespace JamFan22.Pages
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for Windows debug
-                                // string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
+//                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+                                string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
                                 if (files.GetLength(0) == 0)
@@ -1924,15 +1924,7 @@ namespace JamFan22.Pages
                                     //                                }
                                     //                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
                                     //                                {
-                                    char last = server.ip[server.ip.Length - 1];
-                                    if ((last == '3') || (last == '6'))
-                                    {
-                                        Console.WriteLine("Won't consider 3 or 6 until ghosts are gone.");
-                                    }
-                                    else
-                                    {
-                                        svrActivesIpPort.Add(fullAddress);
-                                    }
+                                    svrActivesIpPort.Add(fullAddress);
                                 }
                                 else
                                 {
@@ -1945,11 +1937,21 @@ namespace JamFan22.Pages
                     // apparently only the first line gets processed
                     // so gimme one rando line please
                     var rng = new Random();
-                    if (svrActivesIpPort.Count > 1) // when there's just one active server, Ear doesn't visit. This really means just one unsampled server.
+                    if (svrActivesIpPort.Count > 1) // Do I see more than one unsampled active (2+) server?
                     {
-                        string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
-                        System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
-                        Console.WriteLine("I chose: " + chosen);
+                        // Do I feel lucky about creating a sample?
+                        if (0 != rng.Next(svrActivesIpPort.Count))
+                        {
+                            string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
+                            System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
+                            Console.WriteLine("I chose: " + chosen);
+                        }
+                        else
+                        {
+                            // fewer targets means more empty guesses
+                            System.IO.File.WriteAllLines("serversToSample.txt", new string[] { "" }); 
+                        }    
+                            
                     }
                     else
                     {
