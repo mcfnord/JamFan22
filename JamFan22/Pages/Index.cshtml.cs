@@ -982,6 +982,22 @@ namespace JamFan22.Pages
                     show = "<p align='right'>(" + i + "m)</p>";
                 }
 
+                /*
+                // total mins is five or less. show server most recently visited.
+                Dictionary<string, TimeSpan> whereSeen = new Dictionary<string, TimeSpan>();
+                foreach (var key in LastReportedList.Keys)
+                {
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                    foreach (var aServer in serversOnList)
+                    {
+                        if (aServer.name == server)
+                            continue;
+
+                        whereSeen[aServer.name] = DateTime.Now - cls[who];
+                    }
+                }
+                */
+
                 break;
             }
 
@@ -1512,15 +1528,27 @@ dist = 250;
 
                     var files = Directory.GetFiles(DIR, wildcard);
                     string myFile = null;
+                    bool fSilent = false;
                     if (files.GetLength(0) > 0)
                     {
                         myFile = Path.GetFileName(files[0]);
+                        if (myFile != null)
+                            if (myFile.Contains("silent"))
+                                fSilent = true;
                     }
 
-                    string liveSnippet =
-                        (myFile != null
-                            ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
-                            : "");
+                    string liveSnippet = "";
+                    if (fSilent)
+                    {
+                        liveSnippet = "(Silent?)";
+                    }
+                    else
+                    { 
+                        liveSnippet =
+                            (myFile != null
+                                ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
+                                : "");
+                    }
 
                     newline +=
                     "<font size='-1'>" +
@@ -1918,7 +1946,7 @@ dist = 250;
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-//                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+//                              string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
