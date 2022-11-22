@@ -1,12 +1,12 @@
 var builder = WebApplication.CreateBuilder(args);
 
-///* removed for localhost usage.
+/* removed for localhost usage.
 builder.WebHost.UseKestrel(serverOptions =>
 {
     serverOptions.ListenAnyIP(80);
     serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("rootca.pfx", "jamfan"));
 });
-//*/
+*/
 
 
 // Add services to the container.
@@ -44,8 +44,8 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
         JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
         try
         {
-            // fuck do i not decode?            string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
-            string guid = encodedGuid;
+            string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
+            //string guid = encodedGuid;
 
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
