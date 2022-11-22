@@ -1562,7 +1562,7 @@ dist = 250;
                     string liveSnippet = "";
                     if (fSilent)
                     {
-                        liveSnippet = "(Silent?)";
+//                        liveSnippet = "(Silent?)";
                     }
                     else
                     { 
