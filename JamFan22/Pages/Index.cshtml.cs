@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
 using System.Diagnostics;
+using System.Linq.Expressions;
+using System.Text;
 using System.Text.Json;
 // using MongoDB.Driver;
 
@@ -131,13 +133,24 @@ namespace JamFan22.Pages
             return joiners.ToArray();
         }
 
+        public static string ToHex(byte[] bytes, bool upperCase)
+        {
+            StringBuilder result = new StringBuilder(bytes.Length * 2);
+
+            for (int i = 0; i < bytes.Length; i++)
+                result.Append(bytes[i].ToString(upperCase ? "X2" : "x2"));
+
+            return result.ToString();
+        }
+
         public static Dictionary<string, string> m_guidNamePairs = new Dictionary<string, string>();
         public static string GetHash(string name, string country, string instrument)
         {
             byte[] bytes = System.Text.Encoding.UTF8.GetBytes(name + country + instrument);
             var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-            var h = System.Convert.ToBase64String(hashOfGuy);
-            m_guidNamePairs[h] = System.Web.HttpUtility.HtmlEncode(name);
+            //var h = System.Convert.ToBase64String(hashOfGuy);
+            var h = ToHex(hashOfGuy, false);
+            m_guidNamePairs[h] = System.Web.HttpUtility.HtmlEncode(name); // This is the name map for JammerMap
             return h;
         }
 
@@ -229,7 +242,16 @@ namespace JamFan22.Pages
             if (null == m_timeTogether)
             {
                 m_timeTogether = new Dictionary<string, TimeSpan>();
-                var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]> (System.IO.File.ReadAllText(TIME_TOGETHER));
+                string s = "[]";
+                try
+                {
+                    s = System.IO.File.ReadAllText(TIME_TOGETHER);
+                }
+                catch( FileNotFoundException )
+                {
+                    Console.WriteLine("The load file was not found, so starting from nothing.");
+                }
+                var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]> (s);
 
                 foreach (var item in a)
                 {
@@ -1946,7 +1968,7 @@ dist = 250;
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-//                              string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+                              //string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
