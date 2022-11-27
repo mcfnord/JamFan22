@@ -605,7 +605,29 @@ var loginHashTest = localStorage.getItem("loginHash");
             document.write("<a href='/login'>Click here to login to a different account</a>. (Do this when you change your name, instrument, or country.)");
 </script>
 
-<br /><br />
+<br />
+
+<script>
+    const noobs = [@Html.Raw(@Model.Noobs)];
+    var divs = document.getElementsByTagName('span');
+
+    // for each noob, find the matching div and colorize
+    
+    for (var i = 0; i < noobs.length; i++) 
+    {
+        for( var j = 0; j < divs.length; j++ )
+        {
+            // divs[0].classList.contains(noobs[1])
+            if (divs[j].classList.contains(noobs[i])) 
+            {
+                divs[j].style.color = "#A0522D";
+                divs[j].style.fontWeight = "bold";
+            }
+        }
+    }
+</script>
+
+<br />
 
 <div id="censusSection">
     <button type="button" class="collapsible">Musicians</button>
