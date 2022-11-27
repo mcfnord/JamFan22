@@ -1,4 +1,6 @@
-﻿using IPGeolocation;
+﻿// #define WINDOWS
+
+using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
@@ -489,6 +491,8 @@ namespace JamFan22.Pages
                     }
                 }
             }
+
+//            TopNoob();
 
             // I'm gonna track server sightings in a separate loop.
             foreach (var key in JamulusListURLs.Keys)
@@ -1214,13 +1218,68 @@ namespace JamFan22.Pages
 
             return true ;
         }
-        
+
+        public string Noobs
+        {
+            get
+            {
+                if (m_timeTogether == null)
+                    return "";
+
+                Dictionary<string, int> appearances = new Dictionary<string, int>();
+                foreach (var key in LastReportedList.Keys)
+                {
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                    foreach (var server in serversOnList)
+                    {
+                        if (server.clients == null)
+                            continue;
+
+                        foreach (var guy in server.clients)
+                        {
+                            // For each client how many apperances?
+                            // cuz maybe the lowest just wins. No interacties.
+                            string guid = GetHash(guy.name, guy.country, guy.instrument);
+                            int matches = 0;
+                            foreach (var pair in m_timeTogether)
+                            {
+                                if (pair.Key.Contains(guid))
+                                {
+                                    matches++;
+                                }
+                            }
+                            appearances[guid] = matches;
+                        }
+                    }
+                }
+
+                var sortedByRarest = appearances.OrderBy(x => x.Value).ToList();
+
+                // const cars = ["Saab", "Volvo", "BMW"];
+                // so return that string subsection
+
+                string s = "";
+
+                foreach (var bro in sortedByRarest.Take(3))
+                {
+                    s += "'" + bro.Key + "',";
+
+                }
+
+                s = s.Substring(0, s.Count() - 1);
+
+                return s;
+            }
+        }
+
+
 
         public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
             await MineLists();
+
 
             // Now for each last reported list, extract all the hmmm servers for now. all them servers by LIST, NAME, CITY, IP ADDRESS
             // cuz I wanna add a new var: Every distance to this client!
@@ -1536,15 +1595,11 @@ dist = 250;
 
                     string DIR = "";
 
-                    if (false)//debugging on windows
-                    {
-                        serverAddress = "foo"; // for always finding on windows during testing.
-                        DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
-                    }
-                    else // running in production
-                    {
-                        DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
-                    }
+#if WINDOWS
+                    DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+#else
+                    DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+#endif
 
                     string wildcard = serverAddress + "*";
 
@@ -1968,8 +2023,11 @@ dist = 250;
                                 string fullAddress = server.ip + ":" + server.port;
 
                                 // Don't want to re-sample if this one's sampled now:
-                              //string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+#if WINDOWS
+                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+#else
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
+#endif                                
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
                                 if (files.GetLength(0) == 0)
