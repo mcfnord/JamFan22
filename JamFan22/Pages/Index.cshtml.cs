@@ -1,4 +1,4 @@
-﻿// #define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -1226,7 +1226,7 @@ namespace JamFan22.Pages
                 if (m_timeTogether == null)
                     return "";
 
-                Dictionary<string, int> appearances = new Dictionary<string, int>();
+                Dictionary<string, TimeSpan> durations = new Dictionary<string, TimeSpan>();
                 foreach (var key in LastReportedList.Keys)
                 {
                     var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
@@ -1240,20 +1240,20 @@ namespace JamFan22.Pages
                             // For each client how many apperances?
                             // cuz maybe the lowest just wins. No interacties.
                             string guid = GetHash(guy.name, guy.country, guy.instrument);
-                            int matches = 0;
+                            TimeSpan duration = new TimeSpan();
                             foreach (var pair in m_timeTogether)
                             {
                                 if (pair.Key.Contains(guid))
                                 {
-                                    matches++;
+                                    duration += pair.Value;
                                 }
                             }
-                            appearances[guid] = matches;
+                            durations[guid] = duration;
                         }
                     }
                 }
 
-                var sortedByRarest = appearances.OrderBy(x => x.Value).ToList();
+                var sortedByRarest = durations.OrderBy(x => x.Value).ToList();
 
                 // const cars = ["Saab", "Volvo", "BMW"];
                 // so return that string subsection
