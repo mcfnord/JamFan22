@@ -206,6 +206,80 @@ namespace JamFan22.Pages
         }
 
 
+        // I AM PROBABLY CALLING THIS AT THE WRONG POINT. and isnow isn't used! one-time update call?
+
+        /* EXPERIMENTAL CODE
+        public static void DetectLeavers(string isnow)
+        {
+            // Detect leavers by finding the most recent timestamp of someone NOT on that server.
+            // Older than 2.5 minutes? Discard.
+            // Young enough?
+            // Then look for them on any OTHER server.
+            // If found elsewhere, and just left here,
+            // In a dictionary for this server's IP:PORT as key, add just that name?
+            // I kinda want "all the names" but this is much simpler.
+            // Just most recent leaver (if within last 2.5 mins)
+            // it'll be kool
+
+            var leavers = new Dictionary<string, List<string>>();
+
+            foreach (var key in JamulusListURLs.Keys)
+            {
+                if (false == LastReportedList.ContainsKey(key))
+                    continue;
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                foreach (var server in serversOnList)
+                {
+                    if (server.clients != null)
+                    {
+                        foreach (var guy in server.clients)
+                        {
+                            var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+
+                            // so i grab every user guid in sequence? and for each I ask if they're on any other server's bye!?
+                            // yeah, by searching for the guid in the keys!
+                            // if more than 1, then label somethin. right?
+                            // but i wonder which server they were on longest.
+                            // maybe just any one they left in the last 2.5 mins!
+
+                            foreach (var sighting in m_connectionLatestSighting)
+                            {
+                                string svr = server.ip + ":" + server.port;
+
+                                // is this sighting about this user?
+                                if (sighting.Key.Contains(stringHashOfGuy))
+                                {
+                                    // i don't care what this guy did on this server, only on others?
+                                    if (sighting.Key.Contains(svr))
+                                        continue;
+                                }
+                                // if sighting is on the server i'm on now,
+                                // then i don't care about it.
+
+                                // I ONLY CARE IF THEY LEFTI N THE LAST 3 MINS
+                                if (sighting.Value.AddMinutes(5) < DateTime.Now)
+                                {
+                                    if (false == leavers.ContainsKey(svr))
+                                        leavers[svr] = new List<string>();
+                                    leavers[svr].Add(stringHashOfGuy);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Do we know all the leavers now? 
+            // and when we prepare a leaver card, include their names?
+            // in a list? but not visible? and with user guids invisible?
+            // and i can turn them on based on whether the user knows them.
+            // put a dot where tho?
+            // box 'em! i can stack those up fine right?
+        }
+        */
+
+
+
         // just do our best finding the name on this LIVE DATA
         public static string NameFromHash(string hash)
         {
@@ -352,6 +426,7 @@ namespace JamFan22.Pages
                 if (LastReportedList.ContainsKey(key))
                     DetectJoiners(LastReportedList[key], newReportedList);
                 LastReportedList[key] = newReportedList;
+//                DetectLeavers(LastReportedList[key]);
             }
 
             TimeSpan durationBetweenSamples = new TimeSpan();
@@ -897,46 +972,45 @@ namespace JamFan22.Pages
             m_ipAddrToLatLong[ipAddr] = new LatLong("", "");
         }
 
-        static Dictionary<string, DateTime> cfs = new Dictionary<string, DateTime>(); // connection, first sighting
-        static Dictionary<string, DateTime> cls = new Dictionary<string, DateTime>(); // connection, latest sighting
-
         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
         protected void NotateWhoHere(string server, string who)
         {
+            Debug.Assert(who.Length == "b707dc8fc6516826fbe9b4aa84d1553a".Length);
             //            Console.WriteLine(server, who);
-            string hash = server + who;
+            string hash = who + server ;
 
             try
             {
                 // maybe we never heard of them.
-                if (false == cfs.ContainsKey(hash))
+                if (false == m_connectionFirstSighting.ContainsKey(hash))
                 {
-                    cfs[hash] = DateTime.Now;
+                    m_connectionFirstSighting[hash] = DateTime.Now;
                     return; // don't forget the finally!
                 }
 
                 // ok, we heard of them. Have 10 minutes elapsed since we saw them last? Like, maybe nobody has run my app. So ten mins.
-                if (DateTime.Now > cls[hash].AddMinutes(10))
+                if (DateTime.Now > m_connectionLatestSighting[hash].AddMinutes(10))
                 {
                     // Yeah? Restart their initial sighting clock.
-                    cfs[hash] = DateTime.Now;
+                    m_connectionFirstSighting[hash] = DateTime.Now;
                 }
 
                 // we saw them recently. Just update their last Time Last Seen...
             }
             finally
             {
-                cls[hash] = DateTime.Now;
+                m_connectionLatestSighting[hash] = DateTime.Now;
             }
         }
 
 
         protected double DurationHereInMins(string server, string who)
         {
-            string hash = server + who;
-            if (cfs.ContainsKey(hash))
+            Debug.Assert(who.Length == "b707dc8fc6516826fbe9b4aa84d1553a".Length);
+            string hash = who + server ;
+            if (m_connectionFirstSighting.ContainsKey(hash))
             {
-                TimeSpan ts = DateTime.Now.Subtract(cfs[hash]);
+                TimeSpan ts = DateTime.Now.Subtract(m_connectionFirstSighting[hash]);
                 return ts.TotalMinutes;
             }
             return -1; //
@@ -964,14 +1038,15 @@ namespace JamFan22.Pages
         }
         protected string DurationHere(string server, string who)
         {
-            string hash = server + who;
-            if (false == cfs.ContainsKey(hash))
+            Debug.Assert(who.Length == "b707dc8fc6516826fbe9b4aa84d1553a".Length);
+            string hash = who + server ;
+            if (false == m_connectionFirstSighting.ContainsKey(hash))
                 return "";
 
             string show = "";
             while (true)
             {
-                TimeSpan ts = DateTime.Now.Subtract(cfs[hash]);
+                TimeSpan ts = DateTime.Now.Subtract(m_connectionFirstSighting[hash]);
 
                 /*
                 if (ts.Days > 0)
@@ -1312,7 +1387,7 @@ namespace JamFan22.Pages
                         if (guy.name.ToLower().Contains("script"))
                             continue; // no XSS please
                         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
-                        NotateWhoHere(server.name, guy.name);
+                        NotateWhoHere(server.ip + ":" + server.port, GetHash(guy.name, guy.country, guy.instrument)) ;
 
                         if (NukeThisUsername(guy.name, guy.instrument))
                             continue;
@@ -1458,7 +1533,9 @@ dist = 250;
                     // In ONE scenario, I cut this distance in half.
                     if (server.clients.Length == 1)
                     {
-                        double boost = DurationHereInMins(server.name, server.clients[0].name);
+                        double boost = DurationHereInMins(server.ip + ":" + server.port,
+                            GetHash(server.clients[0].name, server.clients[0].country, server.clients[0].instrument));
+
                         if (boost < 3.0)
                             boost = 3.0;
                         dist = (int) ((double)dist * (boost / 6)); // starts hella close, 
@@ -1544,7 +1621,7 @@ dist = 250;
                     bool fSuppress = true;
                     foreach (var user in myCopyOfWho)
                     {
-                        if (DurationHereInMins(s.name, user.name) < 8 * 60)
+                        if (DurationHereInMins( s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 8 * 60) 
                         {
                             fSuppress = false;
                             break; // someone was here less than 8 hours.
@@ -1559,7 +1636,7 @@ dist = 250;
                     {
                         string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
                         newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ") : "") + translatedPhrase + ")";
-                        if (DurationHereInMins(s.name, user.name) < 14)
+                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 14)
                             continue;
 
                         // I guess Just Gatghered can only appear after the gathering period has elapsed. Maybe that's ok.
@@ -1660,7 +1737,7 @@ dist = 250;
 
                     if (myCopyOfWho.Count > 0)
                     {
-                        if (DurationHereInMins(s.name, myCopyOfWho[0].name) > 6 * 60)
+                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(myCopyOfWho[0].name, myCopyOfWho[0].country, myCopyOfWho[0].instrument)) > 6 * 60)
                             continue; // if they have sat there for 6 hours, don't show them.
                                       //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
 
@@ -1686,7 +1763,7 @@ dist = 250;
                             (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") +
                             "</center><hr>" +
                             noBRName +
-                            DurationHere(s.name, myCopyOfWho[0].name) + "</div>";  // we know there's just one! i hope!
+                            DurationHere(s.serverIpAddress + ":" + s.serverPort, GetHash(myCopyOfWho[0].name, myCopyOfWho[0].country, myCopyOfWho[0].instrument)) + "</div>";  // we know there's just one! i hope!
 
                         output += newline;
                     }
@@ -1722,6 +1799,9 @@ dist = 250;
         public static Dictionary<string, HashSet<string>> m_everywhereWeHaveMet = new Dictionary<string, HashSet<string>>();
         public static Dictionary<string, HashSet<string>> m_everywhereIveJoinedYou = new Dictionary<string, HashSet<string>>();
         public static Dictionary<string, DateTime> m_serverFirstSeen = new Dictionary<string, DateTime>();
+        public static Dictionary<string, DateTime> m_connectionFirstSighting = new Dictionary<string, DateTime>(); // connection, first sighting
+        public static Dictionary<string, DateTime> m_connectionLatestSighting = new Dictionary<string, DateTime>(); // connection, latest sighting
+
 
 
         public static string CanonicalTwoHashes(string hash1, string hash2)
@@ -2019,6 +2099,8 @@ dist = 250;
                                     peepCount = server.clients.GetLength(0);
                                 if (peepCount < 2)
                                     continue; // just fuckin don't care about 0 or even 1
+                                if (server.name.ToLower().Contains("oscev")) // never sample "OSCev"
+                                    continue; 
 
                                 string fullAddress = server.ip + ":" + server.port;
 
