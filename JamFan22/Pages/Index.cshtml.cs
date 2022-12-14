@@ -206,6 +206,80 @@ namespace JamFan22.Pages
         }
 
 
+        // I AM PROBABLY CALLING THIS AT THE WRONG POINT. and isnow isn't used! one-time update call?
+
+        /* EXPERIMENTAL CODE
+        public static void DetectLeavers(string isnow)
+        {
+            // Detect leavers by finding the most recent timestamp of someone NOT on that server.
+            // Older than 2.5 minutes? Discard.
+            // Young enough?
+            // Then look for them on any OTHER server.
+            // If found elsewhere, and just left here,
+            // In a dictionary for this server's IP:PORT as key, add just that name?
+            // I kinda want "all the names" but this is much simpler.
+            // Just most recent leaver (if within last 2.5 mins)
+            // it'll be kool
+
+            var leavers = new Dictionary<string, List<string>>();
+
+            foreach (var key in JamulusListURLs.Keys)
+            {
+                if (false == LastReportedList.ContainsKey(key))
+                    continue;
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                foreach (var server in serversOnList)
+                {
+                    if (server.clients != null)
+                    {
+                        foreach (var guy in server.clients)
+                        {
+                            var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+
+                            // so i grab every user guid in sequence? and for each I ask if they're on any other server's bye!?
+                            // yeah, by searching for the guid in the keys!
+                            // if more than 1, then label somethin. right?
+                            // but i wonder which server they were on longest.
+                            // maybe just any one they left in the last 2.5 mins!
+
+                            foreach (var sighting in m_connectionLatestSighting)
+                            {
+                                string svr = server.ip + ":" + server.port;
+
+                                // is this sighting about this user?
+                                if (sighting.Key.Contains(stringHashOfGuy))
+                                {
+                                    // i don't care what this guy did on this server, only on others?
+                                    if (sighting.Key.Contains(svr))
+                                        continue;
+                                }
+                                // if sighting is on the server i'm on now,
+                                // then i don't care about it.
+
+                                // I ONLY CARE IF THEY LEFTI N THE LAST 3 MINS
+                                if (sighting.Value.AddMinutes(5) < DateTime.Now)
+                                {
+                                    if (false == leavers.ContainsKey(svr))
+                                        leavers[svr] = new List<string>();
+                                    leavers[svr].Add(stringHashOfGuy);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Do we know all the leavers now? 
+            // and when we prepare a leaver card, include their names?
+            // in a list? but not visible? and with user guids invisible?
+            // and i can turn them on based on whether the user knows them.
+            // put a dot where tho?
+            // box 'em! i can stack those up fine right?
+        }
+        */
+
+
+
         // just do our best finding the name on this LIVE DATA
         public static string NameFromHash(string hash)
         {
@@ -352,6 +426,7 @@ namespace JamFan22.Pages
                 if (LastReportedList.ContainsKey(key))
                     DetectJoiners(LastReportedList[key], newReportedList);
                 LastReportedList[key] = newReportedList;
+//                DetectLeavers(LastReportedList[key]);
             }
 
             TimeSpan durationBetweenSamples = new TimeSpan();
@@ -2024,6 +2099,8 @@ dist = 250;
                                     peepCount = server.clients.GetLength(0);
                                 if (peepCount < 2)
                                     continue; // just fuckin don't care about 0 or even 1
+                                if (server.name.ToLower().Contains("oscev")) // never sample "OSCev"
+                                    continue; 
 
                                 string fullAddress = server.ip + ":" + server.port;
 
