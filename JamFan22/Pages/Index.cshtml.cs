@@ -1,4 +1,4 @@
-﻿#define WINDOWS
+//﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -2099,7 +2099,7 @@ dist = 250;
                                     peepCount = server.clients.GetLength(0);
                                 if (peepCount < 2)
                                     continue; // just fuckin don't care about 0 or even 1
-                                if (server.name.ToLower().Contains("oscev")) // never sample "OSCev"
+                                if (server.name.ToLower().Contains("oscv")) // never sample "OSCvev"
                                     continue; 
 
                                 string fullAddress = server.ip + ":" + server.port;
