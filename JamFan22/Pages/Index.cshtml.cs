@@ -1316,14 +1316,22 @@ namespace JamFan22.Pages
                             // cuz maybe the lowest just wins. No interacties.
                             string guid = GetHash(guy.name, guy.country, guy.instrument);
                             TimeSpan duration = new TimeSpan();
-                            foreach (var pair in m_timeTogether)
+                            try
                             {
-                                if (pair.Key.Contains(guid))
+                                foreach (var pair in m_timeTogether)
                                 {
-                                    duration += pair.Value;
+                                    if (pair.Key.Contains(guid))
+                                    {
+                                        duration += pair.Value;
+                                    }
                                 }
+                                durations[guid] = duration;
                             }
-                            durations[guid] = duration;
+                            catch (InvalidOperationException e)
+                            {
+                                Console.WriteLine("no noobs cuz collection modified.");
+                                return "";
+                            }
                         }
                     }
                 }
