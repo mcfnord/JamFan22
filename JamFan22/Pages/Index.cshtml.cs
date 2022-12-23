@@ -1,4 +1,4 @@
-﻿#define WINDOWS
+﻿//#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
