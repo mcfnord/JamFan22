@@ -856,6 +856,8 @@ namespace JamFan22.Pages
         {
             if (placeName.Length < 3)
                 return false;
+            if (placeName == "MOON")
+                return false;
             string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
             string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
             using var client = new HttpClient();
@@ -1377,6 +1379,8 @@ namespace JamFan22.Pages
                         continue; // we don't let this happen! XSS attack
                     if (server.city.ToLower().Contains("script"))
                         continue; // we don't let this happen! XSS attack
+                    if (server.name.ToLower().Contains("jxw"))
+                        continue; // they wanna talk chinese, with no music
 
                     int people = 0;
                     if (server.clients != null)
