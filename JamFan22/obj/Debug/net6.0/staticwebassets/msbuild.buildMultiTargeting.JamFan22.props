@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\JamFan22.props" />
+</Project>
