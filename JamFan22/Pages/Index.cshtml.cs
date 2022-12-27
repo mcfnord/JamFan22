@@ -1743,8 +1743,8 @@ dist = 250;
                     {
                         if(entry.Key.Contains(s.serverIpAddress + ":" + s.serverPort))
                         {
-                            // someone left htis server. between 1-5 minutes ago?
-                            if(entry.Value.AddMinutes(5) > DateTime.Now)
+                            // someone left htis server. between 1-4 minutes ago?
+                            if(entry.Value.AddMinutes(4) > DateTime.Now)
                                 if(entry.Value.AddMinutes(1) < DateTime.Now)
                                 {
                                     // Get the name of this guid from our lookup (cuz they very well might not be online now)
@@ -1763,7 +1763,7 @@ dist = 250;
 
                                             if(user.name.Length > 3)
                                             if(name.Length > 3 )
-                                            if (user.name.Substring(0, 3) == name.Substring(0,3))
+                                            if (user.name.ToLower().Substring(0, 3) == name.ToLower().Substring(0,3))
                                             {
                                                 fFound = true;
                                                 break;
