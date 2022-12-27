@@ -1,17 +1,13 @@
 ﻿#define WINDOWS
 
 using IPGeolocation;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
-using System;
 using System.Diagnostics;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 using System.Text.Json;
-using System.Xml.Linq;
 // using MongoDB.Driver;
 
 namespace JamFan22.Pages
@@ -1006,7 +1002,6 @@ namespace JamFan22.Pages
             finally
             {
                 m_connectionLatestSighting[hash] = DateTime.Now;
-//                m_lastSightings[hash + server]
             }
         }
 
@@ -1155,8 +1150,6 @@ namespace JamFan22.Pages
 
         static List<ServersForMe> m_allMyServers = null;
 
-        const string WholeMiddotString = " &#xB7; ";
-
 
         public string SmartNations(Client[] whoObject, string servercountry)
         {
@@ -1188,6 +1181,7 @@ namespace JamFan22.Pages
                     }
             }
 
+            const string WholeMiddotString = " &#xB7; ";
             if (fNeeded)
                 foreach (var who in whoObject)
                 {
@@ -1644,7 +1638,7 @@ dist = 250;
                     bool fSuppress = true;
                     foreach (var user in myCopyOfWho)
                     {
-                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 8 * 60)
+                        if (DurationHereInMins( s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 8 * 60) 
                         {
                             fSuppress = false;
                             break; // someone was here less than 8 hours.
@@ -1717,10 +1711,10 @@ dist = 250;
                     string liveSnippet = "";
                     if (fSilent)
                     {
-                        //                        liveSnippet = "(Silent?)";
+//                        liveSnippet = "(Silent?)";
                     }
                     else
-                    {
+                    { 
                         liveSnippet =
                             (myFile != null
                                 ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
@@ -1738,28 +1732,6 @@ dist = 250;
                     liveSnippet +
                     "</center><hr>" +
                     s.who;
-
-                    // show those who have left
-                    // If my m_connectionLatestSighting is more than a minute, but less than 5 minutes, then I'm a leaver.
-                    string leavers = "";
-                    foreach (var entry in m_connectionLatestSighting)
-                    {
-                        if(entry.Key.Contains(s.serverIpAddress + ":" + s.serverPort))
-                        {
-                            // someone left htis server. between 1-5 minutes ago?
-                            if(entry.Value.AddMinutes(5) > DateTime.Now)
-                                if(entry.Value.AddMinutes(1) < DateTime.Now)
-                                {
-                                    // Get the name of this guid from our lookup (cuz they very well might not be online now)
-                                    string guid = entry.Key.Substring(0, "f2c26681da4d0013563cfd8c0619cfc7".Length);
-                                    string name = m_guidNamePairs[guid];
-                                    leavers += name + WholeMiddotString;
-                                }
-                        }
-                    }
-                    if(leavers.Length > 0)
-                        newline += "<center><font color='gray' size='-2'><i>Bye " + leavers.Substring(0, leavers.Length - (WholeMiddotString.Length + 1)) + "</int></font></center>";
-                    
                     if (smartcity != smartNations) // it happens
                     {
                         newline +=
@@ -1846,7 +1818,6 @@ dist = 250;
         public static Dictionary<string, DateTime> m_serverFirstSeen = new Dictionary<string, DateTime>();
         public static Dictionary<string, DateTime> m_connectionFirstSighting = new Dictionary<string, DateTime>(); // connection, first sighting
         public static Dictionary<string, DateTime> m_connectionLatestSighting = new Dictionary<string, DateTime>(); // connection, latest sighting
-//        public static Dictionary<string, DateTime> m_lastSightings = new Dictionary<string, DateTime>(); // key is guid followed by ip:port of server
 
 
 
