@@ -1,4 +1,4 @@
-﻿//#define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -1149,6 +1149,8 @@ namespace JamFan22.Pages
 
 
         static List<ServersForMe> m_allMyServers = null;
+        
+        const string WholeMiddotString = " &#xB7; ";
 
 
         public string SmartNations(Client[] whoObject, string servercountry)
@@ -1181,7 +1183,6 @@ namespace JamFan22.Pages
                     }
             }
 
-            const string WholeMiddotString = " &#xB7; ";
             if (fNeeded)
                 foreach (var who in whoObject)
                 {
@@ -1256,8 +1257,13 @@ namespace JamFan22.Pages
         static bool NukeThisUsername(string name, string instrument)
         {
             var trimmed = name.Trim();
+
+            if (trimmed.Contains("LowBot"))
+                return true;
+
             switch (trimmed.ToUpper())
             {
+                case "BIT A BIT": return true;
                 case "JAMONET": return true;
                 case "JAMSUCKER": return true;
                 case "JAM FEED": return true;
@@ -1381,6 +1387,8 @@ namespace JamFan22.Pages
                         continue; // we don't let this happen! XSS attack
                     if (server.name.ToLower().Contains("jxw"))
                         continue; // they wanna talk chinese, with no music
+                    if (server.city.ToLower().Contains("peterborough"))
+                        continue; // bye jimmy
 
                     int people = 0;
                     if (server.clients != null)
@@ -1727,6 +1735,49 @@ dist = 250;
                     liveSnippet +
                     "</center><hr>" +
                     s.who;
+
+                    // show those who have left
+                    // If my m_connectionLatestSighting is more than a minute, but less than 5 minutes, then I'm a leaver.
+                    string leavers = "";
+                    foreach (var entry in m_connectionLatestSighting)
+                    {
+                        if(entry.Key.Contains(s.serverIpAddress + ":" + s.serverPort))
+                        {
+                            // someone left htis server. between 1-5 minutes ago?
+                            if(entry.Value.AddMinutes(5) > DateTime.Now)
+                                if(entry.Value.AddMinutes(1) < DateTime.Now)
+                                {
+                                    // Get the name of this guid from our lookup (cuz they very well might not be online now)
+                                    string guid = entry.Key.Substring(0, "f2c26681da4d0013563cfd8c0619cfc7".Length);
+                                    string name = m_guidNamePairs[guid];
+                                    if (name != "No Name")
+                                    if (name != "Ear")
+                                    if(false == leavers.Contains(name))
+                                    {
+                                            // see if this name is someone on this server now (changed instrument maybe)
+                                        bool fFound = false;
+                                        foreach (var user in  s.whoObjectFromSourceData)
+                                        {
+                                            if (user.name == name)
+                                                fFound = true;
+
+                                            if(user.name.Length > 3)
+                                            if(name.Length > 3 )
+                                            if (user.name.Substring(0, 3) == name.Substring(0,3))
+                                            {
+                                                fFound = true;
+                                                break;
+                                            }
+                                        }
+                                        if(false == fFound)
+                                            leavers += name + WholeMiddotString;
+                                    }
+                                }
+                        }
+                    }
+                    if(leavers.Length > 0)
+                        newline += "<center><font color='gray' size='-2'><i>Bye " + leavers.Substring(0, leavers.Length - WholeMiddotString.Length) + "</i></font></center>";
+                    
                     if (smartcity != smartNations) // it happens
                     {
                         newline +=
