@@ -1,4 +1,4 @@
-﻿//#define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -1256,8 +1256,13 @@ namespace JamFan22.Pages
         static bool NukeThisUsername(string name, string instrument)
         {
             var trimmed = name.Trim();
+
+            if (trimmed.Contains("LowBot"))
+                return true;
+
             switch (trimmed.ToUpper())
             {
+                case "BIT A BIT": return true;
                 case "JAMONET": return true;
                 case "JAMSUCKER": return true;
                 case "JAM FEED": return true;
@@ -1685,7 +1690,7 @@ dist = 250;
                     string DIR = "";
 
 #if WINDOWS
-                    DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+                    DIR = "C:\\Users\\User\\source\\repos\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
 #else
                     DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
 #endif
@@ -2118,7 +2123,7 @@ dist = 250;
 
                                 // Don't want to re-sample if this one's sampled now:
 #if WINDOWS
-                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+                                string DIR = "C:\\Users\\User\\source\\repos\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
 #else
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
 #endif                                
