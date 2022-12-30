@@ -1752,7 +1752,7 @@ dist = 250;
                                     string name = m_guidNamePairs[guid];
                                     if (name != "No Name")
                                     if (name != "Ear")
-                                    if(false == leavers.Contains(name))
+                                    if(false == leavers.Replace("&nbsp;", " ").Contains(name))
                                     {
                                             // see if this name is someone on this server now (changed instrument maybe)
                                         bool fFound = false;
@@ -1770,7 +1770,7 @@ dist = 250;
                                             }
                                         }
                                         if(false == fFound)
-                                            leavers += name + WholeMiddotString;
+                                            leavers += name.Replace(" ", "&nbsp;") + WholeMiddotString;
                                     }
                                 }
                         }
