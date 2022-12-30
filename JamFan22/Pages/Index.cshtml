@@ -513,6 +513,10 @@
     {
         var retrievedData = localStorage.getItem(PlayedTracks) ;
 
+        // i don't like seeing duplicates! so kill the whole list now and then please
+        if (Math.floor(Math.random() * 5) < 1)
+            retrievedData = null ;
+
         if (null === retrievedData) {
             localStorage.setItem(PlayedTracks, JSON.stringify([""]));
             retrievedData = localStorage.getItem(PlayedTracks);
