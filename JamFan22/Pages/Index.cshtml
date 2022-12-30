@@ -513,10 +513,6 @@
     {
         var retrievedData = localStorage.getItem(PlayedTracks) ;
 
-        // i don't like seeing duplicates! so kill the whole list now and then please
-        if (Math.floor(Math.random() * 5) < 1)
-            retrievedData = null ;
-
         if (null === retrievedData) {
             localStorage.setItem(PlayedTracks, JSON.stringify([""]));
             retrievedData = localStorage.getItem(PlayedTracks);
@@ -813,6 +809,10 @@ var loginHashTest = localStorage.getItem("loginHash");
 
     for(var i=0; i<allPlayers.length; i++)
     {
+        // For each player, there's 1:12 chance I forget all about what you've clicked.
+        if (Math.floor(Math.random() * 12) < 1)
+            localStorage.setItem(PlayedTracks, JSON.stringify([""]));
+        
         // is allPlayers[i].src on the list? show as played if so. add event listener if not
         if(PlayedBefore(allPlayers[i].src))
         {
