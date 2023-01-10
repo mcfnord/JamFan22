@@ -807,12 +807,12 @@ var loginHashTest = localStorage.getItem("loginHash");
     // Connect new snippets to a player sensor
     allPlayers = document.getElementsByClassName('playa');
 
+    // There's 1:7 chance I forget all about what you've clicked.
+    if (Math.floor(Math.random() * 7) < 1)
+        localStorage.setItem(PlayedTracks, JSON.stringify([""]));
+
     for(var i=0; i<allPlayers.length; i++)
     {
-        // For each player, there's 1:12 chance I forget all about what you've clicked.
-        if (Math.floor(Math.random() * 12) < 1)
-            localStorage.setItem(PlayedTracks, JSON.stringify([""]));
-        
         // is allPlayers[i].src on the list? show as played if so. add event listener if not
         if(PlayedBefore(allPlayers[i].src))
         {
