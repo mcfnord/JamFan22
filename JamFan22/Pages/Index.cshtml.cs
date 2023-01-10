@@ -1304,6 +1304,8 @@ namespace JamFan22.Pages
 
         public string Noobs
         {
+            get { return ""; }
+            /* turn OFF the Noob sensor to see if this is a major CPU suck
             get
             {
                 if (m_timeTogether == null)
@@ -1361,6 +1363,7 @@ namespace JamFan22.Pages
 
                 return s;
             }
+            */
         }
 
 
