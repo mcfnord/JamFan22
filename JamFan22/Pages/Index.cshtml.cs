@@ -1302,12 +1302,14 @@ namespace JamFan22.Pages
             return true ;
         }
 
+        static int minuteOfSample = -1 ;
+        static string cachedResult = "";
         public string Noobs
         {
-            get { return ""; }
-            /* turn OFF the Noob sensor to see if this is a major CPU suck
-            get
-            {
+            get {
+                if (DateTime.Now.Minute == minuteOfSample)
+                    return cachedResult;
+
                 if (m_timeTogether == null)
                     return "";
 
@@ -1361,9 +1363,11 @@ namespace JamFan22.Pages
 
                 s = s.Substring(0, s.Count() - 1);
 
-                return s;
+                cachedResult = s;
+                minuteOfSample = DateTime.Now.Minute;
+
+                return cachedResult;
             }
-            */
         }
 
 
