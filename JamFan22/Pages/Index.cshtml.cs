@@ -1813,6 +1813,8 @@ dist = 250;
 
                         if (s.name == "JamPad")
                             continue;
+                        if (s.name == "portable")
+                            continue;
 
                         string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
 
