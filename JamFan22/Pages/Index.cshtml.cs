@@ -2170,7 +2170,9 @@ dist = 250;
                                 if (peepCount < 2)
                                     continue; // just fuckin don't care about 0 or even 1
                                 if (server.name.ToLower().Contains("oscv")) // never sample "OSCvev"
-                                    continue; 
+                                    continue;
+                                if (server.name.ToLower().Contains("private")) // don't sample self-described private areas
+                                    continue;
 
                                 string fullAddress = server.ip + ":" + server.port;
 
