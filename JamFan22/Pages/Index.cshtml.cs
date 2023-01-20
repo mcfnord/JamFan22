@@ -1782,8 +1782,12 @@ dist = 250;
                                 }
                         }
                     }
-                    if(leavers.Length > 0)
-                        newline += "<center><font color='gray' size='-2'><i>Bye " + leavers.Substring(0, leavers.Length - WholeMiddotString.Length) + "</i></font></center>";
+                    // LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
+                    if (leavers.Length > 0) 
+                        newline += "<center><font color='gray' size='-2'><i>" 
+                            + LocalizedText("Bye","Bye", "ลาก่อน", "Bye") 
+                            + " " 
+                            + leavers.Substring(0, leavers.Length - WholeMiddotString.Length) + "</i></font></center>";
                     
                     if (smartcity != smartNations) // it happens
                     {
