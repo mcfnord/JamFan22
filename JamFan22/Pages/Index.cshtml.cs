@@ -1738,7 +1738,7 @@ dist = 250;
                     ((newJamFlag.Length > 0) ? "<br>" : "") +
                     ((activeJitsi.Length > 0) ?
                         "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
-                    (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") +
+                    (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(New server.)", "(เซิร์ฟเวอร์ใหม่)", "(New server.)") + "<br>") : "") +
                     liveSnippet +
                     "</center><hr>" +
                     s.who;
@@ -1785,7 +1785,7 @@ dist = 250;
                     // LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
                     if (leavers.Length > 0) 
                         newline += "<center><font color='gray' size='-2'><i>" 
-                            + LocalizedText("Bye","Bye", "ลาก่อน", "Bye") 
+                            + LocalizedText("Bye","Bye", "บ๊ายบาย", "Bye") 
                             + " " 
                             + leavers.Substring(0, leavers.Length - WholeMiddotString.Length) + "</i></font></center>";
                     
