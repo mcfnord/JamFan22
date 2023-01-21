@@ -1644,6 +1644,21 @@ dist = 250;
                 {
                     if (s.name == "JamPad") continue;
 
+                    string blocks = "";
+                    try
+                    {
+                        blocks = System.IO.File.ReadAllText("erased.txt");
+                        // if there's a line, i match the first line
+                        if (blocks.Length > 0)
+                            if (s.name.ToLower().Contains(blocks.ToLower()))
+                                continue;
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        Console.WriteLine("The load file was not found, so nothing to do.");
+                    }
+
+
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
                     foreach (var user in myCopyOfWho)
