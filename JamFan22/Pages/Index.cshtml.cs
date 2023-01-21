@@ -1,4 +1,4 @@
-﻿#define WINDOWS
+#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -1650,7 +1650,7 @@ dist = 250;
                         blocks = System.IO.File.ReadAllText("erased.txt");
                         // if there's a line, i match the first line
                         if (blocks.Length > 0)
-                            if (s.name.ToLower().Contains(blocks.ToLower()))
+                            if (s.name.ToLower().Contains(blocks.Trim().ToLower()))
                                 continue;
                     }
                     catch (FileNotFoundException)
