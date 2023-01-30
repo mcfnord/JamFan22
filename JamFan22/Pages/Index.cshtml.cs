@@ -1394,7 +1394,27 @@ namespace JamFan22.Pages
 
 
 
-        public async Task<string> GetGutsRightNow()
+        string BackgroundByZone(char zone)
+        {
+            switch (zone) // #D9F9F9 is default
+            {
+                case 'N':
+                    return " style=\"background: #C9FFF5\"";
+
+                case 'E':
+                    return " style=\"background: #C9FAFF\"";
+
+                case 'A':
+                    return " style=\"background: #E7FFFF\"";
+
+                case 'S':
+                    return " style=\"background: #F8ECEC\"";
+            }
+            return "";
+        }
+
+
+    public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
@@ -1582,7 +1602,7 @@ namespace JamFan22.Pages
                         double lonD = Convert.ToDouble(lon);
                         // hardcode with the latitude and longitude of New York City
                         double latNA = 40.7128;
-                        double longNA = 74.0060;
+                        double longNA = -74.0060;
                         int distFromNA = Distance(latNA, longNA, latD, lonD);
                         // hardcode with latiutde and longitude of Moscow
                         double latEU = 55.7558;
@@ -1592,20 +1612,30 @@ namespace JamFan22.Pages
                         double latAS = 26.2125;
                         double longAS = 127.6800;
                         int distFromAS = Distance(latAS, longAS, latD, lonD);
+                        // hardcode with lat long of buenos aires
+                        double latSA = -34.6037;
+                        double longSA = -56.3816;
+                        int distFromSA = Distance(latSA, longSA, latD, lonD);
+
                         if (distFromNA < distFromEU)
-                        {
                             if (distFromNA < distFromAS)
-                                zone = 'N';
-                            else
-                                zone = 'A';
-                        }
-                        else
-                        {
+                                if (distFromNA < distFromSA)
+                                    zone = 'N';
+
+                        if (distFromEU < distFromNA)
                             if (distFromEU < distFromAS)
-                                zone = 'E';
-                            else
-                                zone = 'A';
-                        }
+                                if (distFromEU < distFromSA)
+                                    zone = 'E';
+
+                        if (distFromAS < distFromNA)
+                            if (distFromAS < distFromEU)
+                                if (distFromAS < distFromSA)
+                                    zone = 'A';
+
+                        if (distFromSA < distFromNA)
+                            if (distFromSA < distFromEU)
+                                if (distFromSA < distFromAS)
+                                    zone = 'S';
                     }
 
 if(dist < 250)
@@ -1752,25 +1782,7 @@ dist = 250;
 
                     var newline = "<div id=\"" + serverAddress + "\"";
 
-                    /* zones appare to be all wrong, but i've kept the zone code in, and do nothing with it at this point.
-                    switch (s.zone)
-                    {
-                        case 'N':
-                            newline += " style=\"border:1px solid\"";
-                            break;
-
-                        case 'E':
-                            newline += " style=\"border:10px solid\"";
-                            break;
-
-                        case 'A':
-                            newline += " style=\"border:1px solid\"";
-                            break;
-
-                        default:
-                            continue;
-                    } 
-                    */
+                    newline += BackgroundByZone(s.zone);
 
                     newline += "><center>";
                     //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
@@ -1915,7 +1927,13 @@ dist = 250;
                         string noBRName = s.who;
                         noBRName = noBRName.Replace("<br/>", " ");
 
-                        var newline = "<div><center>";
+                        // var newline = "<div><center>";
+
+
+                        var newline = "<div ";
+                        newline += BackgroundByZone(s.zone);
+                        newline += "><center>";
+
 
                         if (s.name.Length > 0)
                             newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
