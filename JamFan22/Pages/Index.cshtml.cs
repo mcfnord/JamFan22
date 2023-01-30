@@ -742,6 +742,26 @@ namespace JamFan22.Pages
 
         }
 
+
+        protected int Distance(double lat1, double lon1, double lat2, double lon2)
+        {
+            // https://www.simongilbert.net/parallel-haversine-formula-dotnetcore/
+            const double EquatorialRadiusOfEarth = 6371D;
+            const double DegreesToRadians = (Math.PI / 180D);
+            var deltalat = (lat2 - lat2) * DegreesToRadians;
+            var deltalong = (lon2 - lon1) * DegreesToRadians;
+            var a = Math.Pow(
+                Math.Sin(deltalat / 2D), 2D) +
+                Math.Cos(lat2 * DegreesToRadians) *
+                Math.Cos(lat1 * DegreesToRadians) *
+                Math.Pow(Math.Sin(deltalong / 2D), 2D);
+            var c = 2D * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1D - a));
+            var d = EquatorialRadiusOfEarth * c;
+            return Convert.ToInt32(d);
+
+        }
+
+
         /*
         protected int DistanceFromMe(string ipThem)
         {
@@ -771,7 +791,7 @@ namespace JamFan22.Pages
 
         class ServersForMe
         {
-            public ServersForMe(string cat, string ip, long port, string na, string ci, string cou, int distance, string w, Client[] originallyWho, int peoplenow, int maxpeople)
+            public ServersForMe(string cat, string ip, long port, string na, string ci, string cou, int distance, char earthZone, string w, Client[] originallyWho, int peoplenow, int maxpeople)
             {
                 category = cat;
                 serverIpAddress = ip;
@@ -780,6 +800,7 @@ namespace JamFan22.Pages
                 city = ci;
                 country = cou;
                 distanceAway = distance;
+                zone = earthZone;
                 who = w;
                 whoObjectFromSourceData = originallyWho;
                 usercount = peoplenow;
@@ -792,6 +813,7 @@ namespace JamFan22.Pages
             public string city;
             public string country;
             public int distanceAway;
+            public char zone;
             public string who;
             public Client[] whoObjectFromSourceData; // just to get the hash to work later. the who string is decorated but this is just data.
             public int usercount;
@@ -1551,8 +1573,40 @@ namespace JamFan22.Pages
 
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
+                    char zone = ' ';
                     if (lat.Length > 1 || lon.Length > 1)
+                    {
                         dist = DistanceFromClient(lat, lon);
+
+                        double latD = Convert.ToDouble(lat);
+                        double lonD = Convert.ToDouble(lon);
+                        // hardcode with the latitude and longitude of New York City
+                        double latNA = 40.7128;
+                        double longNA = 74.0060;
+                        int distFromNA = Distance(latNA, longNA, latD, lonD);
+                        // hardcode with latiutde and longitude of Moscow
+                        double latEU = 55.7558;
+                        double longEU = 37.6173;
+                        int distFromEU = Distance(latEU, longEU, latD, lonD);
+                        // hardcode with latitude and longitude of Okinowa
+                        double latAS = 26.2125;
+                        double longAS = 127.6800;
+                        int distFromAS = Distance(latAS, longAS, latD, lonD);
+                        if (distFromNA < distFromEU)
+                        {
+                            if (distFromNA < distFromAS)
+                                zone = 'N';
+                            else
+                                zone = 'A';
+                        }
+                        else
+                        {
+                            if (distFromEU < distFromAS)
+                                zone = 'E';
+                            else
+                                zone = 'A';
+                        }
+                    }
 
 if(dist < 250)
 dist = 250;
@@ -1580,7 +1634,7 @@ dist = 250;
                     */
 
 
-                    m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, who, server.clients, people, (int)server.maxclients));
+                    m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, zone, who, server.clients, people, (int)server.maxclients));
                 }
             }
 
@@ -1662,7 +1716,7 @@ dist = 250;
                     bool fSuppress = true;
                     foreach (var user in myCopyOfWho)
                     {
-                        if (DurationHereInMins( s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 8 * 60) 
+                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 8 * 60)
                         {
                             fSuppress = false;
                             break; // someone was here less than 8 hours.
@@ -1696,7 +1750,29 @@ dist = 250;
 
                     var serverAddress = s.serverIpAddress + ":" + s.serverPort;
 
-                    var newline = "<div id=\"" + serverAddress + "\"><center>";
+                    var newline = "<div id=\"" + serverAddress + "\"";
+
+                    /* zones appare to be all wrong, but i've kept the zone code in, and do nothing with it at this point.
+                    switch (s.zone)
+                    {
+                        case 'N':
+                            newline += " style=\"border:1px solid\"";
+                            break;
+
+                        case 'E':
+                            newline += " style=\"border:10px solid\"";
+                            break;
+
+                        case 'A':
+                            newline += " style=\"border:1px solid\"";
+                            break;
+
+                        default:
+                            continue;
+                    } 
+                    */
+
+                    newline += "><center>";
                     //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
                     //                        serverAddress +
                     if (s.name.Length > 0)
