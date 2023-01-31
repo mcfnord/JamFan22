@@ -1399,10 +1399,10 @@ namespace JamFan22.Pages
             switch (zone) // #D9F9F9 is default
             {
                 case 'N':
-                    return " style=\"background: #C5FFF1\"";
+                    return " style=\"background: #C7FFF3\"";
 
                 case 'E':
-                    return " style=\"background: #C5F6FF\"";
+                    return " style=\"background: #C3F4FF\"";
 
                 case 'A':
                     return " style=\"background: #E7FFFF\"";
