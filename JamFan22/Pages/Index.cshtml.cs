@@ -1399,16 +1399,16 @@ namespace JamFan22.Pages
             switch (zone) // #D9F9F9 is default
             {
                 case 'N':
-                    return " style=\"background: #C9FFF5\"";
+                    return " style=\"background: #C5FFF1\"";
 
                 case 'E':
-                    return " style=\"background: #C9FAFF\"";
+                    return " style=\"background: #C5F6FF\"";
 
                 case 'A':
                     return " style=\"background: #E7FFFF\"";
 
                 case 'S':
-                    return " style=\"background: #F8ECEC\"";
+                    return " style=\"background: #FAEBEB\"";
             }
             return "";
         }
@@ -1589,7 +1589,6 @@ namespace JamFan22.Pages
                     ///  
 
                     PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), server.ip, ref lat, ref lon);
-                    //                    Console.WriteLine(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
 
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
@@ -1597,6 +1596,8 @@ namespace JamFan22.Pages
                     if (lat.Length > 1 || lon.Length > 1)
                     {
                         dist = DistanceFromClient(lat, lon);
+
+                        Console.Write(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
 
                         double latD = Convert.ToDouble(lat);
                         double lonD = Convert.ToDouble(lon);
@@ -1636,6 +1637,8 @@ namespace JamFan22.Pages
                             if (distFromSA < distFromEU)
                                 if (distFromSA < distFromAS)
                                     zone = 'S';
+
+                        Console.WriteLine(" Zone: " + zone);
                     }
 
 if(dist < 250)
