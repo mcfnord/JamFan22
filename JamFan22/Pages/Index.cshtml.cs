@@ -1291,6 +1291,7 @@ namespace JamFan22.Pages
                 case "JAM FEED": return true;
                 case "STUDIO BRIDGE": return true;
                 case "CLICK": return true;
+                case "LOBBY [0]": return true;
                 case "REFERENCE": return true;
                 case "":
                     if (instrument == "Streamer")
@@ -1613,9 +1614,9 @@ namespace JamFan22.Pages
                         double latAS = 26.2125;
                         double longAS = 127.6800;
                         int distFromAS = Distance(latAS, longAS, latD, lonD);
-                        // hardcode with lat long of buenos aires
-                        double latSA = -34.6037;
-                        double longSA = -56.3816;
+                        // hardcode with lat long of Manaus
+                        double latSA = -3.1190;
+                        double longSA = -60.0217;
                         int distFromSA = Distance(latSA, longSA, latD, lonD);
 
                         if (distFromNA < distFromEU)
@@ -1836,6 +1837,10 @@ dist = 250;
                                 : "");
                     }
 
+                    string listenNow = "";
+                    if (s.name.Contains("MJTH Lobby"))
+                        listenNow = "<a target='_blank' href='https://lobby.musicjammingth.net/'>Listen Live</a></br>";
+
                     newline +=
                     "<font size='-1'>" +
                     s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
@@ -1845,6 +1850,7 @@ dist = 250;
                         "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
                     (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(New server.)", "(เซิร์ฟเวอร์ใหม่)", "(New server.)") + "<br>") : "") +
                     liveSnippet +
+                    listenNow +
                     "</center><hr>" +
                     s.who;
 
@@ -2001,7 +2007,7 @@ dist = 250;
 
         //        public static Dictionary<string, DateTime> countryLastVisit = new Dictionary<string, DateTime>();
 
-        public static System.Threading.Mutex m_serializerMutex = new System.Threading.Mutex();
+        public static System.Threading.Mutex m_serializerMutex = new System.Threading.Mutex(false, "MASTER_MUTEX");
 
         static string m_ThreeLetterNationCode = "USA";
 
@@ -2235,7 +2241,22 @@ dist = 250;
                     return ret;
 
                 }
-                finally { m_serializerMutex.ReleaseMutex(); }
+                finally
+                {
+                    m_serializerMutex.ReleaseMutex();
+
+                    /*
+                    if (m_serializerMutex.WaitOne(0)) // returns immediately
+                    {
+                        Console.WriteLine("YES, I got the Mutex.");
+                        m_serializerMutex.ReleaseMutex();
+                    }
+                    else
+                    {
+                        Console.WriteLine("NO, I didn't get the mutex.");
+                    }
+                    */
+                }
             }
         }
 
@@ -2288,7 +2309,7 @@ dist = 250;
                                     continue; // just fuckin don't care about 0 or even 1
                                 if (server.name.ToLower().Contains("oscv")) // never sample "OSCvev"
                                     continue;
-                                if (server.name.ToLower().Contains("private")) // don't sample self-described private areas
+                                if (server.name.ToLower().Contains("privat")) // don't sample self-described private areas
                                     continue;
 
                                 string fullAddress = server.ip + ":" + server.port;
