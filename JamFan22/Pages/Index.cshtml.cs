@@ -1839,7 +1839,12 @@ dist = 250;
 
                     string listenNow = "";
                     if (s.name.Contains("MJTH Lobby"))
+                    {
                         listenNow = "<a target='_blank' href='https://lobby.musicjammingth.net/'>Listen Live</a></br>";
+                        // Just a hack
+                        if (liveSnippet.Length > 0)
+                            listenNow = "<br>" + listenNow;
+                    }
 
                     newline +=
                     "<font size='-1'>" +
