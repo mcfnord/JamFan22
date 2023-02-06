@@ -2457,8 +2457,8 @@ dist = 250;
                 int iRefreshDelay = 120 + m_conditionsDelta ;
                 var rand = new Random();
                 iRefreshDelay += rand.Next(-9, 9);
-                if (iRefreshDelay > 20)
-                    iRefreshDelay = 20;
+                if (iRefreshDelay < 90)
+                    iRefreshDelay = 90;
 
                 return iRefreshDelay.ToString();
             }
