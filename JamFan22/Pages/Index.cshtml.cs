@@ -2454,11 +2454,12 @@ dist = 250;
         {
             get
             {
+                // never refresh more frequently than 90 seconds
+                if (m_conditionsDelta < -30)
+                    m_conditionsDelta = -30;
                 int iRefreshDelay = 120 + m_conditionsDelta ;
                 var rand = new Random();
                 iRefreshDelay += rand.Next(-9, 9);
-                if (iRefreshDelay > 20)
-                    iRefreshDelay = 20;
 
                 return iRefreshDelay.ToString();
             }
