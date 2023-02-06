@@ -2314,7 +2314,7 @@ dist = 250;
                                     continue; // just fuckin don't care about 0 or even 1
                                 if (server.name.ToLower().Contains("oscv")) // never sample "OSCvev"
                                     continue;
-                                if (server.name.ToLower().Contains("privat")) // don't sample self-described private areas
+                                if (server.name.ToLower().Contains("priv")) // don't sample self-described private areas
                                     continue;
 
                                 string fullAddress = server.ip + ":" + server.port;
@@ -2448,12 +2448,13 @@ dist = 250;
         }
 
 
+        static int m_conditionsDelta = 0;
+
         public string RefreshDuration
         {
             get
             {
-                //                return "9000";
-                int iRefreshDelay = 120;
+                int iRefreshDelay = 120 + m_conditionsDelta ;
                 var rand = new Random();
                 iRefreshDelay += rand.Next(-9, 9);
                 return iRefreshDelay.ToString();
@@ -2582,6 +2583,11 @@ dist = 250;
                     m_serializerMutex.ReleaseMutex();
                     TimeSpan duration = DateTime.Now - started;
                     Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
+                    if (duration.TotalSeconds > 3)
+                        m_conditionsDelta++;
+                    if (duration.TotalSeconds < 1)
+                        m_conditionsDelta--;
+                    Console.WriteLine("Adding this to everyone's 120-second auto-refresh: " + m_conditionsDelta.ToString());
                 }
             }
             set
