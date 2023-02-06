@@ -2457,6 +2457,9 @@ dist = 250;
                 int iRefreshDelay = 120 + m_conditionsDelta ;
                 var rand = new Random();
                 iRefreshDelay += rand.Next(-9, 9);
+                if (iRefreshDelay > 20)
+                    iRefreshDelay = 20;
+
                 return iRefreshDelay.ToString();
             }
         }
@@ -2583,9 +2586,9 @@ dist = 250;
                     m_serializerMutex.ReleaseMutex();
                     TimeSpan duration = DateTime.Now - started;
                     Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
-                    if (duration.TotalSeconds > 7) // double-slowdown for really unacceptable perf
+                    if (duration.TotalSeconds > 6) // double-slowdown for really unacceptable perf
                         m_conditionsDelta++;
-                    if (duration.TotalSeconds > 4)
+                    if (duration.TotalSeconds > 3)
                         m_conditionsDelta++;
                     if (duration.TotalSeconds < 1)
                         m_conditionsDelta--;
