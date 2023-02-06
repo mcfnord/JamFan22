@@ -2583,9 +2583,9 @@ dist = 250;
                     m_serializerMutex.ReleaseMutex();
                     TimeSpan duration = DateTime.Now - started;
                     Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
-                    if (duration.TotalSeconds > 6) // double-slowdown for really unacceptable perf
+                    if (duration.TotalSeconds > 7) // double-slowdown for really unacceptable perf
                         m_conditionsDelta++;
-                    if (duration.TotalSeconds > 3)
+                    if (duration.TotalSeconds > 4)
                         m_conditionsDelta++;
                     if (duration.TotalSeconds < 1)
                         m_conditionsDelta--;
