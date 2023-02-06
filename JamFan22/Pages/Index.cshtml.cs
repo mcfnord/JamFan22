@@ -2478,6 +2478,7 @@ dist = 250;
         {
             get
             {
+                DateTime started = DateTime.Now;
                 m_serializerMutex.WaitOne();
                 try
                 {
@@ -2524,9 +2525,11 @@ dist = 250;
 
                         m_ThreeLetterNationCode = userIpCachedItems[ipaddr].countryCode3; // global for this call (cuz of the mutex)
 
+                        /*
                         if (userIpCachedItems.ContainsKey(ipaddr)) // maybe it failed!
                             if (userIpCachedItems[ipaddr].city == "Princeton")
                                 m_ThreeLetterNationCode = "THA";
+                        */
 
                         if (userIpCachedItems.ContainsKey(ipaddr)) // maybe it failed!
                             Console.Write(userIpCachedItems[ipaddr].city +
@@ -2574,7 +2577,12 @@ dist = 250;
                     v.Wait();
                     return v.Result;
                 }
-                finally { m_serializerMutex.ReleaseMutex(); }
+                finally 
+                {
+                    m_serializerMutex.ReleaseMutex();
+                    TimeSpan duration = DateTime.Now - started;
+                    Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
+                }
             }
             set
             {
