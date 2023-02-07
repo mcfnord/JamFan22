@@ -2547,8 +2547,8 @@ dist = 250;
                         {
                             var lastRefresh = m_clientIPLastVisit[ipaddr];
                             //  Console.Write((DateTime.Now - lastRefresh).ToString());
-                            if (DateTime.Now < lastRefresh.AddSeconds(150))
-                                if (DateTime.Now > lastRefresh.AddSeconds(100))
+                            if (DateTime.Now < lastRefresh.AddSeconds(120 + m_conditionsDelta + 30))
+                                if (DateTime.Now > lastRefresh.AddSeconds(120 + m_conditionsDelta - 30))
                                 {
                                     Console.Write(" :)");
 
