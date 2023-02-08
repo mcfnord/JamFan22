@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 // using MongoDB.Driver;
 
 namespace JamFan22.Pages
@@ -1792,7 +1793,12 @@ dist = 250;
                     //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
                     //                        serverAddress +
                     if (s.name.Length > 0)
-                        newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
+                    {
+                        string name = s.name;
+                        if (name.Contains("CBVB"))
+                            name += " (UNSTABLE)";
+                        newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
+                    }
 
                     // smart nation returns nations that aren't (probably) obvious by server city.
                     string smartNations = SmartNations(myCopyOfWho.ToArray(), s.country);
@@ -1950,7 +1956,13 @@ dist = 250;
 
 
                         if (s.name.Length > 0)
-                            newline += System.Web.HttpUtility.HtmlEncode(s.name) + "<br>";
+                        {
+                            string name = s.name;
+                            if (name.Contains("CBVB"))
+                                name += " (UNSTABLE)";
+
+                            newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
+                        }
 
                         if (smartcity.Length > 0)
                             newline += "<b>" + smartcity + "</b><br>";
