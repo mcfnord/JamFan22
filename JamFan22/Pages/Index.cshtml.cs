@@ -2355,7 +2355,7 @@ dist = 250;
                     }
                     else
                     {
-                        Console.WriteLine("I wanna choose which server to sample.");
+//                        Console.WriteLine("I wanna choose which server to sample.");
 
                         foreach (var key in LastReportedList.Keys)
                         {
@@ -2391,7 +2391,7 @@ dist = 250;
                                 }
                                 else
                                 {
-                                    Console.WriteLine(fullAddress + "has an active sample already.");
+//                                    Console.WriteLine(fullAddress + "has an active sample already.");
                                 }
                             }
                             }
