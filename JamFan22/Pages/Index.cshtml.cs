@@ -169,7 +169,7 @@ namespace JamFan22.Pages
                 m_everywhereIveJoinedYou[key] = new HashSet<string>();
             m_everywhereIveJoinedYou[key].Add(server + ":" + port);
 
-//            Console.Write(actor.name + " joined " + target.name + " | ");
+            //            Console.Write(actor.name + " joined " + target.name + " | ");
         }
 
         public static void DetectJoiners(string was, string isnow)
@@ -194,12 +194,12 @@ namespace JamFan22.Pages
                             foreach (var actor in joiners)
                             {
                                 // assure the actor->target key contains this ip:port in its hashset.
-//                                Console.Write("On " + server.name + ": ");
+                                //                                Console.Write("On " + server.name + ": ");
                                 foreach (var guyHere in server.clients)
                                 {
                                     NoteJoinerTargetServer(actor, guyHere, server.ip, server.port);
                                 }
-//                                Console.WriteLine();
+                                //                                Console.WriteLine();
                             }
                         }
                 }
@@ -324,11 +324,11 @@ namespace JamFan22.Pages
                 {
                     s = System.IO.File.ReadAllText(TIME_TOGETHER);
                 }
-                catch( FileNotFoundException )
+                catch (FileNotFoundException)
                 {
                     Console.WriteLine("The load file was not found, so starting from nothing.");
                 }
-                var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]> (s);
+                var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]>(s);
 
                 foreach (var item in a)
                 {
@@ -392,6 +392,73 @@ namespace JamFan22.Pages
         }
 
 
+        static TimeSpan DurationBetweenSamples = new TimeSpan();
+
+        public static void RefreshThreadTask()
+        {
+            while (true)
+            {
+                var httpClientHandler = new HttpClientHandler();
+                httpClientHandler.ServerCertificateCustomValidationCallback =
+                    (message, cert, chain, ssl) =>
+                    {
+                        return true;
+                    };
+
+                using var client = new HttpClient(httpClientHandler);
+
+                var serverStates = new Dictionary<string, Task<string>>();
+
+                foreach (var key in JamulusListURLs.Keys)
+                {
+                    serverStates.Add(key, client.GetStringAsync(JamulusListURLs[key]));
+                }
+
+                DateTime query_started = DateTime.Now;
+                foreach (var key in JamulusListURLs.Keys)
+                {
+                    var newReportedList = serverStates[key].Result; // only proceeds when data arrives
+
+                    m_serializerMutex.WaitOne(); // get the global mutex
+                    try
+                    {
+                        if (LastReportedList.ContainsKey(key))
+                            DetectJoiners(LastReportedList[key], newReportedList);
+                        LastReportedList[key] = newReportedList;
+                    }
+                    finally { m_serializerMutex.ReleaseMutex(); }
+                }
+
+                Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
+
+                // get the mutex again
+                m_serializerMutex.WaitOne(); // get the global mutex
+                try
+                {
+                    if (null != LastReportedListGatheredAt)
+                        DurationBetweenSamples = DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt);
+
+                    LastReportedListGatheredAt = DateTime.Now;
+
+                    // I think I need to know what's broken.
+                    ListServicesOffline.Clear();
+                    foreach (var keyHere in JamulusListURLs.Keys)
+                    {
+                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
+                        if (serversOnList.Count == 0)
+                        {
+                            ListServicesOffline.Add(keyHere);
+                        }
+                    }
+                }
+                finally { m_serializerMutex.ReleaseMutex(); }
+                
+                Thread.Sleep(7000);
+            }
+        }
+            
+
+
         protected async Task MineLists()
         {
             if (LastReportedListGatheredAt != null)
@@ -405,48 +472,7 @@ namespace JamFan22.Pages
 
             Console.WriteLine("    Refreshin...");
 
-            var httpClientHandler = new HttpClientHandler();
-            httpClientHandler.ServerCertificateCustomValidationCallback =
-                (message, cert, chain, ssl) =>
-                {
-                    return true;
-                };
-
-            using var client = new HttpClient(httpClientHandler);
-
-            var serverStates = new Dictionary<string, Task<string>>();
-
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                serverStates.Add(key, client.GetStringAsync(JamulusListURLs[key]));
-            }
-
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                var newReportedList = serverStates[key].Result;
-                if (LastReportedList.ContainsKey(key))
-                    DetectJoiners(LastReportedList[key], newReportedList);
-                LastReportedList[key] = newReportedList;
-//                DetectLeavers(LastReportedList[key]);
-            }
-
-            TimeSpan durationBetweenSamples = new TimeSpan();
-            if (null != LastReportedListGatheredAt)
-                durationBetweenSamples = DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt);
-
-            LastReportedListGatheredAt = DateTime.Now;
-
-            // I think I need to know what's broken.
-            ListServicesOffline.Clear();
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                if (serversOnList.Count == 0)
-                {
-                    ListServicesOffline.Add(key);
-                }
-            }
-
+            /*
             // Each time we mine the list, save the ACTIVE ip:port set in a local file.
             List<string> svrIpPort = new List<string>();
             List<string> svrActivesIpPort = new List<string>();
@@ -464,6 +490,7 @@ namespace JamFan22.Pages
             }
             await System.IO.File.WriteAllLinesAsync("allSvrIpPorts.txt", svrIpPort);
             await System.IO.File.WriteAllLinesAsync("activeSvrIpPorts.txt", svrActivesIpPort);
+            */
 
             // We only push a canonical pair once.
             // so we track whether we've pushed each before
@@ -498,7 +525,7 @@ namespace JamFan22.Pages
                         if (false == m_userConnectDuration.ContainsKey(stringHashOfGuy))
                             m_userConnectDuration[stringHashOfGuy] = new TimeSpan();
                         m_userConnectDuration[stringHashOfGuy] =
-                            m_userConnectDuration[stringHashOfGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
+                            m_userConnectDuration[stringHashOfGuy].Add(DurationBetweenSamples.Divide(server.clients.Count()));
                         //////////////////////////////////////////////////////////////////////////
                         {
                             if (false == m_userConnectDurationPerServer.ContainsKey(stringHashOfGuy))
@@ -507,7 +534,7 @@ namespace JamFan22.Pages
                             var theGuy = m_userConnectDurationPerServer[stringHashOfGuy];
                             if (false == theGuy.ContainsKey(fullIP))
                                 theGuy.Add(fullIP, TimeSpan.Zero);
-                            theGuy[fullIP] = theGuy[fullIP].Add(durationBetweenSamples.Divide(server.clients.Count()));
+                            theGuy[fullIP] = theGuy[fullIP].Add(DurationBetweenSamples.Divide(server.clients.Count()));
                         }
                         ////////////////////////////////////////////////////////////////////////////
                         // The real scheme: for each guy, note the duration spend with EVERY OTHER GUY
@@ -528,7 +555,7 @@ namespace JamFan22.Pages
                                 var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
                                 if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
                                     theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
-                                theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
+                                theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(DurationBetweenSamples.Divide(server.clients.Count()));
 
                                 // ANOTHER SCHEME, WHERE key of canonical hashes contain all server:ports where we've met
                                 string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
@@ -540,7 +567,7 @@ namespace JamFan22.Pages
                         ///////////////////////////////////////////////////////////////////////////////////////////////////////
                         /// Now use an interface that abstracts and ultimately replaces all of these other ad hoc dictionaries
                         {
-                            if (durationBetweenSamples.TotalSeconds > 0)
+                            if (DurationBetweenSamples.TotalSeconds > 0)
                             {
                                 foreach (var otherguy in server.clients)
                                 {
@@ -558,7 +585,7 @@ namespace JamFan22.Pages
                                         if (false == alreadyPushed.Contains(us))
                                         {
                                             alreadyPushed.Add(us);
-                                            ReportPairTogether(us, durationBetweenSamples);
+                                            ReportPairTogether(us, DurationBetweenSamples);
                                         }
                                     }
                                 }
@@ -714,7 +741,7 @@ namespace JamFan22.Pages
                     }
                     else
                     {
-                        Console.WriteLine("XFF was null, clientIP hardcoded to 75.172.123.21, Monroe, Louisiana.");
+//                        Console.WriteLine("XFF was null, clientIP hardcoded to 75.172.123.21, Monroe, Louisiana.");
                         clientIP = "75.172.123.21";
                     }
                 }
@@ -1599,7 +1626,7 @@ namespace JamFan22.Pages
                     {
                         dist = DistanceFromClient(lat, lon);
 
-                        Console.Write(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
+//                        Console.Write(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
 
                         double latD = Convert.ToDouble(lat);
                         double lonD = Convert.ToDouble(lon);
@@ -1640,7 +1667,7 @@ namespace JamFan22.Pages
                                 if (distFromSA < distFromAS)
                                     zone = 'S';
 
-                        Console.WriteLine(" Zone: " + zone);
+//                        Console.WriteLine(" Zone: " + zone);
                     }
 
 if(dist < 250)
@@ -1709,7 +1736,8 @@ dist = 250;
             //////////////////////////////////////////////////////////////
 
 
-            Console.WriteLine("First nearest server: " + sortedByDistanceAway.First().city + ", " + sortedByDistanceAway.First().country);
+            // caused a crash at zero active:
+//            Console.WriteLine("First nearest server: " + sortedByDistanceAway.First().city + ", " + sortedByDistanceAway.First().country);
 
             string output = "";
 
