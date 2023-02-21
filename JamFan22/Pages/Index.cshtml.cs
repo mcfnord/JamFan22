@@ -308,13 +308,13 @@ namespace JamFan22.Pages
             return hash;
         }
 
-        string TIME_TOGETHER = "timeTogether.json";
-        string GUID_NAME_PAIRS = "guidNamePairs.json";
+        static string TIME_TOGETHER = "timeTogether.json";
+        static string GUID_NAME_PAIRS = "guidNamePairs.json";
         public static Dictionary<string, TimeSpan> m_timeTogether = null;
         static int? m_lastSaveHourNumber = null;
         static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
         static DateTime m_lastSift = DateTime.Now; // Time since boot or since last culling of unmentioned pairs
-        protected void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
+        protected static void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
             if (null == m_timeTogether)
             {
@@ -392,8 +392,6 @@ namespace JamFan22.Pages
         }
 
 
-        static TimeSpan DurationBetweenSamples = new TimeSpan();
-
         public static void RefreshThreadTask()
         {
             while (true)
@@ -435,8 +433,10 @@ namespace JamFan22.Pages
                 m_serializerMutex.WaitOne(); // get the global mutex
                 try
                 {
+                    TimeSpan durationBetweenSamples = new TimeSpan();
+
                     if (null != LastReportedListGatheredAt)
-                        DurationBetweenSamples = DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt);
+                        durationBetweenSamples = DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt);
 
                     LastReportedListGatheredAt = DateTime.Now;
 
@@ -450,6 +450,129 @@ namespace JamFan22.Pages
                             ListServicesOffline.Add(keyHere);
                         }
                     }
+
+                    HashSet<string> alreadyPushed = new HashSet<string>();
+
+                    // Each time we mine the list, we construct a hash for every active user
+                    // and that hash is a key of a hash list that contains the ip:port servers
+                    // where i've seen them.
+                    foreach (var key in JamulusListURLs.Keys)
+                    {
+                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                        foreach (var server in serversOnList)
+                        {
+                            int people = 0;
+                            if (server.clients != null)
+                                people = server.clients.GetLength(0);
+                            if (people < 1)
+                                continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
+                            foreach (var guy in server.clients)
+                            {
+                                string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                /*
+                                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
+                                var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
+                                string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
+                                */
+                                //////////////////////////////////////////////////////////////////////////
+                                if (false == m_userServerViewTracker.ContainsKey(stringHashOfGuy))
+                                    m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
+                                m_userServerViewTracker[stringHashOfGuy].Add(server.ip + ":" + server.port);
+                                //////////////////////////////////////////////////////////////////////////
+                                if (false == m_userConnectDuration.ContainsKey(stringHashOfGuy))
+                                    m_userConnectDuration[stringHashOfGuy] = new TimeSpan();
+                                m_userConnectDuration[stringHashOfGuy] =
+                                    m_userConnectDuration[stringHashOfGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
+                                //////////////////////////////////////////////////////////////////////////
+                                {
+                                    if (false == m_userConnectDurationPerServer.ContainsKey(stringHashOfGuy))
+                                        m_userConnectDurationPerServer[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
+                                    var fullIP = server.ip + ":" + server.port;
+                                    var theGuy = m_userConnectDurationPerServer[stringHashOfGuy];
+                                    if (false == theGuy.ContainsKey(fullIP))
+                                        theGuy.Add(fullIP, TimeSpan.Zero);
+                                    theGuy[fullIP] = theGuy[fullIP].Add(durationBetweenSamples.Divide(server.clients.Count()));
+                                }
+                                ////////////////////////////////////////////////////////////////////////////
+                                // The real scheme: for each guy, note the duration spend with EVERY OTHER GUY
+                                {
+                                    foreach (var otherguy in server.clients)
+                                    {
+                                        if (false == m_userConnectDurationPerUser.ContainsKey(stringHashOfGuy))
+                                            m_userConnectDurationPerUser[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
+                                        if (otherguy == guy)
+                                            continue; // just don't track me with me. Let the entry exist but fuck it.
+
+                                        string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
+                                        /*
+                                        byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
+                                        var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
+                                        string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
+                                        */
+                                        var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
+                                        if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
+                                            theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
+                                        theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
+
+                                        // ANOTHER SCHEME, WHERE key of canonical hashes contain all server:ports where we've met
+                                        string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
+                                        if (false == m_everywhereWeHaveMet.ContainsKey(us))
+                                            m_everywhereWeHaveMet[us] = new HashSet<string>();
+                                        m_everywhereWeHaveMet[us].Add(server.ip + ":" + server.port);
+                                    }
+                                }
+                                ///////////////////////////////////////////////////////////////////////////////////////////////////////
+                                /// Now use an interface that abstracts and ultimately replaces all of these other ad hoc dictionaries
+                                {
+                                    if (durationBetweenSamples.TotalSeconds > 0)
+                                    {
+                                        foreach (var otherguy in server.clients)
+                                        {
+                                            string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
+                                            /*
+                                            byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
+                                            var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
+                                            string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
+                                            */
+
+                                            if (stringHashOfGuy != stringHashOfOtherGuy)
+                                            {
+                                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
+
+                                                if (false == alreadyPushed.Contains(us))
+                                                {
+                                                    alreadyPushed.Add(us);
+                                                    ReportPairTogether(us, durationBetweenSamples);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    //            TopNoob();
+
+                    // I'm gonna track server sightings in a separate loop.
+                    foreach (var key in JamulusListURLs.Keys)
+                    {
+                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                        foreach (var server in serversOnList)
+                        {
+                            // I care when I FIRST saw this server.
+                            if (false == m_serverFirstSeen.ContainsKey(server.ip + ":" + server.port))
+                                m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
+                        }
+                    }
+
+
+
+
+
+
+
+
                 }
                 finally { m_serializerMutex.ReleaseMutex(); }
                 
@@ -459,6 +582,7 @@ namespace JamFan22.Pages
             
 
 
+        /*
         protected async Task MineLists()
         {
             if (LastReportedListGatheredAt != null)
@@ -469,146 +593,37 @@ namespace JamFan22.Pages
                     return; // data we have was gathered within the last minute.
                 }
             }
+        }
+        */
 
-            Console.WriteLine("    Refreshin...");
 
-            /*
-            // Each time we mine the list, save the ACTIVE ip:port set in a local file.
-            List<string> svrIpPort = new List<string>();
-            List<string> svrActivesIpPort = new List<string>();
-            foreach (var key in JamulusListURLs.Keys)
+        //            Console.WriteLine("    Refreshin...");
+
+        // the code that was here was moved to a new thread.
+
+        /*
+        // Each time we mine the list, save the ACTIVE ip:port set in a local file.
+        List<string> svrIpPort = new List<string>();
+        List<string> svrActivesIpPort = new List<string>();
+        foreach (var key in JamulusListURLs.Keys)
+        {
+            var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+            foreach (var server in serversOnList)
             {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                foreach (var server in serversOnList)
-                {
-                    svrIpPort.Add(server.ip + ":" + server.port);
+                svrIpPort.Add(server.ip + ":" + server.port);
 
-                    if (server.clients != null)
-                        if (server.clients.GetLength(0) > 0)
-                            svrActivesIpPort.Add(server.ip + ":" + server.port);
-                }
-            }
-            await System.IO.File.WriteAllLinesAsync("allSvrIpPorts.txt", svrIpPort);
-            await System.IO.File.WriteAllLinesAsync("activeSvrIpPorts.txt", svrActivesIpPort);
-            */
-
-            // We only push a canonical pair once.
-            // so we track whether we've pushed each before
-            HashSet<string> alreadyPushed = new HashSet<string>();
-
-            // Each time we mine the list, we construct a hash for every active user
-            // and that hash is a key of a hash list that contains the ip:port servers
-            // where i've seen them.
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                foreach (var server in serversOnList)
-                {
-                    int people = 0;
-                    if (server.clients != null)
-                        people = server.clients.GetLength(0);
-                    if (people < 1)
-                        continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
-                    foreach (var guy in server.clients)
-                    {
-                        string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
-                        /*
-                        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
-                        var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-                        string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
-                        */
-                        //////////////////////////////////////////////////////////////////////////
-                        if (false == m_userServerViewTracker.ContainsKey(stringHashOfGuy))
-                            m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
-                        m_userServerViewTracker[stringHashOfGuy].Add(server.ip + ":" + server.port);
-                        //////////////////////////////////////////////////////////////////////////
-                        if (false == m_userConnectDuration.ContainsKey(stringHashOfGuy))
-                            m_userConnectDuration[stringHashOfGuy] = new TimeSpan();
-                        m_userConnectDuration[stringHashOfGuy] =
-                            m_userConnectDuration[stringHashOfGuy].Add(DurationBetweenSamples.Divide(server.clients.Count()));
-                        //////////////////////////////////////////////////////////////////////////
-                        {
-                            if (false == m_userConnectDurationPerServer.ContainsKey(stringHashOfGuy))
-                                m_userConnectDurationPerServer[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
-                            var fullIP = server.ip + ":" + server.port;
-                            var theGuy = m_userConnectDurationPerServer[stringHashOfGuy];
-                            if (false == theGuy.ContainsKey(fullIP))
-                                theGuy.Add(fullIP, TimeSpan.Zero);
-                            theGuy[fullIP] = theGuy[fullIP].Add(DurationBetweenSamples.Divide(server.clients.Count()));
-                        }
-                        ////////////////////////////////////////////////////////////////////////////
-                        // The real scheme: for each guy, note the duration spend with EVERY OTHER GUY
-                        {
-                            foreach (var otherguy in server.clients)
-                            {
-                                if (false == m_userConnectDurationPerUser.ContainsKey(stringHashOfGuy))
-                                    m_userConnectDurationPerUser[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
-                                if (otherguy == guy)
-                                    continue; // just don't track me with me. Let the entry exist but fuck it.
-
-                                string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
-                                /*
-                                byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
-                                var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
-                                string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
-                                */
-                                var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
-                                if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
-                                    theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
-                                theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(DurationBetweenSamples.Divide(server.clients.Count()));
-
-                                // ANOTHER SCHEME, WHERE key of canonical hashes contain all server:ports where we've met
-                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
-                                if (false == m_everywhereWeHaveMet.ContainsKey(us))
-                                    m_everywhereWeHaveMet[us] = new HashSet<string>();
-                                m_everywhereWeHaveMet[us].Add(server.ip + ":" + server.port);
-                            }
-                        }
-                        ///////////////////////////////////////////////////////////////////////////////////////////////////////
-                        /// Now use an interface that abstracts and ultimately replaces all of these other ad hoc dictionaries
-                        {
-                            if (DurationBetweenSamples.TotalSeconds > 0)
-                            {
-                                foreach (var otherguy in server.clients)
-                                {
-                                    string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
-                                    /*
-                                    byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
-                                    var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
-                                    string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
-                                    */
-
-                                    if (stringHashOfGuy != stringHashOfOtherGuy)
-                                    {
-                                        string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
-
-                                        if (false == alreadyPushed.Contains(us))
-                                        {
-                                            alreadyPushed.Add(us);
-                                            ReportPairTogether(us, DurationBetweenSamples);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-//            TopNoob();
-
-            // I'm gonna track server sightings in a separate loop.
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                foreach (var server in serversOnList)
-                {
-                    // I care when I FIRST saw this server.
-                    if (false == m_serverFirstSeen.ContainsKey(server.ip + ":" + server.port))
-                        m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
-                }
+                if (server.clients != null)
+                    if (server.clients.GetLength(0) > 0)
+                        svrActivesIpPort.Add(server.ip + ":" + server.port);
             }
         }
+        await System.IO.File.WriteAllLinesAsync("allSvrIpPorts.txt", svrIpPort);
+        await System.IO.File.WriteAllLinesAsync("activeSvrIpPorts.txt", svrActivesIpPort);
+        */
+
+        // We only push a canonical pair once.
+        // so we track whether we've pushed each before
+
 
 
         /*
@@ -1447,7 +1462,7 @@ namespace JamFan22.Pages
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
-            await MineLists();
+//            await MineLists();
 
 
             // Now for each last reported list, extract all the hmmm servers for now. all them servers by LIST, NAME, CITY, IP ADDRESS
