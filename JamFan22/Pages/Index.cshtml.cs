@@ -1453,6 +1453,55 @@ namespace JamFan22.Pages
         }
 
 
+
+        char ContinentOfLatLong(double latD, double lonD)
+        {
+            char zone = 'X';
+            
+            // hardcode with the latitude and longitude of New York City
+            double latNA = 40.7128;
+            double longNA = -74.0060;
+            int distFromNA = Distance(latNA, longNA, latD, lonD);
+            // hardcode with latiutde and longitude of Moscow
+            double latEU = 55.7558;
+            double longEU = 37.6173;
+            int distFromEU = Distance(latEU, longEU, latD, lonD);
+            // hardcode with latitude and longitude of Okinowa
+            double latAS = 26.2125;
+            double longAS = 127.6800;
+            int distFromAS = Distance(latAS, longAS, latD, lonD);
+            // hardcode with lat long of Manaus
+            double latSA = -3.1190;
+            double longSA = -60.0217;
+            int distFromSA = Distance(latSA, longSA, latD, lonD);
+
+            if (distFromNA < distFromEU)
+                if (distFromNA < distFromAS)
+                    if (distFromNA < distFromSA)
+                        zone = 'N';
+
+            if (distFromEU < distFromNA)
+                if (distFromEU < distFromAS)
+                    if (distFromEU < distFromSA)
+                        zone = 'E';
+
+            if (distFromAS < distFromNA)
+                if (distFromAS < distFromEU)
+                    if (distFromAS < distFromSA)
+                        zone = 'A';
+
+            if (distFromSA < distFromNA)
+                if (distFromSA < distFromEU)
+                    if (distFromSA < distFromAS)
+                        zone = 'S';
+
+            return zone;
+        }
+
+
+
+
+
     public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
@@ -1640,44 +1689,8 @@ namespace JamFan22.Pages
 
                         double latD = Convert.ToDouble(lat);
                         double lonD = Convert.ToDouble(lon);
-                        // hardcode with the latitude and longitude of New York City
-                        double latNA = 40.7128;
-                        double longNA = -74.0060;
-                        int distFromNA = Distance(latNA, longNA, latD, lonD);
-                        // hardcode with latiutde and longitude of Moscow
-                        double latEU = 55.7558;
-                        double longEU = 37.6173;
-                        int distFromEU = Distance(latEU, longEU, latD, lonD);
-                        // hardcode with latitude and longitude of Okinowa
-                        double latAS = 26.2125;
-                        double longAS = 127.6800;
-                        int distFromAS = Distance(latAS, longAS, latD, lonD);
-                        // hardcode with lat long of Manaus
-                        double latSA = -3.1190;
-                        double longSA = -60.0217;
-                        int distFromSA = Distance(latSA, longSA, latD, lonD);
 
-                        if (distFromNA < distFromEU)
-                            if (distFromNA < distFromAS)
-                                if (distFromNA < distFromSA)
-                                    zone = 'N';
-
-                        if (distFromEU < distFromNA)
-                            if (distFromEU < distFromAS)
-                                if (distFromEU < distFromSA)
-                                    zone = 'E';
-
-                        if (distFromAS < distFromNA)
-                            if (distFromAS < distFromEU)
-                                if (distFromAS < distFromSA)
-                                    zone = 'A';
-
-                        if (distFromSA < distFromNA)
-                            if (distFromSA < distFromEU)
-                                if (distFromSA < distFromAS)
-                                    zone = 'S';
-
-//                        Console.WriteLine(" Zone: " + zone);
+                        zone = ContinentOfLatLong(latD, lonD);
                     }
 
 if(dist < 250)
