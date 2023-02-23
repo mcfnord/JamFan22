@@ -565,18 +565,10 @@ namespace JamFan22.Pages
                                 m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
                         }
                     }
-
-
-
-
-
-
-
-
                 }
                 finally { m_serializerMutex.ReleaseMutex(); }
                 
-                Thread.Sleep(7000);
+                Thread.Sleep(12000);
             }
         }
             
@@ -988,6 +980,9 @@ namespace JamFan22.Pages
             if (serverPlace.Length > 1)
                 if (serverPlace != "yourCity")
                 {
+                    if (serverPlace == "MALLORCA, UNITED STATES")
+                        serverPlace = "MALLORCA, SPAIN";
+
            //         serverPlace = serverPlace.Replace(", UNITED STATES", "");
                     if (CallOpenCage(serverPlace, ref lat, ref lon))
                     {
