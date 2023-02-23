@@ -992,14 +992,6 @@ namespace JamFan22.Pages
                     Console.WriteLine("Server location failed: " + serverPlace);
                 }
 
-            // Ok, user country. more general lat long.
-            if (m_PlaceNameToLatLong.ContainsKey(userPlace))
-            {
-                lat = m_PlaceNameToLatLong[userPlace].lat;
-                lon = m_PlaceNameToLatLong[userPlace].lon;
-                return;
-            }
-
             // didn't find the top user country... ask someone for directions.
 
             // THE SERVER SELF-REPORT DIDN'T TRANSLATE INTO A LAT-LONG...
