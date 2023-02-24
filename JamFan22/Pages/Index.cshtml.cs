@@ -550,7 +550,7 @@ namespace JamFan22.Pages
                                 }
                             }
                         }
-                    }
+                    } 
 
                     //            TopNoob();
 
@@ -567,8 +567,11 @@ namespace JamFan22.Pages
                     }
                 }
                 finally { m_serializerMutex.ReleaseMutex(); }
-                
+
+                m_bUserWaiting = false; // I clear it to see if a user appears while I'm sleepin.
                 Thread.Sleep(12000);
+                if (false == m_bUserWaiting)
+                    Thread.Sleep(45000); // just one time, a really deep sleep
             }
         }
             
@@ -937,7 +940,7 @@ namespace JamFan22.Pages
                 {
                     lat = (string)latLongJson["results"][0]["geometry"]["lat"];
                     lon = (string)latLongJson["results"][0]["geometry"]["lng"];
-                    m_PlaceNameToLatLong[placeName.ToUpper()] = new LatLong(lat, lon);
+//                    m_PlaceNameToLatLong[placeName.ToUpper()] = new LatLong(lat, lon);
                     return true;
                 }
             }
@@ -955,6 +958,15 @@ namespace JamFan22.Pages
 
             System.Diagnostics.Debug.Assert(serverPlace.ToUpper() == serverPlace);
             System.Diagnostics.Debug.Assert(userPlace.ToUpper() == userPlace);
+
+
+            var rng = new Random();
+            if (0 == rng.Next(10000))
+            {
+                Console.WriteLine("Flushing cached lat-longs.");
+                m_PlaceNameToLatLong.Clear();
+                m_ipAddrToLatLong.Clear();
+            }
 
             if (m_PlaceNameToLatLong.ContainsKey(serverPlace))
             {
@@ -977,34 +989,40 @@ namespace JamFan22.Pages
                 return;
             }
 
+            bool fServerLLSuccess = false;
+            string serverLat = "";
+            string serverLon = "";
+
             if (serverPlace.Length > 1)
                 if (serverPlace != "yourCity")
                 {
-                    if (serverPlace == "MALLORCA, UNITED STATES")
-                        serverPlace = "MALLORCA, SPAIN";
+//                    if (serverPlace == "MALLORCA, UNITED STATES")
+//                        serverPlace = "MALLORCA, SPAIN";
 
-           //         serverPlace = serverPlace.Replace(", UNITED STATES", "");
-                    if (CallOpenCage(serverPlace, ref lat, ref lon))
+                    //         serverPlace = serverPlace.Replace(", UNITED STATES", "");
+                    if (CallOpenCage(serverPlace, ref serverLat, ref serverLon))
                     {
                         Console.WriteLine("Used server location: " + serverPlace);
-                        return;
+                        fServerLLSuccess = true;
                     }
-                    Console.WriteLine("Server location failed: " + serverPlace);
                 }
 
-            // didn't find the top user country... ask someone for directions.
+            // consider user location
+            bool fUserLLSuccess = false;
+            string userLat = "";
+            string userLon = "";
 
-            // THE SERVER SELF-REPORT DIDN'T TRANSLATE INTO A LAT-LONG...
-            // SO IF THERE ARE USERS THERE, HARVEST THEIR COUNTRY.
+            if (CallOpenCage(userPlace, ref userLat, ref userLon))
             {
-                //                if( userPlace.Contains(","))
-                if (CallOpenCage(userPlace, ref lat, ref lon))
-                {
-                    Console.WriteLine("Used user location: " + userPlace);
-                    return;
-                }
-                Console.WriteLine("User location failed: " + userPlace);
+                Console.WriteLine("Used user location: " + userPlace);
+                fUserLLSuccess = true;
             }
+            //Console.WriteLine("User location failed: " + userPlace);
+
+            // consider server IP geolocation
+            bool fServerIPLLSuccess = false;
+            string serverIPLat = "";
+            string serverIPLon = "";
 
             if (ipAddr.Length > 5)
             {
@@ -1015,15 +1033,53 @@ namespace JamFan22.Pages
                 geoParams.SetFields("geo,time_zone,currency");
                 Geolocation geolocation = api.GetGeolocation(geoParams);
                 Console.WriteLine(ipAddr + " " + geolocation.GetCity());
-                lat = geolocation.GetLatitude();
-                lon = geolocation.GetLongitude();
-                m_ipAddrToLatLong[ipAddr] = new LatLong(lat, lon);
+                serverIPLat = geolocation.GetLatitude();
+                serverIPLon = geolocation.GetLongitude();
+                fServerIPLLSuccess = true;
+                m_ipAddrToLatLong[ipAddr] = new LatLong(serverIPLat, serverIPLon);
                 Console.WriteLine("AN IP geo has been cached.");
-                return;
+            }
+            else
+                m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // so we stop asking?
+
+            // if we have lat-lon based on server's IP,
+            // and we have lat-lon based on user's UP,
+            // and they are on same continent,
+            // when we use user's IP.
+            //
+            // but if there's no user IP lat-lon
+            // and tehre's no server SELF-DESCRIBED LOCATION lat-lon
+            // then we use server's IP lat-lon
+            //
+            // if no serverIP lat-lon, we use server self-described lat-lon
+
+            if (fServerIPLLSuccess)
+            {
+                if (fUserLLSuccess)
+                {
+                    // if these two latlongs are on the same continent
+                    // then ignore the server's self-stated place.
+                    char serverIPContinent = ContinentOfLatLong(serverIPLat, serverIPLon);
+                    char userContinent = ContinentOfLatLong(userLat, userLon);
+                    if (serverIPContinent == userContinent)
+                    {
+                        lat = userLat;
+                        lon = userLon;
+                        m_PlaceNameToLatLong[serverPlace.ToUpper()] = new LatLong(lat, lon);
+                        return;
+                    }
+                }
+                if (false == fServerLLSuccess)
+                {
+                    lat = serverIPLat;
+                    lon = serverIPLon;
+                    return;
+                }
             }
 
-            // Couldn't find anything. do this instead:
-            m_ipAddrToLatLong[ipAddr] = new LatLong("", "");
+            lat = serverLat;
+            lon = serverLon;
+            m_PlaceNameToLatLong[serverPlace.ToUpper()] = new LatLong(lat, lon);
         }
 
         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
@@ -1446,8 +1502,12 @@ namespace JamFan22.Pages
 
 
 
-        char ContinentOfLatLong(double latD, double lonD)
+
+        char ContinentOfLatLong(string lat, string lon)
         {
+            double latD = Convert.ToDouble(lat);
+            double lonD = Convert.ToDouble(lon);
+
             char zone = 'X';
             
             // hardcode with the latitude and longitude of New York City
@@ -1668,6 +1728,9 @@ namespace JamFan22.Pages
                     //                    IEnumerable<ServersForMe> sortedByDistanceAway = allMyServers.OrderBy(svr => svr.distanceAway);
                     ///  
 
+                    if (place.Contains("208, "))
+                        place = place.Replace("208, ", "");
+
                     PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), server.ip, ref lat, ref lon);
 
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
@@ -1679,10 +1742,7 @@ namespace JamFan22.Pages
 
 //                        Console.Write(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
 
-                        double latD = Convert.ToDouble(lat);
-                        double lonD = Convert.ToDouble(lon);
-
-                        zone = ContinentOfLatLong(latD, lonD);
+                        zone = ContinentOfLatLong(lat, lon);
                     }
 
 if(dist < 250)
@@ -2407,7 +2467,7 @@ dist = 250;
                         {
                             string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
                             System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
-                            Console.WriteLine("I chose: " + chosen);
+//                            Console.WriteLine("I chose: " + chosen);
                         }
                         else
                         {
@@ -2490,6 +2550,8 @@ dist = 250;
                                 //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
                                 //                        s.serverIpAddress + ":" + s.serverPort + "&quot;)'>" +
                                 s.serverIpAddress +
+                               // ":" +
+                               // s.serverPort +
                                 //                        "</a>" + 
                                 "</tr>\n";
                         }
@@ -2534,11 +2596,13 @@ dist = 250;
             set { }
         }
 
+        static bool m_bUserWaiting = false;
         public string RightNow
         {
             get
             {
                 DateTime started = DateTime.Now;
+                m_bUserWaiting = true; 
                 m_serializerMutex.WaitOne();
                 try
                 {
@@ -2641,14 +2705,19 @@ dist = 250;
                 {
                     m_serializerMutex.ReleaseMutex();
                     TimeSpan duration = DateTime.Now - started;
-                    Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
                     if (duration.TotalSeconds > 6) // double-slowdown for really unacceptable perf
+                    {
+                        Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
                         m_conditionsDelta++;
+                    }
                     if (duration.TotalSeconds > 3)
+                    {
+                        Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
                         m_conditionsDelta++;
+                    }
                     if (duration.TotalSeconds < 1)
                         m_conditionsDelta--;
-                    Console.WriteLine("Adding this to everyone's 120-second auto-refresh: " + m_conditionsDelta.ToString());
+//                    Console.WriteLine("Adding this to everyone's 120-second auto-refresh: " + m_conditionsDelta.ToString());
                 }
             }
             set
