@@ -571,7 +571,10 @@ namespace JamFan22.Pages
                 m_bUserWaiting = false; // I clear it to see if a user appears while I'm sleepin.
                 Thread.Sleep(12000);
                 if (false == m_bUserWaiting)
+                {
+                    Console.WriteLine("Sampler taking 45 second sleep...");
                     Thread.Sleep(45000); // just one time, a really deep sleep
+                }
             }
         }
             
@@ -1523,14 +1526,19 @@ namespace JamFan22.Pages
             double longAS = 127.6800;
             int distFromAS = Distance(latAS, longAS, latD, lonD);
             // hardcode with lat long of Manaus
-            double latSA = -3.1190;
-            double longSA = -60.0217;
+            double latSA = 4.57;
+            double longSA = -74.0217;
             int distFromSA = Distance(latSA, longSA, latD, lonD);
 
             if (distFromNA < distFromEU)
                 if (distFromNA < distFromAS)
                     if (distFromNA < distFromSA)
-                        zone = 'N';
+                    {
+                        if (latD < 25.0) // i don't know why, my formula just sux
+                            zone = 'S';
+                        else
+                            zone = 'N';
+                    }
 
             if (distFromEU < distFromNA)
                 if (distFromEU < distFromAS)
