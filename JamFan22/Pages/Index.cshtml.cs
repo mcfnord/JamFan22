@@ -589,9 +589,9 @@ namespace JamFan22.Pages
                         Console.WriteLine("Sleeping secs: " + secs);
                 Thread.Sleep(secs * 1000);
                 if (false == m_bUserWaiting)
-                    m_secondsPause++;
+                    m_secondsPause *= 2; // if we just slept, and nobody showed up, double our sleep
                 else
-                    m_secondsPause--;
+                    m_secondsPause /= 2; // people want data. let's get some!
 
                 if (m_secondsPause < 10)
                     m_secondsPause = 10;
