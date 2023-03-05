@@ -396,6 +396,8 @@ namespace JamFan22.Pages
         {
             while (true)
             {
+                bool fMissingSamplePresent = false;
+                
                 var httpClientHandler = new HttpClientHandler();
                 httpClientHandler.ServerCertificateCustomValidationCallback =
                     (message, cert, chain, ssl) =>
@@ -416,6 +418,13 @@ namespace JamFan22.Pages
                 foreach (var key in JamulusListURLs.Keys)
                 {
                     var newReportedList = serverStates[key].Result; // only proceeds when data arrives
+                    /*
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(newReportedList);
+                    if (serversOnList.Count == 0)
+                    {
+                        // i want to re-sample!
+                    }
+                    */
 
                     m_serializerMutex.WaitOne(); // get the global mutex
                     try
@@ -424,7 +433,10 @@ namespace JamFan22.Pages
                             DetectJoiners(LastReportedList[key], newReportedList);
                         LastReportedList[key] = newReportedList;
                     }
-                    finally { m_serializerMutex.ReleaseMutex(); }
+                    finally
+                    {
+                        m_serializerMutex.ReleaseMutex();
+                    }
                 }
 
                 Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
@@ -448,6 +460,7 @@ namespace JamFan22.Pages
                         if (serversOnList.Count == 0)
                         {
                             ListServicesOffline.Add(keyHere);
+                            fMissingSamplePresent = true;
                         }
                     }
 
@@ -569,8 +582,12 @@ namespace JamFan22.Pages
                 finally { m_serializerMutex.ReleaseMutex(); }
 
                 m_bUserWaiting = false; // I clear it to see if a user appears while I'm sleepin.
-                Console.WriteLine("Sleeping secs: " + m_secondsPause);
-                Thread.Sleep(m_secondsPause * 1000);
+                int secs = m_secondsPause;
+                if (fMissingSamplePresent)
+                    secs /= 2; // if we're missing a sample, let's rush to the re-sample.
+                if((secs < 8) || (secs > 12))
+                        Console.WriteLine("Sleeping secs: " + secs);
+                Thread.Sleep(secs * 1000);
                 if (false == m_bUserWaiting)
                     m_secondsPause++;
                 else
@@ -2590,6 +2607,10 @@ dist = 250;
                 int iRefreshDelay = 120 + m_conditionsDelta ;
                 var rand = new Random();
                 iRefreshDelay += rand.Next(-9, 9);
+
+                // this just seems unwise. So I'm not doing it.
+//                if (ListServicesOffline.Count > 0)
+//                    iRefreshDelay /= 2;
 
                 return iRefreshDelay.ToString();
             }
