@@ -391,7 +391,7 @@ namespace JamFan22.Pages
             }
         }
 
-
+        static int m_secondsPause = 12; 
         public static void RefreshThreadTask()
         {
             while (true)
@@ -569,12 +569,17 @@ namespace JamFan22.Pages
                 finally { m_serializerMutex.ReleaseMutex(); }
 
                 m_bUserWaiting = false; // I clear it to see if a user appears while I'm sleepin.
-                Thread.Sleep(12000);
+                Console.WriteLine("Sleeping secs: " + m_secondsPause);
+                Thread.Sleep(m_secondsPause * 1000);
                 if (false == m_bUserWaiting)
-                {
-                    Console.WriteLine("Sampler taking 45 second sleep...");
-                    Thread.Sleep(45000); // just one time, a really deep sleep
-                }
+                    m_secondsPause++;
+                else
+                    m_secondsPause--;
+
+                if (m_secondsPause < 10)
+                    m_secondsPause = 10;
+                if (m_secondsPause > 60)
+                    m_secondsPause = 60;
             }
         }
             
