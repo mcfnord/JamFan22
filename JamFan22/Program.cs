@@ -3,8 +3,8 @@ var builder = WebApplication.CreateBuilder(args);
 ///* removed for localhost usage.
 builder.WebHost.UseKestrel(serverOptions =>
 {
-    serverOptions.ListenAnyIP(80);
-    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("keyDec22.pfx", "jamfan"));
+//    serverOptions.ListenAnyIP(80);
+    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("keyMar23.pfx", "jamfan"));
 });
 //*/
 
@@ -22,7 +22,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseRouting();
