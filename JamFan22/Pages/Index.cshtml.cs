@@ -986,7 +986,7 @@ namespace JamFan22.Pages
 
 
             var rng = new Random();
-            if (0 == rng.Next(10000))
+            if (0 == rng.Next(25000))
             {
                 Console.WriteLine("Flushing cached lat-longs.");
                 m_PlaceNameToLatLong.Clear();
