@@ -986,11 +986,17 @@ namespace JamFan22.Pages
 
 
             var rng = new Random();
-            if (0 == rng.Next(25000))
+            if (0 == rng.Next(10000))
             {
-                Console.WriteLine("Flushing cached lat-longs.");
-                m_PlaceNameToLatLong.Clear();
-                m_ipAddrToLatLong.Clear();
+
+                Console.WriteLine("Want to flush cached lat-longs, but only if things are not full-tilt.");
+
+                if (m_secondsPause > 10) // I only wanna flush when m_secondsPause > 10, because 10 and below means we're active.
+                {
+                    Console.WriteLine("Detected relative slowdown and flushed.");
+                    m_PlaceNameToLatLong.Clear();
+                    m_ipAddrToLatLong.Clear();
+                }
             }
 
             if (m_PlaceNameToLatLong.ContainsKey(serverPlace))
@@ -1387,9 +1393,13 @@ namespace JamFan22.Pages
 
         // didn't work        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
 
-        static bool NukeThisUsername(string name, string instrument)
+        static bool NukeThisUsername(string name, string instrument, bool CBVB)
         {
             var trimmed = name.Trim();
+
+            if (CBVB)
+                if (name.ToLower().Contains("feed"))
+                    return true;
 
             if (trimmed.Contains("LowBot"))
                 return true;
@@ -1628,7 +1638,7 @@ namespace JamFan22.Pages
                         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
                         NotateWhoHere(server.ip + ":" + server.port, GetHash(guy.name, guy.country, guy.instrument)) ;
 
-                        if (NukeThisUsername(guy.name, guy.instrument))
+                        if (NukeThisUsername(guy.name, guy.instrument, server.name.ToUpper().Contains("CBVB")))
                             continue;
 
                         string slimmerInstrument = guy.instrument;
@@ -1856,7 +1866,7 @@ dist = 250;
                 // Copy to a list I can screw up:
                 foreach (var cat in s.whoObjectFromSourceData)
                 {
-                    if (NukeThisUsername(cat.name, cat.instrument))
+                    if (NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
                         continue;
                     myCopyOfWho.Add(cat);
                 }
@@ -2059,7 +2069,7 @@ dist = 250;
                     // Copy to a list I can screw up:
                     foreach (var cat in s.whoObjectFromSourceData)
                     {
-                        if (NukeThisUsername(cat.name, cat.instrument))
+                        if (NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
                             continue;
                         myCopyOfWho.Add(cat);
                     }
@@ -2607,6 +2617,12 @@ dist = 250;
                 int iRefreshDelay = 120 + m_conditionsDelta ;
                 var rand = new Random();
                 iRefreshDelay += rand.Next(-9, 9);
+
+                if (ListServicesOffline.Count > 0)
+                {
+                    // Refresh accelerated because at least one directory sample was blank.
+                    iRefreshDelay /= 2;
+                }
 
                 // this just seems unwise. So I'm not doing it.
 //                if (ListServicesOffline.Count > 0)
