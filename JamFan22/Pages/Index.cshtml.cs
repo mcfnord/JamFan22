@@ -174,6 +174,7 @@ namespace JamFan22.Pages
 
         public static void DetectJoiners(string was, string isnow)
         {
+            
             // determine servers where actor joined target
             // This count, multiplied by how long actor and target are together,
             // is strength of signal to provide actor about target.
@@ -394,6 +395,7 @@ namespace JamFan22.Pages
         static int m_secondsPause = 12; 
         public static void RefreshThreadTask()
         {
+            JUST_TRY_AGAIN:
             while (true)
             {
                 bool fMissingSamplePresent = false;
@@ -418,27 +420,29 @@ namespace JamFan22.Pages
                 foreach (var key in JamulusListURLs.Keys)
                 {
                     var newReportedList = serverStates[key].Result; // only proceeds when data arrives
-                    /*
-                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(newReportedList);
-                    if (serversOnList.Count == 0)
-                    {
-                        // i want to re-sample!
-                    }
-                    */
 
-                    m_serializerMutex.WaitOne(); // get the global mutex
-                    try
+                    if (newReportedList != "CRC mismatch in received message")
                     {
-                        if (LastReportedList.ContainsKey(key))
+                        m_serializerMutex.WaitOne(); // get the global mutex
+                        try
                         {
-                            Console.WriteLine(key);
-                            DetectJoiners(LastReportedList[key], newReportedList);
+                            if (LastReportedList.ContainsKey(key))
+                            {
+                                Console.WriteLine(key);
+                                DetectJoiners(LastReportedList[key], newReportedList);
+                            }
+                            LastReportedList[key] = newReportedList;
                         }
-                        LastReportedList[key] = newReportedList;
+                        finally
+                        {
+                            m_serializerMutex.ReleaseMutex();
+                        }
                     }
-                    finally
+                    else
                     {
-                        m_serializerMutex.ReleaseMutex();
+                        Console.WriteLine("CRC mismatch in received message");
+                        Thread.Sleep(1000);
+                        goto JUST_TRY_AGAIN;
                     }
                 }
 
