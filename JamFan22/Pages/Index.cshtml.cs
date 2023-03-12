@@ -1,4 +1,4 @@
-//﻿#define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -430,7 +430,10 @@ namespace JamFan22.Pages
                     try
                     {
                         if (LastReportedList.ContainsKey(key))
+                        {
+                            Console.WriteLine(key);
                             DetectJoiners(LastReportedList[key], newReportedList);
+                        }
                         LastReportedList[key] = newReportedList;
                     }
                     finally
@@ -986,12 +989,12 @@ namespace JamFan22.Pages
 
 
             var rng = new Random();
-            if (0 == rng.Next(10000))
+            if (0 == rng.Next(1000))
             {
 
                 Console.WriteLine("Want to flush cached lat-longs, but only if things are not full-tilt.");
 
-                if (m_secondsPause > 10) // I only wanna flush when m_secondsPause > 10, because 10 and below means we're active.
+                if (m_secondsPause > 20) // This flush technique just sucks. Flushing isn't even that critical. Just do it daily.
                 {
                     Console.WriteLine("Detected relative slowdown and flushed.");
                     m_PlaceNameToLatLong.Clear();
@@ -2590,8 +2593,8 @@ dist = 250;
                                 //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
                                 //                        s.serverIpAddress + ":" + s.serverPort + "&quot;)'>" +
                                 s.serverIpAddress +
-                               // ":" +
-                               // s.serverPort +
+                                ":" +
+                                s.serverPort +
                                 //                        "</a>" + 
                                 "</tr>\n";
                         }
