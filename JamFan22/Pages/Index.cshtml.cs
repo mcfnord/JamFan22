@@ -428,7 +428,7 @@ namespace JamFan22.Pages
                         {
                             if (LastReportedList.ContainsKey(key))
                             {
-                                Console.WriteLine(key);
+                                // Console.WriteLine(key);
                                 DetectJoiners(LastReportedList[key], newReportedList);
                             }
                             LastReportedList[key] = newReportedList;
