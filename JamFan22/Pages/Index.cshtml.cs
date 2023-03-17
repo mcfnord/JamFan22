@@ -996,7 +996,7 @@ namespace JamFan22.Pages
 
 
             var rng = new Random();
-            if (0 == rng.Next(1000))
+            if (0 == rng.Next(5000))
             {
 
                 Console.WriteLine("Want to flush cached lat-longs, but only if things are not full-tilt.");
