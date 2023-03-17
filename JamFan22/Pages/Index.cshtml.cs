@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Newtonsoft.Json.Linq;
 using System.Diagnostics;
 using System.Linq.Expressions;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -1993,6 +1994,7 @@ dist = 250;
                                 : "");
                     }
 
+                    /*
                     string listenNow = "";
                     if (s.name.Contains("MJTH Lobby"))
                     {
@@ -2001,6 +2003,41 @@ dist = 250;
                         if (liveSnippet.Length > 0)
                             listenNow = "<br>" + listenNow;
                     }
+                    */
+
+                    // For every entry in https://lounge.jamulus.live/map.txt, add Listen link if ip:port matches.
+                    string listenNow = "";
+
+                    // Enumerate the text file at https://lounge.jamulus.live/map.txt
+                    // and look for a match.
+
+                    using (var httpClient = new HttpClient())
+                    {
+                        var contents = await httpClient.GetStringAsync("http://lounge.jamulus.live/map.txt");
+                        using (var reader = new StringReader(contents))
+                        {
+                            string line;
+                            while ((line = reader.ReadLine()) != null)
+                            {
+                                // Process each line of the file here
+                                if (line.Contains(s.serverIpAddress + ":" + s.serverPort))
+                                {
+                                    // The URL of the lounge is the second token in the line.
+                                    string[] tokens = line.Split(' ');
+
+                                    string url = tokens[1];
+
+                                    // Found a match. Add a link.
+                                    listenNow = "<a target='_blank' href='" + url + "'>Listen</a></br>";
+                                    // Just a hack
+                                    //                            if (liveSnippet.Length > 0)
+                                    //                                listenNow = "<br>" + listenNow;
+                                }
+                            }
+                        }
+                    }
+
+
 
                     newline +=
                     "<font size='-1'>" +
