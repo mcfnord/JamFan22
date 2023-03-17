@@ -1898,7 +1898,7 @@ dist = 250;
 
                 if (s_myUserCount > 1)
                 {
-                    if (s.name == "JamPad") continue;
+//                  if (s.name == "JamPad") continue;
 
                     // once in a while, two people park on a single server. let's hide them after 6 hours.
                     bool fSuppress = true;
