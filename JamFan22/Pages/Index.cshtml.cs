@@ -3,10 +3,12 @@
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.VisualBasic;
 using Newtonsoft.Json.Linq;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -2464,6 +2466,15 @@ dist = 250;
             }
         }
 
+        static bool InMapFile(string fullAddress)
+        {
+            var httpClient = new HttpClient();
+            var response = httpClient.GetStringAsync("http://lounge.jamulus.live/map.txt").Result;
+            return response.Contains(fullAddress);
+        }
+
+
+
 
         public string HowManyUsers
         {
@@ -2499,7 +2510,7 @@ dist = 250;
                     }
                     else
                     {
-//                        Console.WriteLine("I wanna choose which server to sample.");
+                        //                        Console.WriteLine("I wanna choose which server to sample.");
 
                         foreach (var key in LastReportedList.Keys)
                         {
@@ -2526,20 +2537,21 @@ dist = 250;
 #endif                                
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
-                                if (files.GetLength(0) == 0)
+                                if (files.GetLength(0) == 0) // if we don't have a sample for this now, add it to the running.
                                 {
-                                    //                                }
-                                    //                                if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
-                                    //                                {
-                                    svrActivesIpPort.Add(fullAddress);
+                                    // if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
+                                    
+                                    // If this fullAddress is in map.txt, don't consider it for sampling.
+                                    if(false == InMapFile(fullAddress))
+                                        svrActivesIpPort.Add(fullAddress);
                                 }
-                                else
-                                {
-//                                    Console.WriteLine(fullAddress + "has an active sample already.");
-                                }
-                            }
+                                // else
+                                // {
+                                //   Console.WriteLine(fullAddress + "has an active sample already.");
+                                // }
                             }
                         }
+                    }
 
                     // apparently only the first line gets processed
                     // so gimme one rando line please
