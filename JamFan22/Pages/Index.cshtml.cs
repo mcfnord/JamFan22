@@ -1,4 +1,4 @@
-﻿#define WINDOWS
+//﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -2039,7 +2039,31 @@ dist = 250;
                         }
                     }
 
-
+                    // if listenNow wasn't assigned by the map, maybe assign it due to Free lounge and allowlist.
+                    if (listenNow.Length == 0)
+                    {
+                        // read https://lounge.jamulus.live/free.txt, see if it's True
+                        using (var httpClient = new HttpClient())
+                        {
+                            var contents = await httpClient.GetStringAsync("http://lounge.jamulus.live/free.txt");
+                            if (contents.Contains("True"))
+                            {
+                                // ok, is this ipport on https://jamulus.live/can-dock.txt?
+                                string ipport = s.serverIpAddress + ":" + s.serverPort;
+                                using (var httpClient2 = new HttpClient())
+                                {
+                                    var contents2 = await httpClient2.GetStringAsync("http://lounge.jamulus.live/can-dock.txt");
+                                    if (contents2.Contains(ipport))
+                                    {
+                                        // ok, it's free and can dock. Add a link.
+                                        listenNow = "<a target='_blank' href='https://jamulus.live/dock/"
+                                            + ipport
+                                            + "'>Listen</a></br>";
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     newline +=
                     "<font size='-1'>" +

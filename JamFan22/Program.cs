@@ -37,15 +37,44 @@ app.MapRazorPages();
 
 app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
 {
-    // save in requested.txt
-//    string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
-    string DIR = "/root/JamFan22/JamFan22/wwwroot/";
-    File.WriteAllText(DIR + "requested.txt", destination);
-    Thread.Sleep(30 * 1000);
-    string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"0;url=https://lounge.jamulus.live\"></head><body></body></html>";
-    context.Response.ContentType = MediaTypeNames.Text.Html;
-    context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
-    return context.Response.WriteAsync(html);
+    using (var httpClient = new HttpClient())
+    {
+        // only set destination of http://lounge.jamulus.live/free.txt is True
+        var response = httpClient.GetAsync("http://lounge.jamulus.live/free.txt").Result;
+        var content = response.Content.ReadAsStringAsync().Result;
+        if (false == content.Contains("True"))
+        {
+            context.Response.StatusCode = 403;
+            return context.Response.WriteAsync("Forbidden");
+        }
+
+        // is this destination denied at http://lounge.jamulus.live/cannot-dock.txt ?
+        response = httpClient.GetAsync("http://lounge.jamulus.live/cannot-dock.txt").Result;
+        content = response.Content.ReadAsStringAsync().Result;
+        if (content.Contains(destination))
+        {
+            context.Response.StatusCode = 403;
+            return context.Response.WriteAsync("Forbidden");
+        }
+
+        // Is this destination allowed at can-dock.txt?
+        response = httpClient.GetAsync("http://lounge.jamulus.live/can-dock.txt").Result;
+        content = response.Content.ReadAsStringAsync().Result;
+        if (false == content.Contains(destination))
+        {
+            context.Response.StatusCode = 403;
+            return context.Response.WriteAsync("Forbidden");
+        }
+
+//        string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
+        string DIR = "/root/JamFan22/JamFan22/wwwroot/";
+        File.WriteAllText(DIR + "requested.txt", destination);
+        Thread.Sleep(5 * 1000);
+        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"0;url=https://lounge.jamulus.live\"></head><body></body></html>";
+        context.Response.ContentType = MediaTypeNames.Text.Html;
+        context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
+        return context.Response.WriteAsync(html);
+    }
 });
 
 app.MapGet("/servers/{target}", (string target, HttpContext context) =>
