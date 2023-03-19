@@ -2065,6 +2065,9 @@ dist = 250;
                         }
                     }
 
+                    if (listenNow.Length > 0) // if there's a listen link
+                        liveSnippet = "";     // then don't show an mp3 player
+
                     newline +=
                     "<font size='-1'>" +
                     s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
