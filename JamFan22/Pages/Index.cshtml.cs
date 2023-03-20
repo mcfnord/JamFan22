@@ -1601,17 +1601,25 @@ namespace JamFan22.Pages
         }
 
 
+        static int secondOfLastSample = -1;
+        static Dictionary<string, bool> freeStatusCache = new Dictionary<string, bool>();
         bool InstanceIsFree(string url)
         {
+            if (secondOfLastSample == DateTime.Now.Second / 2)
+                return freeStatusCache[url];
+
+            bool result = false;
             using (var httpClient = new HttpClient())
             {
                 var contents = httpClient.GetStringAsync(url).Result;
                 if (contents.Contains("True"))
                 {
-                    return true;
+                    result = true;
                 }
             }
-            return false;
+            freeStatusCache[url] = result;
+            secondOfLastSample = DateTime.Now.Second / 2;
+            return result;
         }
 
 
@@ -2022,12 +2030,12 @@ dist = 250;
                     // For every entry in https://lounge.jamulus.live/map.txt, add Listen link if ip:port matches.
                     string listenNow = "";
 
-                    // Enumerate the text file at https://lounge.jamulus.live/map.txt
+                    // Enumerate the text file at http://jamulus.live/map.txt
                     // and look for a match.
 
                     using (var httpClient = new HttpClient())
                     {
-                        var contents = await httpClient.GetStringAsync("http://lounge.jamulus.live/map.txt");
+                        var contents = await httpClient.GetStringAsync("https://jamulus.live/map.txt");
                         using (var reader = new StringReader(contents))
                         {
                             string line;
