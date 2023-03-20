@@ -39,17 +39,28 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
 {
     using (var httpClient = new HttpClient())
     {
-        // only set destination of http://lounge.jamulus.live/free.txt is True
+        // only set destination if there's a free instance
+        string freeInstance = "";
+        
         var response = httpClient.GetAsync("http://lounge.jamulus.live/free.txt").Result;
         var content = response.Content.ReadAsStringAsync().Result;
-        if (false == content.Contains("True"))
+        if (content.Contains("True"))
+            freeInstance = "lounge";
+        else
         {
-            context.Response.StatusCode = 403;
-            return context.Response.WriteAsync("Forbidden");
+            response = httpClient.GetAsync("http://radio.jamulus.live/free.txt").Result;
+            content = response.Content.ReadAsStringAsync().Result;
+            if (content.Contains("True"))
+                freeInstance = "radio";
+            else
+            {
+                context.Response.StatusCode = 403;
+                return context.Response.WriteAsync("Forbidden");
+            }
         }
-
-        // is this destination denied at http://lounge.jamulus.live/cannot-dock.txt ?
-        response = httpClient.GetAsync("http://lounge.jamulus.live/cannot-dock.txt").Result;
+        
+        // is this destination denied at https://jamulus.live/cannot-dock.txt ?
+        response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
         content = response.Content.ReadAsStringAsync().Result;
         if (content.Contains(destination))
         {
@@ -58,7 +69,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
         }
 
         // Is this destination allowed at can-dock.txt?
-        response = httpClient.GetAsync("http://lounge.jamulus.live/can-dock.txt").Result;
+        response = httpClient.GetAsync("https://jamulus.live/can-dock.txt").Result;
         content = response.Content.ReadAsStringAsync().Result;
         if (false == content.Contains(destination))
         {
@@ -68,9 +79,22 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
 
 //        string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
         string DIR = "/root/JamFan22/JamFan22/wwwroot/";
-        File.WriteAllText(DIR + "requested.txt", destination);
-        Thread.Sleep(5 * 1000);
-        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"0;url=https://lounge.jamulus.live\"></head><body></body></html>";
+
+        // for any line that contains this string, remove the line from the file.
+        string[] lines = File.ReadAllLines(DIR + "map.txt");
+        List<string> newLines = new List<string>();
+        foreach (string line in lines)
+            if (false == line.Contains(destination))
+                newLines.Add(line);
+        File.WriteAllLines(DIR + "map.txt", newLines);
+
+        // now append this active entry to this file
+        string text = $"{destination} https://{freeInstance}.jamulus.live";
+        File.AppendAllText(DIR + "map.txt", text + Environment.NewLine);
+
+        File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
+
+        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"5;url=https://" + freeInstance + ".jamulus.live\"></head><body></body></html>";
         context.Response.ContentType = MediaTypeNames.Text.Html;
         context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
         return context.Response.WriteAsync(html);

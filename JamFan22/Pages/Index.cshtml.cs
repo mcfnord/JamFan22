@@ -1,4 +1,4 @@
-//﻿#define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -1601,6 +1601,18 @@ namespace JamFan22.Pages
         }
 
 
+        bool InstanceIsFree(string url)
+        {
+            using (var httpClient = new HttpClient())
+            {
+                var contents = httpClient.GetStringAsync(url).Result;
+                if (contents.Contains("True"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
 
 
@@ -2039,32 +2051,33 @@ dist = 250;
                         }
                     }
 
-                    // if listenNow wasn't assigned by the map, maybe assign it due to Free lounge and allowlist.
+                    // if listenNow wasn't assigned by the map, maybe assign it because there's a free instance and this IP:port is allowed
                     if (listenNow.Length == 0)
                     {
-                        // read https://lounge.jamulus.live/free.txt, see if it's True
-                        using (var httpClient = new HttpClient())
+                        do
                         {
-                            var contents = await httpClient.GetStringAsync("http://lounge.jamulus.live/free.txt");
-                            if (contents.Contains("True"))
+                            bool a = InstanceIsFree("http://lounge.jamulus.live/free.txt");
+                            bool b = InstanceIsFree("http://radio.jamulus.live/free.txt");
+                            if (!a && !b)
+                                break;
+
+                            // ok, is this ipport on https://jamulus.live/can-dock.txt?
+                            string ipport = s.serverIpAddress + ":" + s.serverPort;
+                            using (var httpClient2 = new HttpClient())
                             {
-                                // ok, is this ipport on https://jamulus.live/can-dock.txt?
-                                string ipport = s.serverIpAddress + ":" + s.serverPort;
-                                using (var httpClient2 = new HttpClient())
+                                var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
+                                if (contents2.Contains(ipport))
                                 {
-                                    var contents2 = await httpClient2.GetStringAsync("http://lounge.jamulus.live/can-dock.txt");
-                                    if (contents2.Contains(ipport))
-                                    {
-                                        // ok, it's free and can dock. Add a link.
-                                        listenNow = "<a target='_blank' href='https://jamulus.live/dock/"
-                                            + ipport
-                                            + "'>Listen</a></br>";
-                                    }
+                                    // ok, it's free and can dock. Add a link.
+                                    listenNow = "<a target='_blank' href='https://jamulus.live/dock/"
+                                        + ipport
+                                        + "'>Listen</a></br>";
                                 }
                             }
                         }
+                        while (false); // drops out
                     }
-
+                
                     if (listenNow.Length > 0) // if there's a listen link
                         liveSnippet = "";     // then don't show an mp3 player
 
