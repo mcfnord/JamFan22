@@ -1601,12 +1601,13 @@ namespace JamFan22.Pages
         }
 
 
-        static int secondOfLastSample = -1;
+        static Dictionary<string, int> secondOfLastSample = new Dictionary<string, int>();
         static Dictionary<string, bool> freeStatusCache = new Dictionary<string, bool>();
         bool InstanceIsFree(string url)
         {
-            if (secondOfLastSample == DateTime.Now.Second / 2)
-                return freeStatusCache[url];
+            if (secondOfLastSample.ContainsKey(url))
+                if (secondOfLastSample[url] == DateTime.Now.Second)
+                    return freeStatusCache[url];
 
             bool result = false;
             using (var httpClient = new HttpClient())
@@ -1618,7 +1619,7 @@ namespace JamFan22.Pages
                 }
             }
             freeStatusCache[url] = result;
-            secondOfLastSample = DateTime.Now.Second / 2;
+            secondOfLastSample[url] = DateTime.Now.Second;
             return result;
         }
 
