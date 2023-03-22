@@ -1,4 +1,4 @@
-﻿#define WINDOWS
+//﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -2028,10 +2028,10 @@ dist = 250;
                     }
                     */
 
-                    // For every entry in https://lounge.jamulus.live/map.txt, add Listen link if ip:port matches.
+                    // For every entry in https://jamulus.live/map.txt, add Listen link if ip:port matches.
                     string listenNow = "";
 
-                    // Enumerate the text file at http://jamulus.live/map.txt
+                    // Enumerate the text file at https://jamulus.live/map.txt
                     // and look for a match.
 
                     using (var httpClient = new HttpClient())
@@ -2518,7 +2518,7 @@ dist = 250;
         static bool InMapFile(string fullAddress)
         {
             var httpClient = new HttpClient();
-            var response = httpClient.GetStringAsync("http://lounge.jamulus.live/map.txt").Result;
+            var response = httpClient.GetStringAsync("https://jamulus.live/map.txt").Result;
             return response.Contains(fullAddress);
         }
 
