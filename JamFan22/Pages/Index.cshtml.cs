@@ -2518,7 +2518,7 @@ dist = 250;
         static bool InMapFile(string fullAddress)
         {
             var httpClient = new HttpClient();
-            var response = httpClient.GetStringAsync("http://lounge.jamulus.live/map.txt").Result;
+            var response = httpClient.GetStringAsync("https://jamulus.live/map.txt").Result;
             return response.Contains(fullAddress);
         }
 
