@@ -1,4 +1,4 @@
-﻿#define WINDOWS
+//﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -2031,15 +2031,14 @@ dist = 250;
                     }
                     */
 
-                    // For every entry in https://lounge.jamulus.live/map.txt, add Listen link if ip:port matches.
+                    // For every entry in the map of connected docks, add Listen link if ip:port matches.
+
                     string listenNow = "";
                     string ipport = s.serverIpAddress + ":" + s.serverPort;
-
                     foreach (var url in m_connectedLounges.Keys)
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            // found a match
                             listenNow = "<a target='_blank' href='" + url + "'>Listen</a></br>";
                             break;
                         }
