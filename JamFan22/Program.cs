@@ -59,7 +59,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             }
         }
         
-        // is this destination denied at https://jamulus.live/cannot-dock.txt ?
+        // is this destination blocklisted?
         response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
         content = response.Content.ReadAsStringAsync().Result;
         if (content.Contains(destination))
@@ -68,7 +68,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             return context.Response.WriteAsync("Forbidden");
         }
 
-        // Is this destination allowed at can-dock.txt?
+        // Is this destination allowlisted?
         response = httpClient.GetAsync("https://jamulus.live/can-dock.txt").Result;
         content = response.Content.ReadAsStringAsync().Result;
         if (false == content.Contains(destination))
@@ -77,24 +77,15 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             return context.Response.WriteAsync("Forbidden");
         }
 
-//        string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
+//      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
         string DIR = "/root/JamFan22/JamFan22/wwwroot/";
 
         // for any line that contains this string, remove the line from the file.
-        string[] lines = File.ReadAllLines(DIR + "map.txt");
-        List<string> newLines = new List<string>();
-        foreach (string line in lines)
-            if (false == line.Contains(destination))
-                newLines.Add(line);
-        File.WriteAllLines(DIR + "map.txt", newLines);
-
-        // now append this active entry to this file
-        string text = $"{destination} https://{freeInstance}.jamulus.live";
-        File.AppendAllText(DIR + "map.txt", text + Environment.NewLine);
+        JamFan22.Pages.IndexModel.m_connectedLounges[ $"https://{freeInstance}.jamulus.live" ] = destination;
 
         File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
 
-        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"5;url=https://" + freeInstance + ".jamulus.live\"></head><body></body></html>";
+        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://" + freeInstance + ".jamulus.live\"></head><body></body></html>";
         context.Response.ContentType = MediaTypeNames.Text.Html;
         context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
         return context.Response.WriteAsync(html);

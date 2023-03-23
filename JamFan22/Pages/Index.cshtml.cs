@@ -1423,6 +1423,7 @@ namespace JamFan22.Pages
                 case "STUDIO BRIDGE": return true;
                 case "CLICK": return true;
                 case "LOBBY [0]": return true;
+                case "LOBBY": return true;
                 case "REFERENCE": return true;
                 case "":
                     if (instrument == "Streamer")
@@ -1624,6 +1625,8 @@ namespace JamFan22.Pages
         }
 
 
+
+        public static Dictionary<string, string> m_connectedLounges = new Dictionary<string, string>();
 
     public async Task<string> GetGutsRightNow()
         {
@@ -2030,61 +2033,38 @@ dist = 250;
 
                     // For every entry in https://lounge.jamulus.live/map.txt, add Listen link if ip:port matches.
                     string listenNow = "";
+                    string ipport = s.serverIpAddress + ":" + s.serverPort;
 
-                    // Enumerate the text file at http://jamulus.live/map.txt
-                    // and look for a match.
-
-                    using (var httpClient = new HttpClient())
+                    foreach (var url in m_connectedLounges.Keys)
                     {
-                        var contents = await httpClient.GetStringAsync("https://jamulus.live/map.txt");
-                        using (var reader = new StringReader(contents))
+                        if (m_connectedLounges[url].Contains(ipport))
                         {
-                            string line;
-                            while ((line = reader.ReadLine()) != null)
-                            {
-                                // Process each line of the file here
-                                if (line.Contains(s.serverIpAddress + ":" + s.serverPort))
-                                {
-                                    // The URL of the lounge is the second token in the line.
-                                    string[] tokens = line.Split(' ');
-
-                                    string url = tokens[1];
-
-                                    // Found a match. Add a link.
-                                    listenNow = "<a target='_blank' href='" + url + "'>Listen</a></br>";
-                                    // Just a hack
-                                    //                            if (liveSnippet.Length > 0)
-                                    //                                listenNow = "<br>" + listenNow;
-                                }
-                            }
+                            // found a match
+                            listenNow = "<a target='_blank' href='" + url + "'>Listen</a></br>";
+                            break;
                         }
                     }
 
                     // if listenNow wasn't assigned by the map, maybe assign it because there's a free instance and this IP:port is allowed
                     if (listenNow.Length == 0)
                     {
-                        do
+                        bool a = InstanceIsFree("http://lounge.jamulus.live/free.txt");
+                        bool b = InstanceIsFree("http://radio.jamulus.live/free.txt");
+                        if (a || b)
                         {
-                            bool a = InstanceIsFree("http://lounge.jamulus.live/free.txt");
-                            bool b = InstanceIsFree("http://radio.jamulus.live/free.txt");
-                            if (!a && !b)
-                                break;
-
-                            // ok, is this ipport on https://jamulus.live/can-dock.txt?
-                            string ipport = s.serverIpAddress + ":" + s.serverPort;
+                            // is this ipport on https://jamulus.live/can-dock.txt?
                             using (var httpClient2 = new HttpClient())
                             {
                                 var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
                                 if (contents2.Contains(ipport))
                                 {
-                                    // ok, it's free and can dock. Add a link.
+                                    // ok, it's free and can dock, so add a link.
                                     listenNow = "<a target='_blank' href='https://jamulus.live/dock/"
                                         + ipport
                                         + "'>Listen</a></br>";
                                 }
                             }
                         }
-                        while (false); // drops out
                     }
                 
                     if (listenNow.Length > 0) // if there's a listen link
