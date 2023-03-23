@@ -1,4 +1,4 @@
-//﻿#define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -2032,6 +2032,10 @@ dist = 250;
                     */
 
                     // For every entry in the map of connected docks, add Listen link if ip:port matches.
+                    if(m_connectedLounges.Count == 0)
+                    {
+                        m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
+                    }
 
                     string listenNow = "";
                     string ipport = s.serverIpAddress + ":" + s.serverPort;
