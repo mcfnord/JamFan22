@@ -54,6 +54,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
                 freeInstance = "radio";
             else
             {
+                Console.WriteLine("Dock request forbidden; neither lounge nor radio are free.");
                 context.Response.StatusCode = 403;
                 return context.Response.WriteAsync("Forbidden");
             }
@@ -64,6 +65,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
         content = response.Content.ReadAsStringAsync().Result;
         if (content.Contains(destination))
         {
+            Console.WriteLine("Dock request forbidden; destination is blocklisted.");
             context.Response.StatusCode = 403;
             return context.Response.WriteAsync("Forbidden");
         }
@@ -73,6 +75,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
         content = response.Content.ReadAsStringAsync().Result;
         if (false == content.Contains(destination))
         {
+            Console.WriteLine("Dock request forbidden; destination is not allowlisted.");
             context.Response.StatusCode = 403;
             return context.Response.WriteAsync("Forbidden");
         }
