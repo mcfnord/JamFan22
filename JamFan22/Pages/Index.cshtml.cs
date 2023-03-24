@@ -2035,6 +2035,7 @@ dist = 250;
                     if(m_connectedLounges.Count == 0)
                     {
                         m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
+//                      m_connectedLounges["https://lobby.bitabit/"] = "";
                     }
 
                     string listenNow = "";
@@ -2043,7 +2044,7 @@ dist = 250;
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            listenNow = "<a target='_blank' href='" + url + "'>Listen</a></br>";
+                            listenNow = "<a class='listen' target='_blank' href='" + url + "'>Listen</a></br>";
                             break;
                         }
                     }
@@ -2062,7 +2063,7 @@ dist = 250;
                                 if (contents2.Contains(ipport))
                                 {
                                     // ok, it's free and can dock, so add a link.
-                                    listenNow = "<a target='_blank' href='https://jamulus.live/dock/"
+                                    listenNow = "<a class='listen' target='_blank' href='https://jamulus.live/dock/"
                                         + ipport
                                         + "'>Listen</a></br>";
                                 }
