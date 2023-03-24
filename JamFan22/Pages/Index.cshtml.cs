@@ -2035,7 +2035,7 @@ dist = 250;
                     if(m_connectedLounges.Count == 0)
                     {
                         m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
-//                      m_connectedLounges["https://lobby.bitabit/"] = "";
+                        m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
                     }
 
                     string listenNow = "";
