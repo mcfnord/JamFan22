@@ -2044,7 +2044,7 @@ dist = 250;
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            listenNow = "<a class='listen' target='_blank' href='" + url + "'>Listen</a></br>";
+                            listenNow = "<a class='listenalready' target='_blank' href='" + url + "'>Listen</a></br>";
                             break;
                         }
                     }
