@@ -1986,51 +1986,6 @@ dist = 250;
                     // if we find this server address in the activity report, show its url
                     var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
-                    string DIR = "";
-
-#if WINDOWS
-                    DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
-#else
-                    DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
-#endif
-
-                    string wildcard = serverAddress + "*";
-
-                    var files = Directory.GetFiles(DIR, wildcard);
-                    string myFile = null;
-                    bool fSilent = false;
-                    if (files.GetLength(0) > 0)
-                    {
-                        myFile = Path.GetFileName(files[0]);
-                        if (myFile != null)
-                            if (myFile.Contains("silent"))
-                                fSilent = true;
-                    }
-
-                    string liveSnippet = "";
-                    if (fSilent)
-                    {
-//                        liveSnippet = "(Silent?)";
-                    }
-                    else
-                    { 
-                        liveSnippet =
-                            (myFile != null
-                                ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
-                                : "");
-                    }
-
-                    /*
-                    string listenNow = "";
-                    if (s.name.Contains("MJTH Lobby"))
-                    {
-                        listenNow = "<a target='_blank' href='https://lobby.musicjammingth.net/'>Listen Live</a></br>";
-                        // Just a hack
-                        if (liveSnippet.Length > 0)
-                            listenNow = "<br>" + listenNow;
-                    }
-                    */
-
                     // For every entry in the map of connected docks, add Listen link if ip:port matches.
                     if(m_connectedLounges.Count == 0)
                     {
@@ -2044,7 +1999,7 @@ dist = 250;
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            listenNow = "<a class='listenalready' target='_blank' href='" + url + "'>Listen</a></br>";
+                            listenNow = "<b><a class='listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
                             break;
                         }
                     }
@@ -2070,9 +2025,46 @@ dist = 250;
                             }
                         }
                     }
-                
-                    if (listenNow.Length > 0) // if there's a listen link
-                        liveSnippet = "";     // then don't show an mp3 player
+
+                    // if there's no listen link, can there be a snippet?
+
+                                            string liveSnippet = "";
+
+                    if (listenNow.Length == 0) // if there's a listen link
+                    {
+                        string DIR = "";
+
+#if WINDOWS
+                        DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+#else
+                    DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+#endif
+
+                        string wildcard = serverAddress + "*";
+
+                        var files = Directory.GetFiles(DIR, wildcard);
+                        string myFile = null;
+                        bool fSilent = false;
+                        if (files.GetLength(0) > 0)
+                        {
+                            myFile = Path.GetFileName(files[0]);
+                            if (myFile != null)
+                                if (myFile.Contains("silent"))
+                                    fSilent = true;
+                        }
+
+                        if (fSilent)
+                        {
+                            //                        liveSnippet = "(Silent?)";
+                        }
+                        else
+                        {
+                            liveSnippet =
+                                (myFile != null
+                                    ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
+                                    : "");
+                        }
+                    }
 
                     newline +=
                     "<font size='-1'>" +
