@@ -80,7 +80,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             return context.Response.WriteAsync("Forbidden");
         }
 
-//      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
+        //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
         string DIR = "/root/JamFan22/JamFan22/wwwroot/";
 
         // for any line that contains this string, remove the line from the file.
@@ -88,7 +88,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
 
         File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
 
-        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://" + freeInstance + ".jamulus.live\"></head><body></body></html>";
+        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://" + freeInstance + ".jamulus.live\"></head><body><font size='+4'><br><br><b>WAIT</b></font></body></html>";
         context.Response.ContentType = MediaTypeNames.Text.Html;
         context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
         return context.Response.WriteAsync(html);
