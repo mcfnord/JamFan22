@@ -104,6 +104,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
     }
     finally
     {
+        Thread.Sleep(2000); // let the probe mark itself as unavailable.
         m_serializeDocks.ReleaseMutex();
     }
 });
