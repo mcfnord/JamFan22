@@ -35,63 +35,76 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 
+System.Threading.Mutex m_serializeDocks = new System.Threading.Mutex(false, "DOCK_MUTEX");
+
+
 app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
 {
-    using (var httpClient = new HttpClient())
+    m_serializeDocks.WaitOne();
+    try
     {
-        // only set destination if there's a free instance
-        string freeInstance = "";
-        
-        var response = httpClient.GetAsync("http://lounge.jamulus.live/free.txt").Result;
-        var content = response.Content.ReadAsStringAsync().Result;
-        if (content.Contains("True"))
-            freeInstance = "lounge";
-        else
+        using (var httpClient = new HttpClient())
         {
-            response = httpClient.GetAsync("http://radio.jamulus.live/free.txt").Result;
-            content = response.Content.ReadAsStringAsync().Result;
+            // only set destination if there's a free instance
+            string freeInstance = "";
+
+            var response = httpClient.GetAsync("http://lounge.jamulus.live/free.txt").Result;
+            var content = response.Content.ReadAsStringAsync().Result;
             if (content.Contains("True"))
-                freeInstance = "radio";
+                freeInstance = "lounge";
             else
             {
-                Console.WriteLine("Dock request forbidden; neither lounge nor radio are free.");
+                response = httpClient.GetAsync("http://radio.jamulus.live/free.txt").Result;
+                content = response.Content.ReadAsStringAsync().Result;
+                if (content.Contains("True"))
+                    freeInstance = "radio";
+                else
+                {
+                    Console.WriteLine("Dock request forbidden; neither lounge nor radio are free.");
+                    context.Response.StatusCode = 403;
+                    return context.Response.WriteAsync("Forbidden");
+                }
+            }
+
+            // is this destination blocklisted?
+            response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
+            content = response.Content.ReadAsStringAsync().Result;
+            if (content.Contains(destination))
+            {
+                Console.WriteLine("Dock request forbidden; destination is blocklisted.");
                 context.Response.StatusCode = 403;
                 return context.Response.WriteAsync("Forbidden");
             }
+
+            // Is this destination allowlisted?
+            response = httpClient.GetAsync("https://jamulus.live/can-dock.txt").Result;
+            content = response.Content.ReadAsStringAsync().Result;
+            if (false == content.Contains(destination))
+            {
+                Console.WriteLine("Dock request forbidden; destination is not allowlisted.");
+                context.Response.StatusCode = 403;
+                return context.Response.WriteAsync("Forbidden");
+            }
+
+            //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
+            string DIR = "/root/JamFan22/JamFan22/wwwroot/";
+
+            // for any line that contains this string, remove the line from the file.
+            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = destination;
+
+            File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
+
+            string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://"
+                + freeInstance
+                + ".jamulus.live\"></head><body><font size='+4'><br><br><b>WAIT 10 SECONDS...</b></font></body></html>";
+            context.Response.ContentType = MediaTypeNames.Text.Html;
+            context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
+            return context.Response.WriteAsync(html);
         }
-        
-        // is this destination blocklisted?
-        response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
-        content = response.Content.ReadAsStringAsync().Result;
-        if (content.Contains(destination))
-        {
-            Console.WriteLine("Dock request forbidden; destination is blocklisted.");
-            context.Response.StatusCode = 403;
-            return context.Response.WriteAsync("Forbidden");
-        }
-
-        // Is this destination allowlisted?
-        response = httpClient.GetAsync("https://jamulus.live/can-dock.txt").Result;
-        content = response.Content.ReadAsStringAsync().Result;
-        if (false == content.Contains(destination))
-        {
-            Console.WriteLine("Dock request forbidden; destination is not allowlisted.");
-            context.Response.StatusCode = 403;
-            return context.Response.WriteAsync("Forbidden");
-        }
-
-        //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
-        string DIR = "/root/JamFan22/JamFan22/wwwroot/";
-
-        // for any line that contains this string, remove the line from the file.
-        JamFan22.Pages.IndexModel.m_connectedLounges[ $"https://{freeInstance}.jamulus.live" ] = destination;
-
-        File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
-
-        string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://" + freeInstance + ".jamulus.live\"></head><body><font size='+4'><br><br><b>WAIT</b></font></body></html>";
-        context.Response.ContentType = MediaTypeNames.Text.Html;
-        context.Response.ContentLength = Encoding.UTF8.GetByteCount(html);
-        return context.Response.WriteAsync(html);
+    }
+    finally
+    {
+        m_serializeDocks.ReleaseMutex();
     }
 });
 
