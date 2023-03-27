@@ -995,8 +995,10 @@ namespace JamFan22.Pages
             System.Diagnostics.Debug.Assert(userPlace.ToUpper() == userPlace);
 
 
+            // I SHOULD DETECT HOW MANY CARDS I LAY, AND ONLY REFRESH IF FEWER THAN 4 OR SOMETHING
+            // INSTEAD I DO THIS.
             var rng = new Random();
-            if (0 == rng.Next(5000))
+            if (0 == rng.Next(15000))
             {
 
                 Console.WriteLine("Want to flush cached lat-longs, but only if things are not full-tilt.");
@@ -1601,13 +1603,14 @@ namespace JamFan22.Pages
             return zone;
         }
 
+        // Switching to 2 second cache cuz i'm concerned this request is bottlenecking us
 
-        static Dictionary<string, int> secondOfLastSample = new Dictionary<string, int>();
+        static Dictionary<string, int> twoSecondZoneOfLastSample = new Dictionary<string, int>();
         static Dictionary<string, bool> freeStatusCache = new Dictionary<string, bool>();
         bool InstanceIsFree(string url)
         {
-            if (secondOfLastSample.ContainsKey(url))
-                if (secondOfLastSample[url] == DateTime.Now.Second)
+            if (twoSecondZoneOfLastSample.ContainsKey(url))
+                if (twoSecondZoneOfLastSample[url] == DateTime.Now.Second / 2)
                     return freeStatusCache[url];
 
             bool result = false;
@@ -1620,7 +1623,7 @@ namespace JamFan22.Pages
                 }
             }
             freeStatusCache[url] = result;
-            secondOfLastSample[url] = DateTime.Now.Second;
+            twoSecondZoneOfLastSample[url] = DateTime.Now.Second / 2;
             return result;
         }
 
@@ -2011,16 +2014,20 @@ dist = 250;
                         bool b = InstanceIsFree("http://radio.jamulus.live/free.txt");
                         if (a || b)
                         {
-                            // is this ipport on https://jamulus.live/can-dock.txt?
-                            using (var httpClient2 = new HttpClient())
+                            // If it's full, we can't dock.
+                            if (s.usercount < s.maxusercount)
                             {
-                                var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
-                                if (contents2.Contains(ipport))
+                                // is this ipport on https://jamulus.live/can-dock.txt?
+                                using (var httpClient2 = new HttpClient())
                                 {
-                                    // ok, it's free and can dock, so add a link.
-                                    listenNow = "<a class='listen' target='_blank' href='https://jamulus.live/dock/"
-                                        + ipport
-                                        + "'>Listen</a></br>";
+                                    var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
+                                    if (contents2.Contains(ipport))
+                                    {
+                                        // ok, it's free and can dock, so add a link.
+                                        listenNow = "<a class='listen' target='_blank' href='https://jamulus.live/dock/"
+                                            + ipport
+                                            + "'>Listen</a></br>";
+                                    }
                                 }
                             }
                         }
