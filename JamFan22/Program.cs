@@ -86,12 +86,22 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
                 return context.Response.WriteAsync("Forbidden");
             }
 
-            //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
-            string DIR = "/root/JamFan22/JamFan22/wwwroot/";
+            // Is a probe already deployed there? (two requests at one time can do it)
+            foreach(var connectedIPPort in JamFan22.Pages.IndexModel.m_connectedLounges.Values)
+            {
+                if (connectedIPPort == destination)
+                {
+                    Console.WriteLine("Dock request forbidden; destination is already connected.");
+                    context.Response.StatusCode = 403;
+                    return context.Response.WriteAsync("Forbidden");
+                }
+            }
 
             // for any line that contains this string, remove the line from the file.
             JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = destination;
 
+            //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
+            string DIR = "/root/JamFan22/JamFan22/wwwroot/";
             File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
 
             string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://"
