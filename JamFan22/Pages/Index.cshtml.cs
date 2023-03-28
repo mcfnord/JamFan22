@@ -1630,8 +1630,10 @@ namespace JamFan22.Pages
 
 
         public static Dictionary<string, string> m_connectedLounges = new Dictionary<string, string>();
+        public static List<string> m_listenLinkDeployment = new List<string>();
+        public static bool m_snippetDeployed = false;
 
-    public async Task<string> GetGutsRightNow()
+        public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
