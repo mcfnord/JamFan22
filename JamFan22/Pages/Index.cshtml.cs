@@ -1,4 +1,4 @@
-//﻿#define WINDOWS
+﻿#define WINDOWS
 
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
@@ -1637,6 +1637,9 @@ namespace JamFan22.Pages
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
+            m_listenLinkDeployment.Clear();
+            m_snippetDeployed = false;
+
 //            await MineLists();
 
 
@@ -2005,6 +2008,7 @@ dist = 250;
                         if (m_connectedLounges[url].Contains(ipport))
                         {
                             listenNow = "<b><a class='listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
+                            m_listenLinkDeployment.Add(ipport);
                             break;
                         }
                     }
@@ -2029,6 +2033,7 @@ dist = 250;
                                         listenNow = "<a class='listen' target='_blank' href='https://jamulus.live/dock/"
                                             + ipport
                                             + "'>Listen</a></br>";
+                                        m_listenLinkDeployment.Add(ipport);
                                     }
                                 }
                             }
@@ -2053,25 +2058,19 @@ dist = 250;
 
                         var files = Directory.GetFiles(DIR, wildcard);
                         string myFile = null;
-                        bool fSilent = false;
+
                         if (files.GetLength(0) > 0)
                         {
                             myFile = Path.GetFileName(files[0]);
-                            if (myFile != null)
-                                if (myFile.Contains("silent"))
-                                    fSilent = true;
                         }
 
-                        if (fSilent)
-                        {
-                            //                        liveSnippet = "(Silent?)";
-                        }
-                        else
+                        if (myFile != null)
                         {
                             liveSnippet =
                                 (myFile != null
                                     ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
                                     : "");
+                            m_snippetDeployed = true;
                         }
                     }
 
@@ -2500,15 +2499,26 @@ dist = 250;
             }
         }
 
+        /*
         static bool InMapFile(string fullAddress)
         {
             var httpClient = new HttpClient();
             var response = httpClient.GetStringAsync("https://jamulus.live/map.txt").Result;
             return response.Contains(fullAddress);
         }
+        */
 
 
 
+        static bool HasListenLink(string ipport)
+        {
+            foreach(var ipp in m_listenLinkDeployment)
+            {
+                if (ipp == ipport)
+                    return true;
+            }
+            return false;
+        }
 
         public string HowManyUsers
         {
@@ -2574,9 +2584,9 @@ dist = 250;
                                 if (files.GetLength(0) == 0) // if we don't have a sample for this now, add it to the running.
                                 {
                                     // if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
-                                    
-                                    // If this fullAddress is in map.txt, don't consider it for sampling.
-                                    if(false == InMapFile(fullAddress))
+
+                                    // I don't want to sample any addresses that have a Listen link
+                                    if(false == HasListenLink(fullAddress))
                                         svrActivesIpPort.Add(fullAddress);
                                 }
                                 // else
@@ -2589,26 +2599,21 @@ dist = 250;
 
                     // apparently only the first line gets processed
                     // so gimme one rando line please
+                    System.IO.File.WriteAllLines("serversToSample.txt", new string[] { "" });
+
                     var rng = new Random();
-                    if (svrActivesIpPort.Count > 1) // Do I see more than one unsampled active (2+) server?
+                    if (false == m_snippetDeployed)
                     {
-                        // Do I feel lucky about creating a sample?
-                        if (0 != rng.Next(svrActivesIpPort.Count))
+                        if (svrActivesIpPort.Count > 1) // Do I see more than one unsampled active (2+) server?
                         {
-                            string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
-                            System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
-//                            Console.WriteLine("I chose: " + chosen);
+                            // Do I feel lucky about creating a sample?
+                            if (0 != rng.Next(svrActivesIpPort.Count))
+                            {
+                                string chosen = svrActivesIpPort[rng.Next(svrActivesIpPort.Count)];
+                                System.IO.File.WriteAllLines("serversToSample.txt", new string[] { chosen });
+                                //                            Console.WriteLine("I chose: " + chosen);
+                            }
                         }
-                        else
-                        {
-                            // fewer targets means more empty guesses
-                            System.IO.File.WriteAllLines("serversToSample.txt", new string[] { "" }); 
-                        }    
-                            
-                    }
-                    else
-                    {
-                        System.IO.File.WriteAllLines("serversToSample.txt", new string[] { "" });
                     }
 
                     int iTopCount = 0;
