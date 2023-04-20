@@ -1730,7 +1730,7 @@ namespace JamFan22.Pages
                         var newpart = "<span class=\"musician " +
                             server.ip + " "
                             + encodedHashOfGuy + "\"" +
-                            "id =\"" + hash + "\"" +
+                            " id =\"" + hash + "\"" +
 
                             " onmouseover=\"this.style.cursor='pointer'\" onmouseout=\"this.style.cursor='default'\" onclick=\"toggle('" + hash + "')\";>" +
                             font +
@@ -2007,7 +2007,7 @@ dist = 250;
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            listenNow = "<b><a class='listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
+                            listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
                             m_listenLinkDeployment.Add(ipport);
                             break;
                         }
@@ -2020,20 +2020,24 @@ dist = 250;
                         bool b = InstanceIsFree("http://radio.jamulus.live/free.txt");
                         if (a || b)
                         {
-                            // If it's full, we can't dock.
-                            if (s.usercount < s.maxusercount)
+                            // If it's tagge private, we won't dock
+                            if (false == s.name.ToLower().Contains("priv"))
                             {
-                                // is this ipport on https://jamulus.live/can-dock.txt?
-                                using (var httpClient2 = new HttpClient())
+                                // If it's full, we can't dock.
+                                if (s.usercount < s.maxusercount)
                                 {
-                                    var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
-                                    if (contents2.Contains(ipport))
+                                    // is this ipport on https://jamulus.live/can-dock.txt?
+                                    using (var httpClient2 = new HttpClient())
                                     {
-                                        // ok, it's free and can dock, so add a link.
-                                        listenNow = "<a class='listen' target='_blank' href='https://jamulus.live/dock/"
-                                            + ipport
-                                            + "'>Listen</a></br>";
-                                        m_listenLinkDeployment.Add(ipport);
+                                        var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
+                                        if (contents2.Contains(ipport))
+                                        {
+                                            // ok, it's free and can dock, so add a link.
+                                            listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
+                                                + ipport
+                                                + "'>Listen</a></br>";
+                                            m_listenLinkDeployment.Add(ipport);
+                                        }
                                     }
                                 }
                             }
@@ -2103,6 +2107,7 @@ dist = 250;
                                     string name = m_guidNamePairs[guid];
                                     if (name != "No Name")
                                     if (name != "Ear")
+                                    if (false == name.Contains("obby"))
                                     if(false == leavers.Replace("&nbsp;", " ").Contains(name))
                                     {
                                             // see if this name is someone on this server now (changed instrument maybe)
@@ -2564,8 +2569,18 @@ dist = 250;
                                 int peepCount = 0;
                                 if (server.clients != null)
                                     peepCount = server.clients.GetLength(0);
-                                if (peepCount < 2)
-                                    continue; // just fuckin don't care about 0 or even 1
+                                if (peepCount < 3)
+                                    continue; // just fuckin don't care about 0 or even 1 or even 2!
+
+                                bool fAnyLobby = false;
+                                foreach (var client in server.clients)
+                                {
+                                    if (client.name.Contains("obby"))
+                                        fAnyLobby = true;
+                                }
+                                if (fAnyLobby)
+                                    continue;
+
                                 if (server.name.ToLower().Contains("oscv")) // never sample "OSCvev"
                                     continue;
                                 if (server.name.ToLower().Contains("priv")) // don't sample self-described private areas
@@ -2578,7 +2593,7 @@ dist = 250;
                                 string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
 #else
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
-#endif                                
+#endif
                                 string wildcard = fullAddress + "*";
                                 var files = Directory.GetFiles(DIR, wildcard);
                                 if (files.GetLength(0) == 0) // if we don't have a sample for this now, add it to the running.
@@ -2586,9 +2601,10 @@ dist = 250;
                                     // if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
 
                                     // I don't want to sample any addresses that have a Listen link
-                                    if(false == HasListenLink(fullAddress))
+                                    if (false == HasListenLink(fullAddress))
                                         svrActivesIpPort.Add(fullAddress);
                                 }
+
                                 // else
                                 // {
                                 //   Console.WriteLine(fullAddress + "has an active sample already.");
