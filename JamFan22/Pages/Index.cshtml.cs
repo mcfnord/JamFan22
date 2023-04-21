@@ -313,30 +313,83 @@ namespace JamFan22.Pages
         }
 
         static string TIME_TOGETHER = "timeTogether.json";
+        static string TIME_TOGETHER_UPDATED_AT = "timeTogetherLastUpdates.json";
         static string GUID_NAME_PAIRS = "guidNamePairs.json";
         public static Dictionary<string, TimeSpan> m_timeTogether = null;
+        public static Dictionary<string, DateTime> m_timeTogetherUpdated = null;
         static int? m_lastSaveHourNumber = null;
-        static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
+        //static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
         static DateTime m_lastSift = DateTime.Now; // Time since boot or since last culling of unmentioned pairs
         protected static void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
             if (null == m_timeTogether)
             {
                 m_timeTogether = new Dictionary<string, TimeSpan>();
-                string s = "[]";
-                try
+                m_timeTogetherUpdated = new Dictionary<string, DateTime>();
                 {
-                    s = System.IO.File.ReadAllText(TIME_TOGETHER);
-                }
-                catch (FileNotFoundException)
-                {
-                    Console.WriteLine("The load file was not found, so starting from nothing.");
-                }
-                var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]>(s);
+                    string s = "[]";
+                    try
+                    {
+                        s = System.IO.File.ReadAllText(TIME_TOGETHER);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        Console.WriteLine("The load file was not found, so starting from nothing.");
+                    }
+                    var a = JsonSerializer.Deserialize<KeyValuePair<string, TimeSpan>[]>(s);
 
-                foreach (var item in a)
+                    foreach (var item in a)
+                    {
+                        m_timeTogether[item.Key] = item.Value;
+                    }
+                }
+
                 {
-                    m_timeTogether[item.Key] = item.Value;
+                    string s = "[]";
+                    try
+                    {
+                        s = System.IO.File.ReadAllText(TIME_TOGETHER_UPDATED_AT);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        Console.WriteLine("The load file updated at was not found, so starting from nothing.");
+                    }
+                    var a = JsonSerializer.Deserialize<KeyValuePair<string, DateTime>[]>(s);
+
+                    foreach (var item in a)
+                    {
+                        m_timeTogetherUpdated[item.Key] = item.Value;
+                    }
+
+                    // If a duration has no updated time, then set it to now.
+                    foreach (var item in m_timeTogether)
+                    {
+                        if (false == m_timeTogetherUpdated.ContainsKey(item.Key))
+                        {
+                            m_timeTogetherUpdated[item.Key] = DateTime.Now;
+                            Console.WriteLine("Adding " + item.Key + " at Now.");
+                        }
+                    }
+
+                    // Finally, find m_timeTogetherUpdated older than 21 days and remove them.
+                    // WE CAN'T DO THIS AT LOAD, MUST DO IT AT SAVE.
+                    /*
+                    var newTimeTogether = new Dictionary<string, TimeSpan>();
+                    var newTimeTogetherUpdated = new Dictionary<string, DateTime>();
+
+                    foreach (var item in m_timeTogetherUpdated)
+                    { 
+                        if(item.Value.AddDays(21) > DateTime.Now)
+                        {
+                            newTimeTogether[item.Key] = m_timeTogether[item.Key];
+                            newTimeTogetherUpdated[item.Key] = item.Value;
+                        }
+                        else
+                            Console.WriteLine("Removing " + item.Key + " because it was last updated " + item.Value);
+                    }
+                    m_timeTogether = newTimeTogether;
+                    m_timeTogetherUpdated = newTimeTogetherUpdated;
+                    */
                 }
 
                 Console.WriteLine(m_timeTogether.Count + " pairs loaded.");
@@ -345,7 +398,8 @@ namespace JamFan22.Pages
             if (false == m_timeTogether.ContainsKey(us))
                 m_timeTogether[us] = new TimeSpan();
             m_timeTogether[us] += durationBetweenSamples;
-            m_updatedPairs.Add(us);
+            m_timeTogetherUpdated[us] = DateTime.Now;
+            //m_updatedPairs.Add(us);
 
             // Note current hour on first pass.
             // Then note if hour has changed.
@@ -357,7 +411,8 @@ namespace JamFan22.Pages
                 {
                     m_lastSaveHourNumber = DateTime.Now.Hour;
 
-                    // If 30 days of uptime pass,
+                    /*
+                    // If 21 days of uptime pass,
                     // I will remove pairs that haven't been updated in that period
                     //                    if (m_lastSift.AddMonths(1) < DateTime.Now)
                     if (m_lastSift.AddDays(21) < DateTime.Now)
@@ -376,12 +431,37 @@ namespace JamFan22.Pages
                         m_updatedPairs = new HashSet<string>();
                         m_timeTogether = newTimeTogether;
                     }
+                    */
+
+                    // If 21 days of uptime HAVE PASSED, kill the data.
+                    {
+                        var newTimeTogether = new Dictionary<string, TimeSpan>();
+                        var newTimeTogetherUpdated = new Dictionary<string, DateTime>();
+
+                        foreach (var item in m_timeTogetherUpdated)
+                        {
+                            if (item.Value.AddDays(21) > DateTime.Now)
+                                {
+                                newTimeTogether[item.Key] = m_timeTogether[item.Key];
+                                newTimeTogetherUpdated[item.Key] = item.Value;
+                            }
+                            else
+                                Console.WriteLine("Removing " + item.Key + " because it was last updated " + item.Value);
+                        }
+                        m_timeTogether = newTimeTogether;
+                        m_timeTogetherUpdated = newTimeTogetherUpdated;
+                    }
 
                     {
                         var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
                         string jsonString = JsonSerializer.Serialize(sortedByLongest);
-                        Console.WriteLine(sortedByLongest.Count + " pairs saved.");
                         System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
+                        Console.WriteLine(sortedByLongest.Count + " pair durations saved.");
+                    }
+
+                    {
+                        string jsonString = JsonSerializer.Serialize(m_timeTogetherUpdated.ToList());
+                        System.IO.File.WriteAllText(TIME_TOGETHER_UPDATED_AT, jsonString);
                     }
 
                     {
@@ -1925,7 +2005,7 @@ dist = 250;
                 }
                 catch (FileNotFoundException)
                 {
-                    Console.WriteLine("The load file was not found, so nothing to do.");
+//                  Console.WriteLine("There's no erased.txt, so no suppression to do.");
                 }
 
                 if (s_myUserCount > 1)
