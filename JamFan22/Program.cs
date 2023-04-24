@@ -1,3 +1,4 @@
+using JamFan22.Pages;
 using Microsoft.AspNetCore.Http;
 using System.Net.Mime;
 using System.Text;
@@ -43,6 +44,9 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
     m_serializeDocks.WaitOne();
     try
     {
+        Console.Write(context.Connection.RemoteIpAddress.ToString());
+        Console.WriteLine(" requested dock to " + destination);
+
         using (var httpClient = new HttpClient())
         {
             // only set destination if there's a free instance
@@ -87,7 +91,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             }
 
             // Is a probe already deployed there? (two requests at one time can do it)
-            foreach(var connectedIPPort in JamFan22.Pages.IndexModel.m_connectedLounges.Values)
+            foreach (var connectedIPPort in JamFan22.Pages.IndexModel.m_connectedLounges.Values)
             {
                 if (connectedIPPort == destination)
                 {
