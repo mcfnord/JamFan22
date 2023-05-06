@@ -1711,14 +1711,14 @@ namespace JamFan22.Pages
 
         public static Dictionary<string, string> m_connectedLounges = new Dictionary<string, string>();
         public static List<string> m_listenLinkDeployment = new List<string>();
-        public static bool m_snippetDeployed = false;
+        public static int m_snippetsDeployed = 0;
 
         public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
             m_listenLinkDeployment.Clear();
-            m_snippetDeployed = false;
+            m_snippetsDeployed = 0;
 
 //            await MineLists();
 
@@ -2154,7 +2154,7 @@ dist = 250;
                                 (myFile != null
                                     ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
                                     : "");
-                            m_snippetDeployed = true;
+                            m_snippetsDeployed++;
                         }
                     }
 
@@ -2698,7 +2698,7 @@ dist = 250;
                     System.IO.File.WriteAllLines("serversToSample.txt", new string[] { "" });
 
                     var rng = new Random();
-                    if (false == m_snippetDeployed)
+                    if (m_snippetsDeployed < 2) // I guess having one is ok to have another. I guess.
                     {
                         if (svrActivesIpPort.Count > 1) // Do I see more than one unsampled active (2+) server?
                         {
