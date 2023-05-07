@@ -15,7 +15,7 @@ scan_endpoint = [
 
 # this script runs on jf, which doesn't have a probe onboard.
 
-print("hey, only run this during severe lulls. quit now if it's not a lull.")
+print("only run this during severe lulls. quit now if it's not a lull.")
 time.sleep(5)
 
 while True:
@@ -39,8 +39,9 @@ while True:
     for url in scan_endpoint:
         data = json.loads(urllib.request.urlopen(url).read())
         for server in data:
-            if 'clients' in server:
-                continue
+#            WE EVEN CRAWL POPULATED SERVERS, HENCE WE ONLY RUN DURING SEVERE LULL
+#            if 'clients' in server:
+#                continue
 
             # we found a server that has no clients on it right now.
             ipPort = server['ip'] + ":" + str(server['port'])
@@ -60,7 +61,7 @@ while True:
             DEPLOYMENT_REQUEST_FILE = "/root/JamFan22/JamFan22/wwwroot/requested_on_" + probe + ".txt"
             os.system("sudo sh -c 'echo " + ipPort + " > " + DEPLOYMENT_REQUEST_FILE + "'")
 
-            time.sleep(20) # wait for the probe to arrive
+            time.sleep(40) # wait for the probe to arrive. wait a super long time.
 
             didlobbyarrive = str(urllib.request.urlopen("http://143.198.104.205/servers.php?server=" + ipPort).read())
             if didlobbyarrive.find("obby") != -1:
@@ -71,4 +72,4 @@ while True:
                 print("probe failed.")
                 os.system("sudo sh -c 'echo " + ipPort + " >> /root/JamFan22/JamFan22/wwwroot/cannot-dock.txt'") # add to denylist
             break
-    time.sleep(60) # just unclear about speed.
+    exit() # time.sleep(60) # just unclear about speed.
