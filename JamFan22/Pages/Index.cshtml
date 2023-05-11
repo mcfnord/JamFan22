@@ -698,6 +698,23 @@ var loginHashTest = localStorage.getItem("loginHash");
     </div>
 </div>
 
+<hr />
+
+<div id="blockBots">
+    <button type="button" class="collapsible">Block bots</button>
+    <div class="content">
+        <p>
+    This website sends bots to servers on the Jamulus public network.
+    To block these bots, add "<b>priv</b>" to your server's name, or block these IP addresses in your firewall:
+
+    <ul>
+                <li><b>134.122.89.41</b> or <b>radio.jamulus.live</b> (to block <b>lobby</b>)
+                <li><b>159.89.140.136</b> or <b>jamulus.live</b> (to block Ear)
+    </ul>
+        </p>
+    </div>
+</div>
+
 <script>
 
     refreshHighlights();
