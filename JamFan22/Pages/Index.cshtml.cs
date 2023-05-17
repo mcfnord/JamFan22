@@ -2096,8 +2096,8 @@ dist = 250;
                     // if listenNow wasn't assigned by the map, maybe assign it because there's a free instance and this IP:port is allowed
                     if (listenNow.Length == 0)
                     {
-                        bool a = InstanceIsFree("http://lounge.jamulus.live/free.txt");
-                        bool b = InstanceIsFree("http://radio.jamulus.live/free.txt");
+                        bool a = InstanceIsFree("http://hear.jamulus.live/free.txt");
+                        bool b = false; // offline InstanceIsFree("http://radio.jamulus.live/free.txt");
                         if (a || b)
                         {
                             // If it's tagge private, we won't dock

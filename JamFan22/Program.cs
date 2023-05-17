@@ -52,19 +52,21 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             // only set destination if there's a free instance
             string freeInstance = "";
 
-            var response = httpClient.GetAsync("http://lounge.jamulus.live/free.txt").Result;
+            var response = httpClient.GetAsync("http://hear.jamulus.live/free.txt").Result;
             var content = response.Content.ReadAsStringAsync().Result;
             if (content.Contains("True"))
-                freeInstance = "lounge";
+                freeInstance = "hear";
             else
             {
+                /* there is no radio anymore. just hear.
                 response = httpClient.GetAsync("http://radio.jamulus.live/free.txt").Result;
                 content = response.Content.ReadAsStringAsync().Result;
                 if (content.Contains("True"))
                     freeInstance = "radio";
                 else
+                */
                 {
-                    Console.WriteLine("Dock request forbidden; neither lounge nor radio are free.");
+                    Console.WriteLine("Dock request forbidden; neither hear is not free.");
                     context.Response.StatusCode = 403;
                     return context.Response.WriteAsync("Forbidden");
                 }
