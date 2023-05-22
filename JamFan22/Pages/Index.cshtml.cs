@@ -475,7 +475,18 @@ namespace JamFan22.Pages
             }
         }
 
-        static int m_secondsPause = 12; 
+        static int m_secondsPause = 12;
+
+        public static string MinuteSince2023()
+        { 
+            var now = DateTime.Now;
+            var then = new DateTime(2023, 1, 1);
+            var diff = now - then;
+            // Format ToString to just show an int.
+
+            int mins = (int)(diff.TotalMinutes);
+            return mins.ToString();
+        }
         public static void RefreshThreadTask()
         {
             JUST_TRY_AGAIN:
@@ -569,9 +580,31 @@ namespace JamFan22.Pages
                                 people = server.clients.GetLength(0);
                             if (people < 1)
                                 continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
+
+                            System.IO.File.AppendAllText("server.csv",
+                                                          server.ip + ":" + server.port + ","
+                                                        + System.Web.HttpUtility.UrlEncode(server.name) + ","
+                                                        + System.Web.HttpUtility.UrlEncode(server.city) + ","
+                                                        + System.Web.HttpUtility.UrlEncode(server.country)
+                                                        + Environment.NewLine);
+
                             foreach (var guy in server.clients)
                             {
                                 string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+
+                                System.IO.File.AppendAllText("census.csv", MinuteSince2023() + "," 
+                                                            + stringHashOfGuy + ","
+                                                            + server.ip + ":" + server.port
+                                                            + Environment.NewLine);
+
+                                System.IO.File.AppendAllText("censusgeo.csv",
+                                                              stringHashOfGuy + ","
+                                                            + System.Web.HttpUtility.UrlEncode(guy.name) + ","
+                                                            + guy.instrument + ","
+                                                            + System.Web.HttpUtility.UrlEncode(guy.city) + ","
+                                                            + System.Web.HttpUtility.UrlEncode(guy.country)
+                                                            + Environment.NewLine);
+
                                 /*
                                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                                 var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
@@ -685,8 +718,8 @@ namespace JamFan22.Pages
 
                 if (m_secondsPause < 10)
                     m_secondsPause = 10;
-                if (m_secondsPause > 60)
-                    m_secondsPause = 60;
+                if (m_secondsPause > 30)
+                    m_secondsPause = 30; // if we don't get one sample per discreet minute, i think we'll get data gaps.
             }
         }
             
