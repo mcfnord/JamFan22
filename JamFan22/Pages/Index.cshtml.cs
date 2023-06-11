@@ -707,12 +707,17 @@ namespace JamFan22.Pages
                     {
                         foreach (var offline in ListServicesOffline)
                         {
+                            Console.WriteLine("Moving away from " + JamulusListURLs[offline]);
                             if (JamulusListURLs[offline].Contains("143.198.104.205"))
+                            {
                                 JamulusListURLs[offline] =
                                     JamulusListURLs[offline].Replace("143.198.104.205", "jamulus.softins.co.uk");
+                            }
                             else
+                            {
                                 JamulusListURLs[offline] =
                                     JamulusListURLs[offline].Replace("jamulus.softins.co.uk", "143.198.104.205");
+                            }
                         }
                     }
                 }
