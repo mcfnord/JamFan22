@@ -592,7 +592,7 @@ namespace JamFan22.Pages
                             {
                                 string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
 
-                                System.IO.File.AppendAllText("census.csv", MinuteSince2023() + "," 
+                                System.IO.File.AppendAllText("census.csv", MinuteSince2023() + ","
                                                             + stringHashOfGuy + ","
                                                             + server.ip + ":" + server.port
                                                             + Environment.NewLine);
@@ -686,7 +686,7 @@ namespace JamFan22.Pages
                                 }
                             }
                         }
-                    } 
+                    }
 
                     //            TopNoob();
 
@@ -699,6 +699,25 @@ namespace JamFan22.Pages
                             // I care when I FIRST saw this server.
                             if (false == m_serverFirstSeen.ContainsKey(server.ip + ":" + server.port))
                                 m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
+                        }
+                    }
+
+                    // For a servive that's offline, change the value to the "other" datasource.
+                    if (ListServicesOffline.Count > 0)
+                    {
+                        foreach (var offline in ListServicesOffline)
+                        {
+                            Console.WriteLine("Moving away from " + JamulusListURLs[offline]);
+                            if (JamulusListURLs[offline].Contains("143.198.104.205"))
+                            {
+                                JamulusListURLs[offline] =
+                                    JamulusListURLs[offline].Replace("143.198.104.205", "jamulus.softins.co.uk");
+                            }
+                            else
+                            {
+                                JamulusListURLs[offline] =
+                                    JamulusListURLs[offline].Replace("jamulus.softins.co.uk", "143.198.104.205");
+                            }
                         }
                     }
                 }
@@ -1631,6 +1650,11 @@ namespace JamFan22.Pages
 
                 }
 
+                if(s.Count() < 1)
+                {
+                    Console.WriteLine("no noobs cuz no nobody.");
+                    return "";
+                }
                 s = s.Substring(0, s.Count() - 1);
 
                 cachedResult = s;
