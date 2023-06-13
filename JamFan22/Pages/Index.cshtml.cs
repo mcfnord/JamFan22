@@ -1777,7 +1777,15 @@ namespace JamFan22.Pages
             m_listenLinkDeployment.Clear();
             m_snippetsDeployed = 0;
 
-//            await MineLists();
+
+#if WINDOWS
+            // When debugging, have one simulated connected lounge at Hear
+            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live"] = "157.245.224.141:22124";
+#endif
+
+
+
+            //            await MineLists();
 
 
             // Now for each last reported list, extract all the hmmm servers for now. all them servers by LIST, NAME, CITY, IP ADDRESS
@@ -2217,6 +2225,16 @@ dist = 250;
                         }
                     }
 
+                    string title = "";
+                    string titleToShow = "";
+                    if (harvest.m_songTitle.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out title))
+                    {
+                        if (title.Length > 0)
+                            titleToShow = "<font size='-2'><i>" +
+                                title +
+                                "</i></font><br>";
+                    }
+
                     newline +=
                     "<font size='-1'>" +
                     s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
@@ -2227,6 +2245,7 @@ dist = 250;
                     (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)") + "<br>") : "") +
                     liveSnippet +
                     listenNow +
+                    titleToShow +
                     "</center><hr>" +
                     s.who;
 
