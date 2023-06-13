@@ -349,6 +349,22 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
 Thread trd = new Thread(new ThreadStart(JamFan22.Pages.IndexModel.RefreshThreadTask));
 trd.IsBackground = true;
 trd.Start();
+
+
+Thread trd2 = new Thread(() =>
+{
+    Task.Run(async () => await JamFan22.harvest.HarvestLoop());
+});
+trd2.Start();
+
+/*
+Thread trd2 = new Thread(new ThreadStart(JamFan22.harvest.HarvestLoop));
+trd2.IsBackground = true;
+trd2.Start();*/
+
+
+
+
 Thread.Sleep(6000); // let the thread get revved up first
 
 app.Run();
