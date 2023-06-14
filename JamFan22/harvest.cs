@@ -104,7 +104,7 @@ namespace JamFan22
                                         DiscreetLinkForServer(inlineURL);  // , DateTime.Now.AddMinutes(10)); // hmmm, TTL on birth?
                                     }
 
-                                    if (inlineURL.Contains("https://tabs.ultimate-guitar.com/tab/"))
+                                    if (inlineURL.Contains("https://tabs.ultimate-guitar.com/"))
                                     {
 
                                         /*
@@ -124,6 +124,7 @@ namespace JamFan22
                                                 var title = m.Groups[1].Value;
                                                 title = title.Replace("@ Ultimate - Guitar.Com", "");
                                                 title = title.Replace("@ Ultimate-Guitar.Com", "");
+                                                title = title.Replace("@ Ultimate-Guitar.com", "");
                                                 title = title.Replace("CHORDS", "");
                                                 title = title.Replace("(ver 2)", "");
                                                 title = title.Replace("(ver 3)", "");
