@@ -23,7 +23,7 @@ namespace JamFan22
             string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
             m_discreetLinks[where] = url;
 
-            m_minuteOfLastActivity = DateTime.Now.Minute;
+            m_minuteOfLastActivity = DateTime.Now.Minute + 2;
         }
 
         static void ShortLivedTitleForServer(string title)
@@ -33,7 +33,7 @@ namespace JamFan22
                 string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
-                m_minuteOfLastActivity = DateTime.Now.Minute;
+                m_minuteOfLastActivity = DateTime.Now.Minute + 2;
             }
         }
 
@@ -53,7 +53,7 @@ namespace JamFan22
                         while (!streamReader.EndOfStream)
                         {
                             // Every new minute, i might kill some entries
-                            if(DateTime.Now.Minute != m_minuteOfLastActivity)
+                            if(DateTime.Now.Minute > m_minuteOfLastActivity)
                             {
                                 m_minuteOfLastActivity = DateTime.Now.Minute;
                                 var rng = new Random();
@@ -130,13 +130,14 @@ namespace JamFan22
                                                 title = title.Replace("(ver 3)", "");
                                                 title = title.Replace("(ver 4)", "");
                                                 title = title.Replace("(ver 5)", "");
+                                                title = title.Replace("(ver 6)", "");
                                                 title = title.Replace("by Misc", "");
                                                 title = title.Replace("Soundtrack", "");
                                                 title = title.Replace("Ultimate Guitar Pro - Play like a Pro", "");
                                                 title = title.Replace("at Ultimate-Guitar", "");
                                                 title = title.Replace("ACOUSTIC", "");
                                                 title = title.Replace("for guitar, ukulele, piano", "");
-                                                Console.WriteLine(title);
+                                                Console.WriteLine("Title I'll publish: " + title);
 
                                                 // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
                                                 //m_liveTitles.Add(title, DateTime.Now.AddMinutes(10)); // hmmm, TTL on birth?
