@@ -131,6 +131,7 @@ namespace JamFan22
                                                 title = title.Replace("(ver 4)", "");
                                                 title = title.Replace("(ver 5)", "");
                                                 title = title.Replace("(ver 6)", "");
+                                                title = title.Replace("(ver 7)", "");
                                                 title = title.Replace("by Misc", "");
                                                 title = title.Replace("Soundtrack", "");
                                                 title = title.Replace("Ultimate Guitar Pro - Play like a Pro", "");
