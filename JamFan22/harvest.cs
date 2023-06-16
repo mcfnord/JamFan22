@@ -23,7 +23,8 @@ namespace JamFan22
             string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
             m_discreetLinks[where] = url;
 
-            m_minuteOfLastActivity = DateTime.Now.Minute + 2;
+            m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 3;
+
         }
 
         static void ShortLivedTitleForServer(string title)
@@ -33,7 +34,7 @@ namespace JamFan22
                 string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
-                m_minuteOfLastActivity = DateTime.Now.Minute + 2;
+                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 2;
             }
         }
 
@@ -53,9 +54,9 @@ namespace JamFan22
                         while (!streamReader.EndOfStream)
                         {
                             // Every new minute, i might kill some entries
-                            if(DateTime.Now.Minute > m_minuteOfLastActivity)
+                            if(JamFan22.Pages.IndexModel.MinuteSince2023AsInt() > m_minuteOfLastActivity)
                             {
-                                m_minuteOfLastActivity = DateTime.Now.Minute;
+                                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt();
                                 var rng = new Random();
 
                                 for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)
@@ -94,15 +95,19 @@ namespace JamFan22
                                 {
                                     string inlineURL = match.Value;
 
-                                    if (inlineURL.Contains("https://meet.google.com/"))
+                                    if (inlineURL.ToLower().Contains("https://meet.google.com/"))
                                     {
-                                        // Note this link.
-                                        // And reveal it only if I'm on that server.
-                                        // And let it live for like 10 minutes baby.
-
-                                        // Insert into different dictionary, where links only reveal if you're in that area, and last 10 minutes.
-                                        DiscreetLinkForServer(inlineURL);  // , DateTime.Now.AddMinutes(10)); // hmmm, TTL on birth?
+                                        DiscreetLinkForServer(inlineURL);
                                     }
+                                    if (inlineURL.ToLower().Contains("https://us02web.zoom.us/"))
+                                    {
+                                        DiscreetLinkForServer(inlineURL);
+                                    }
+                                    if (inlineURL.ToLower().Contains("https://meet.jit.si/"))
+                                    {
+                                        DiscreetLinkForServer(inlineURL);
+                                    }
+
 
                                     if (inlineURL.Contains("https://tabs.ultimate-guitar.com/"))
                                     {

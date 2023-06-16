@@ -477,6 +477,18 @@ namespace JamFan22.Pages
 
         static int m_secondsPause = 12;
 
+
+        public static int MinuteSince2023AsInt()
+        {
+            var now = DateTime.Now;
+            var then = new DateTime(2023, 1, 1);
+            var diff = now - then;
+            // Format ToString to just show an int.
+
+            int mins = (int)(diff.TotalMinutes);
+            return mins;
+        }
+
         public static string MinuteSince2023()
         { 
             var now = DateTime.Now;
@@ -2225,7 +2237,19 @@ dist = 250;
                         }
                     }
 
-                    string title = "";
+                    string videoUrl = "";
+                    string htmlForVideoUrl = "";
+                    if(harvest.m_discreetLinks.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out videoUrl))
+                    {
+                        if(videoUrl.ToLower().Contains("zoom"))
+                            htmlForVideoUrl = "<b>Zoom Video</b><br>";
+                        if(videoUrl.ToLower().Contains("meet"))
+                            htmlForVideoUrl = "<b>Meet Video</b><br>";
+                        if(videoUrl.ToLower().Contains("jit.si"))
+                            htmlForVideoUrl = "<b>Jitsi Video</b><br>";
+                    }
+
+                        string title = "";
                     string titleToShow = "";
                     if (harvest.m_songTitle.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out title))
                     {
@@ -2245,6 +2269,7 @@ dist = 250;
                     (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)") + "<br>") : "") +
                     liveSnippet +
                     listenNow +
+                    htmlForVideoUrl + 
                     titleToShow +
                     "</center><hr>" +
                     s.who;
