@@ -2247,6 +2247,8 @@ dist = 250;
                             htmlForVideoUrl = "<b>Meet Video</b><br>";
                         if(videoUrl.ToLower().Contains("jit.si"))
                             htmlForVideoUrl = "<b>Jitsi Video</b><br>";
+                        if(videoUrl.ToLower().Contains("vdo.ninja"))
+                            htmlForVideoUrl = "<b>VDO.Ninja Video</b><br>";
                     }
 
                         string title = "";

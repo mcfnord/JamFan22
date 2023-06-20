@@ -94,6 +94,12 @@ namespace JamFan22
                                 if (match.Success)
                                 {
                                     string inlineURL = match.Value;
+                                    Console.WriteLine("URL TO SNIFF: " + inlineURL);
+
+                                    if (inlineURL.ToLower().Contains("https://vdo.ninja/"))
+                                    {
+                                        DiscreetLinkForServer(inlineURL);
+                                    }
 
                                     if (inlineURL.ToLower().Contains("https://meet.google.com/"))
                                     {
@@ -137,6 +143,7 @@ namespace JamFan22
                                                 title = title.Replace("(ver 5)", "");
                                                 title = title.Replace("(ver 6)", "");
                                                 title = title.Replace("(ver 7)", "");
+                                                title = title.Replace("(ver 8)", "");
                                                 title = title.Replace("by Misc", "");
                                                 title = title.Replace("Soundtrack", "");
                                                 title = title.Replace("Ultimate Guitar Pro - Play like a Pro", "");
