@@ -2256,9 +2256,34 @@ dist = 250;
                     if (harvest.m_songTitle.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out title))
                     {
                         if (title.Length > 0)
+                        {
+                            if (title.Length > 25)
+                            {
+                                if (title.Contains(" by "))
+                                {
+                                    title = title.Replace("  ", " ");
+                                    title = title.Replace("  ", " ");
+                                    title = title.Replace(" ", "&nbsp;");
+                                    title = title.Replace("&nbsp;by&nbsp;", " by&nbsp;");
+                                }
+                                else
+                                {
+                                    if (title.Contains(" BY "))
+                                    {
+                                        title = title.Replace("  ", " ");
+                                        title = title.Replace("  ", " ");
+                                        title = title.Replace(" ", "&nbsp;");
+                                        title = title.Replace("&nbsp;BY&nbsp;", " BY&nbsp;");
+                                    }
+                                }
+                                // if (title.Contains(" — ")) title = title.Replace(" — ", "<br>");
+                            }
+                            
+
                             titleToShow = "<font size='-2'><i>" +
                                 title +
                                 "</i></font><br>";
+                        }
                     }
 
                     newline +=
