@@ -2243,12 +2243,12 @@ dist = 250;
                     {
                         if(videoUrl.ToLower().Contains("zoom"))
                             htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>Zoom Video</b></a><br>";
-                        if(videoUrl.ToLower().Contains("meet"))
+                        if(videoUrl.ToLower().Contains("https://meet."))
                             htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>Meet Video</b></a><br>";
                         if(videoUrl.ToLower().Contains("jit.si"))
                             htmlForVideoUrl = "<b>Jitsi Video</b><br>";
                         if(videoUrl.ToLower().Contains("vdo.ninja"))
-                            htmlForVideoUrl = "<b>VDO.Ninja Video</b><br>";
+                            htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>VDO.Ninja Video</b></a><br>";
                     }
 
                         string title = "";
