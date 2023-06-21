@@ -2242,9 +2242,9 @@ dist = 250;
                     if(harvest.m_discreetLinks.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out videoUrl))
                     {
                         if(videoUrl.ToLower().Contains("zoom"))
-                            htmlForVideoUrl = "<b>Zoom Video</b><br>";
+                            htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>Zoom Video</b></a><br>";
                         if(videoUrl.ToLower().Contains("meet"))
-                            htmlForVideoUrl = "<b>Meet Video</b><br>";
+                            htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>Meet Video</b></a><br>";
                         if(videoUrl.ToLower().Contains("jit.si"))
                             htmlForVideoUrl = "<b>Jitsi Video</b><br>";
                         if(videoUrl.ToLower().Contains("vdo.ninja"))
