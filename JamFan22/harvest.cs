@@ -114,8 +114,25 @@ namespace JamFan22
                                         DiscreetLinkForServer(inlineURL);
                                     }
 
+                                    if (inlineURL.ToLower().Contains("https://chordtabs.in.th/"))
+                                    {
+                                        using (HttpClient theclient = new HttpClient())
+                                        {
+                                            string s = await theclient.GetStringAsync(inlineURL);
 
-                                    if (inlineURL.Contains("https://tabs.ultimate-guitar.com/"))
+                                            Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+                                            if (m.Success)
+                                            {
+                                                var title = m.Groups[1].Value;
+                                                Console.WriteLine("Title I'll publish: " + title);
+                                                ShortLivedTitleForServer(title); 
+                                            }
+                                        }
+                                    }
+
+
+
+                                    if (inlineURL.ToLower().Contains("https://tabs.ultimate-guitar.com/"))
                                     {
 
                                         /*
