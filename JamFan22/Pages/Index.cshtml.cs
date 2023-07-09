@@ -1,5 +1,7 @@
 ﻿#define WINDOWS
 
+// testing
+
 using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -11,6 +13,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 // using MongoDB.Driver;
 
@@ -525,7 +528,17 @@ namespace JamFan22.Pages
                 DateTime query_started = DateTime.Now;
                 foreach (var key in JamulusListURLs.Keys)
                 {
-                    var newReportedList = serverStates[key].Result; // only proceeds when data arrives
+                    string newReportedList = null;
+                    try
+                    {
+                        newReportedList = serverStates[key].Result; // only proceeds when data arrives
+                    }
+                    catch(System.AggregateException)
+                    {
+                        Console.WriteLine("System.AggregateException exception handling " + key);
+                        Thread.Sleep(1000);
+                        goto JUST_TRY_AGAIN;
+                    }
 
                     if (newReportedList != "CRC mismatch in received message")
                     {
@@ -715,6 +728,7 @@ namespace JamFan22.Pages
                     }
 
                     // For a servive that's offline, change the value to the "other" datasource.
+                    /*
                     if (ListServicesOffline.Count > 0)
                     {
                         foreach (var offline in ListServicesOffline)
@@ -732,6 +746,7 @@ namespace JamFan22.Pages
                             }
                         }
                     }
+                    */
                 }
                 finally { m_serializerMutex.ReleaseMutex(); }
 
@@ -1097,6 +1112,9 @@ namespace JamFan22.Pages
                 return false;
             if (placeName == "MOON")
                 return false;
+            if (false == Regex.IsMatch(placeName, "[a-zA-Z]"))
+                return false;
+
             string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
             string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
             using var client = new HttpClient();
@@ -2256,9 +2274,34 @@ dist = 250;
                     if (harvest.m_songTitle.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out title))
                     {
                         if (title.Length > 0)
+                        {
+                            if (title.Length > 25)
+                            {
+                                if (title.Contains(" by "))
+                                {
+                                    title = title.Replace("  ", " ");
+                                    title = title.Replace("  ", " ");
+                                    title = title.Replace(" ", "&nbsp;");
+                                    title = title.Replace("&nbsp;by&nbsp;", " by&nbsp;");
+                                }
+                                else
+                                {
+                                    if (title.Contains(" BY "))
+                                    {
+                                        title = title.Replace("  ", " ");
+                                        title = title.Replace("  ", " ");
+                                        title = title.Replace(" ", "&nbsp;");
+                                        title = title.Replace("&nbsp;BY&nbsp;", " BY&nbsp;");
+                                    }
+                                }
+                                // if (title.Contains(" — ")) title = title.Replace(" — ", "<br>");
+                            }
+                            
+
                             titleToShow = "<font size='-2'><i>" +
                                 title +
                                 "</i></font><br>";
+                        }
                     }
 
                     newline +=
