@@ -1589,6 +1589,9 @@ namespace JamFan22.Pages
                 case "LOBBY [0]": return true;
                 case "LOBBY": return true;
                 case "REFERENCE": return true;
+                case "JAMULUS   TH": return true;
+                case "PETCH   BRB": return true;
+                case "PRIVATE": return true;
                 case "":
                     if (instrument == "Streamer")
                         return true;
