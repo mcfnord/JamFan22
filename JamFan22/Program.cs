@@ -322,9 +322,11 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                         var friendlyName = JamFan22.Pages.IndexModel.NameFromHash(otherGuysGuid);
                         if (otherGuysGuid != friendlyName) // if they have a name, they're online
                             if ("No Name" != friendlyName)
-                                if ("" != friendlyName)
-                                    if ("Studio Bridge" != friendlyName)
-                                        hotties.Add(otherGuysGuid); // the guid that isn't me is left!
+                            if ("" != friendlyName)
+                            if ("Studio Bridge" != friendlyName)
+                            if ("Ear" != friendlyName)
+                            if (false == friendlyName.Contains("obby"))
+                                hotties.Add(otherGuysGuid); // the guid that isn't me is left!
                     }
                 }
 
