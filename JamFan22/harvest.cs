@@ -131,6 +131,23 @@ namespace JamFan22
                                     }
 
 
+                                    if (inlineURL.ToLower().Contains("https://designbetrieb.de/"))
+                                    {
+                                        using (HttpClient theclient = new HttpClient())
+                                        {
+                                            string s = await theclient.GetStringAsync(inlineURL);
+
+                                            Match m = Regex.Match(s, @"<TITLE>\s*(.+?)\s*</title>");
+                                            if (m.Success)
+                                            {
+                                                var title = m.Groups[1].Value;
+                                                title = title.Replace(".jpg", "");
+                                                Console.WriteLine("Title I'll publish: " + title);
+                                                ShortLivedTitleForServer(title);
+                                            }
+                                        }
+                                    }
+
 
                                     if (inlineURL.ToLower().Contains("https://tabs.ultimate-guitar.com/"))
                                     {
