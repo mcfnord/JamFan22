@@ -906,6 +906,7 @@ namespace JamFan22.Pages
                 Geolocation geolocation = api.GetGeolocation(geoParams);
                 */
 
+                string ip4 = ip.Replace("::ffff:", "");
                 string endpoint = "http://api.ipstack.com/" + ip + "?access_key=" + IPSTACK_MYSTERY_STRING;
                 using var client = new HttpClient();
                 System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
@@ -1258,7 +1259,8 @@ namespace JamFan22.Pages
                 */
 
 
-                string endpoint = "http://api.ipstack.com/" + ipAddr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                string ip4Addr = ipAddr.Replace("::ffff:", "");
+                string endpoint = "http://api.ipstack.com/" + ip4Addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
                 using var client = new HttpClient();
                 System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                 task.Wait();
@@ -1269,7 +1271,7 @@ namespace JamFan22.Pages
 
                 fServerIPLLSuccess = true;
                 m_ipAddrToLatLong[ipAddr] = new LatLong(serverIPLat, serverIPLon);
-                Console.WriteLine("AN IP geo has been cached.");
+                Console.WriteLine("AN IP geo has been cached: " + serverIPLat + " " + serverIPLon);
             }
             else
                 m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // so we stop asking?
@@ -2856,7 +2858,7 @@ dist = 250;
                                 var files = Directory.GetFiles(DIR, wildcard);
                                 if (files.GetLength(0) == 0) // if we don't have a sample for this now, add it to the running.
                                 {
-                                    // if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  // xxx
+                                    // if (false == System.IO.File.Exists("/root/JamFan22/JamFan22/wwwroot/mp3s/" + fullAddress + ".mp3"))  
 
                                     // I don't want to sample any addresses that have a Listen link
                                     if (false == HasListenLink(fullAddress))
@@ -3065,8 +3067,8 @@ dist = 250;
                                 Console.WriteLine("Error in geolocation: " + e.Message);
                             }
                             */
-
-                            string endpoint = "http://api.ipstack.com/" + ipaddr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                            string ip4addr = ipaddr.Replace("::ffff:", "");
+                            string endpoint = "http://api.ipstack.com/" + ip4addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
                             using var client = new HttpClient();
                             System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                             task.Wait();
@@ -3076,6 +3078,7 @@ dist = 250;
                             candy.city = (string)jsonGeo["city"];
                             candy.countryCode3 = (string)jsonGeo["country_code"];
                             userIpCachedItems[ipaddr] = candy;
+                            Console.WriteLine("Candy: " + candy.city + " " + candy.countryCode3);
                         }
                         //                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
 
