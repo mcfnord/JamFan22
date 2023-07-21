@@ -1164,6 +1164,8 @@ namespace JamFan22.Pages
 
         public void PlaceToLatLon(string serverPlace, string userPlace, string ipAddr, ref string lat, ref string lon)
         {
+            lat = "";
+            lon = "";
             ipAddr = ipAddr.Trim();
             serverPlace = serverPlace.Trim();
             userPlace = userPlace.Trim();
