@@ -907,7 +907,7 @@ namespace JamFan22.Pages
                 */
 
                 string ip4 = ip.Replace("::ffff:", "");
-                string endpoint = "http://api.ipstack.com/" + ip + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                string endpoint = "http://api.ipstack.com/" + ip4 + "?access_key=" + IPSTACK_MYSTERY_STRING;
                 using var client = new HttpClient();
                 System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                 task.Wait();
@@ -1164,6 +1164,8 @@ namespace JamFan22.Pages
 
         public void PlaceToLatLon(string serverPlace, string userPlace, string ipAddr, ref string lat, ref string lon)
         {
+            lat = "";
+            lon = "";
             ipAddr = ipAddr.Trim();
             serverPlace = serverPlace.Trim();
             userPlace = userPlace.Trim();
