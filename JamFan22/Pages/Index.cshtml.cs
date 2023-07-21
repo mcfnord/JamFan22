@@ -2,7 +2,7 @@
 
 // testing
 
-using IPGeolocation;
+// using IPGeolocation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.VisualBasic;
@@ -768,7 +768,7 @@ namespace JamFan22.Pages
                     m_secondsPause = 30; // if we don't get one sample per discreet minute, i think we'll get data gaps.
             }
         }
-            
+
 
 
         /*
@@ -875,7 +875,8 @@ namespace JamFan22.Pages
 */
 
 
-        const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
+// const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
+        const string IPSTACK_MYSTERY_STRING = "750d5e904ae4a2420edc0e47d4095917";
 
         protected void SmartGeoLocate(string ip, ref double latitude, ref double longitude)
         {
@@ -897,16 +898,29 @@ namespace JamFan22.Pages
 
             try
             {
+                /*
                 IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
                 GeolocationParams geoParams = new GeolocationParams();
                 geoParams.SetIp(ip);
-//                geoParams.SetIPAddress(ip); 
                 geoParams.SetFields("geo,time_zone,currency");
                 Geolocation geolocation = api.GetGeolocation(geoParams);
-                latitude = Convert.ToDouble(geolocation.GetLatitude());
-                longitude = Convert.ToDouble(geolocation.GetLongitude());
+                */
+
+                string endpoint = "http://api.ipstack.com/" + ip + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                using var client = new HttpClient();
+                System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
+                task.Wait();
+                string s = task.Result;
+                JObject jsonGeo = JObject.Parse(s);
+                latitude = Convert.ToDouble(jsonGeo["latitude"]);
+                longitude = Convert.ToDouble(jsonGeo["longitude"]);
+
+//                    latitude = Convert.ToDouble(geolocation.GetLatitude());
+//                longitude = Convert.ToDouble(geolocation.GetLongitude());
                 m_ipAddrToLatLong[ip] = new LatLong(latitude.ToString(), longitude.ToString());
-                Console.WriteLine("A client IP has been cached: " + ip + " " + geolocation.GetCity() + " " + latitude + " " + longitude);
+                Console.WriteLine("A client IP has been cached: " + ip + " " + jsonGeo["city"] 
+                    // geolocation.GetCity()
+                    + " " + latitude + " " + longitude);
             }
             catch (Exception e)
             {
@@ -1160,10 +1174,10 @@ namespace JamFan22.Pages
             // I SHOULD DETECT HOW MANY CARDS I LAY, AND ONLY REFRESH IF FEWER THAN 4 OR SOMETHING
             // INSTEAD I DO THIS.
             var rng = new Random();
-            if (0 == rng.Next(15000))
+            if (0 == rng.Next(20000))
             {
 
-                Console.WriteLine("Want to flush cached lat-longs, but only if things are not full-tilt.");
+                Console.WriteLine("Want to flush cached lat-longs, but they are even more scarce now, so only if things are not full-tilt.");
 
                 if (m_secondsPause > 20) // This flush technique just sucks. Flushing isn't even that critical. Just do it daily.
                 {
@@ -1231,6 +1245,7 @@ namespace JamFan22.Pages
 
             if (ipAddr.Length > 5)
             {
+                /*
                 IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
                 GeolocationParams geoParams = new GeolocationParams();
                 //geoParams.SetIPAddress(ipAddr);
@@ -1240,6 +1255,18 @@ namespace JamFan22.Pages
                 Console.WriteLine(ipAddr + " " + geolocation.GetCity());
                 serverIPLat = geolocation.GetLatitude();
                 serverIPLon = geolocation.GetLongitude();
+                */
+
+
+                string endpoint = "http://api.ipstack.com/" + ipAddr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                using var client = new HttpClient();
+                System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
+                task.Wait();
+                string s = task.Result;
+                JObject jsonGeo = JObject.Parse(s);
+                serverIPLat = (string)jsonGeo["latitude"];
+                serverIPLon = (string)jsonGeo["longitude"];
+
                 fServerIPLLSuccess = true;
                 m_ipAddrToLatLong[ipAddr] = new LatLong(serverIPLat, serverIPLon);
                 Console.WriteLine("AN IP geo has been cached.");
@@ -3018,6 +3045,7 @@ dist = 250;
                     {
                         if (false == userIpCachedItems.ContainsKey(ipaddr))
                         {
+                            /*
                             IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
                             try
                             {
@@ -3036,8 +3064,20 @@ dist = 250;
                             {
                                 Console.WriteLine("Error in geolocation: " + e.Message);
                             }
+                            */
+
+                            string endpoint = "http://api.ipstack.com/" + ipaddr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                            using var client = new HttpClient();
+                            System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
+                            task.Wait();
+                            string s = task.Result;
+                            JObject jsonGeo = JObject.Parse(s);
+                            var candy = new MyUserGeoCandy();
+                            candy.city = (string)jsonGeo["city"];
+                            candy.countryCode3 = (string)jsonGeo["country_code"];
+                            userIpCachedItems[ipaddr] = candy;
                         }
-//                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
+                        //                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
 
                         m_ThreeLetterNationCode = userIpCachedItems[ipaddr].countryCode3; // global for this call (cuz of the mutex)
 
