@@ -1365,19 +1365,19 @@ namespace JamFan22.Pages
 
         protected static string LocalizedText(string english, string chinese, string thai, string german)
         {
-            switch (m_ThreeLetterNationCode)
+            switch (m_TwoLetterNationCode)
             {
-                case "CHN":
+                case "CN":
                     return chinese;
-                case "TWN":
+                case "TW":
                     return chinese;
-                case "HKG":
+                case "HK":
                     return chinese;
-                case "THA":
+                case "TH":
                     return thai;
                 //                case "BRA":
                 //                    return english; // can't return portguese yet. don't know portguese.
-                case "DEU":
+                case "DE":
                     return german; // first support DEU.
             }
             return english; //uber alles
@@ -1612,17 +1612,18 @@ namespace JamFan22.Pages
             switch (trimmed.ToUpper())
             {
                 case "BIT A BIT": return true;
-                case "JAMONET": return true;
+                case "JAMONET":   return true;
                 case "JAMSUCKER": return true;
-                case "JAM FEED": return true;
+                case "JAM FEED":  return true;
                 case "STUDIO BRIDGE": return true;
-                case "CLICK": return true;
+                case "CLICK":     return true;
                 case "LOBBY [0]": return true;
-                case "LOBBY": return true;
+                case "LOBBY":     return true;
                 case "REFERENCE": return true;
-                case "JAMULUS   TH": return true;
-//              case "PETCH   BRB": return true;
-                case "PRIVATE": return true;
+	         // case "JAMULUS   TH": return true;
+	         // case "PETCH   BRB": return true;
+                case "PRIVATE":   return true;
+                case "BOT?":      return true;
                 case "":
                     if (instrument == "Streamer")
                         return true;
@@ -2515,12 +2516,13 @@ dist = 250;
 
         public static System.Threading.Mutex m_serializerMutex = new System.Threading.Mutex(false, "MASTER_MUTEX");
 
-        static string m_ThreeLetterNationCode = "USA";
+        //        static string m_ThreeLetterNationCode = "USA";
+        static string m_TwoLetterNationCode = "US";
 
         class MyUserGeoCandy
         {
             public string city;
-            public string countryCode3;
+            public string countryCode2;
         }
 
         static Dictionary<string, MyUserGeoCandy> userIpCachedItems = new Dictionary<string, MyUserGeoCandy>();
@@ -3078,13 +3080,13 @@ dist = 250;
                             JObject jsonGeo = JObject.Parse(s);
                             var candy = new MyUserGeoCandy();
                             candy.city = (string)jsonGeo["city"];
-                            candy.countryCode3 = (string)jsonGeo["country_code"];
+                            candy.countryCode2 = (string)jsonGeo["country_code"];
                             userIpCachedItems[ipaddr] = candy;
-                            Console.WriteLine("Candy: " + candy.city + " " + candy.countryCode3);
+                            Console.WriteLine("Candy: " + candy.city + " " + candy.countryCode2);
                         }
                         //                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
 
-                        m_ThreeLetterNationCode = userIpCachedItems[ipaddr].countryCode3; // global for this call (cuz of the mutex)
+                        m_TwoLetterNationCode = userIpCachedItems[ipaddr].countryCode2; // global for this call (cuz of the mutex)
 
                         /*
                         if (userIpCachedItems.ContainsKey(ipaddr)) // maybe it failed!
@@ -3095,7 +3097,7 @@ dist = 250;
                         if (userIpCachedItems.ContainsKey(ipaddr)) // maybe it failed!
                             Console.Write(userIpCachedItems[ipaddr].city +
                                             ", " +
-                                            userIpCachedItems[ipaddr].countryCode3);
+                                            userIpCachedItems[ipaddr].countryCode2);
 
                         // Visually indicate if we last heard from this ipaddr
                         // after about 125 seconds has elapsed
@@ -3112,21 +3114,21 @@ dist = 250;
                                     // yeah, cuz each IP counts once.
                                     m_clientIPsDeemedLegit[ipaddr] = DateTime.Now;
 
-                                    m_countriesDeemedLegit[userIpCachedItems[ipaddr].countryCode3]
+                                    m_countriesDeemedLegit[userIpCachedItems[ipaddr].countryCode2]
                                         = DateTime.Now;
 
                                     // Finally, count each confirmed refresh toward a running tally for each nation
-                                    if (false == m_countryRefreshCounts.ContainsKey(m_ThreeLetterNationCode))
-                                        m_countryRefreshCounts[m_ThreeLetterNationCode] = 1;
+                                    if (false == m_countryRefreshCounts.ContainsKey(m_TwoLetterNationCode))
+                                        m_countryRefreshCounts[m_TwoLetterNationCode] = 1;
                                     else
-                                        m_countryRefreshCounts[m_ThreeLetterNationCode] += 1;
+                                        m_countryRefreshCounts[m_TwoLetterNationCode] += 1;
 
                                     // And count UNIQUE IPs
                                     //HashSet allows only the unique values to the list
 
-                                    if (false == m_bucketUniqueIPsByCountry.ContainsKey(m_ThreeLetterNationCode))
-                                        m_bucketUniqueIPsByCountry[m_ThreeLetterNationCode] = new HashSet<string>();
-                                    m_bucketUniqueIPsByCountry[m_ThreeLetterNationCode].Add(ipaddr); // has means uniques only
+                                    if (false == m_bucketUniqueIPsByCountry.ContainsKey(m_TwoLetterNationCode))
+                                        m_bucketUniqueIPsByCountry[m_TwoLetterNationCode] = new HashSet<string>();
+                                    m_bucketUniqueIPsByCountry[m_TwoLetterNationCode].Add(ipaddr); // has means uniques only
                                 }
                         }
                         m_clientIPLastVisit[ipaddr] = DateTime.Now;
