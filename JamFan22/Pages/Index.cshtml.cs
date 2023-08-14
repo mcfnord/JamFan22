@@ -874,8 +874,18 @@ namespace JamFan22.Pages
         }
 */
 
+        static bool AnyoneBlockSnippeting(string ipport)
+        {
+            return false; // for now, nobody blocks snippeting
+        }
 
-// const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
+        static bool AnyoneBlockStreaming(string ipport)
+        {
+            return false;  // for now, nobody blocks streaming
+        }
+        
+
+        // const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
         const string IPSTACK_MYSTERY_STRING = "750d5e904ae4a2420edc0e47d4095917";
 
         protected void SmartGeoLocate(string ip, ref double latitude, ref double longitude)
@@ -2244,11 +2254,14 @@ dist = 250;
                                         var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
                                         if (contents2.Contains(ipport))
                                         {
-                                            // ok, it's free and can dock, so add a link.
-                                            listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
-                                                + ipport
-                                                + "'>Listen</a></br>";
-                                            m_listenLinkDeployment.Add(ipport);
+                                            if (false == AnyoneBlockStreaming(ipport))
+                                            {
+                                                // ok, it's free and can dock, so add a link.
+                                                listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
+                                                    + ipport
+                                                    + "'>Listen</a></br>";
+                                                m_listenLinkDeployment.Add(ipport);
+                                            }
                                         }
                                     }
                                 }
@@ -2866,7 +2879,8 @@ dist = 250;
 
                                     // I don't want to sample any addresses that have a Listen link
                                     if (false == HasListenLink(fullAddress))
-                                        svrActivesIpPort.Add(fullAddress);
+                                        if(false == AnyoneBlockSnippeting(fullAddress))
+                                            svrActivesIpPort.Add(fullAddress);
                                 }
 
                                 // else
