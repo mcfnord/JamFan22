@@ -1373,7 +1373,7 @@ namespace JamFan22.Pages
         }
 
 
-        protected static string LocalizedText(string english, string chinese, string thai, string german)
+        protected static string LocalizedText(string english, string chinese, string thai, string german, string italian)
         {
             switch (m_TwoLetterNationCode)
             {
@@ -1389,6 +1389,8 @@ namespace JamFan22.Pages
                 //                    return english; // can't return portguese yet. don't know portguese.
                 case "DE":
                     return german; // first support DEU.
+                case "IT":
+                    return italian;
             }
             return english; //uber alles
         }
@@ -1430,7 +1432,7 @@ namespace JamFan22.Pages
                 // on the very first notice, i don't want this indicator, cuz it's gonna frustrate me with saw-just-onces
                 if (ts.TotalMinutes > 1) // so let's see them for 1 minute before we show anything fancy
                 {
-                    string phrase = LocalizedText("just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade angekommen");
+                    string phrase = LocalizedText("just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade&nbsp;angekommen", "appena&nbsp;arrivato");
                     show = "<b><p align='right'>(" + phrase + ")</p></b>"; // after 1 minute, until 6th minute, they've Just Arrived
                 }
                 else
@@ -2169,19 +2171,19 @@ dist = 250;
                     string newJamFlag = "";
                     foreach (var user in myCopyOfWho)
                     {
-                        string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
-                        newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ") : "") + translatedPhrase + ")";
+                        string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;raccolto.");
+                        newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Piena. ") : "") + translatedPhrase + ")";
                         if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 14)
                             continue;
 
                         // I guess Just Gatghered can only appear after the gathering period has elapsed. Maybe that's ok.
                         newJamFlag = "";
                         if (s.usercount == s.maxusercount)
-                            newJamFlag = "<b>(" + LocalizedText("Full", "滿房", "เต็ม", "Voll") + ")</b>";
+                            newJamFlag = "<b>(" + LocalizedText("Full", "滿房", "เต็ม", "Voll", "piena") + ")</b>";
                         else
                         {
                             if (s.usercount + 1 == s.maxusercount)
-                                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)");
+                                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(pressochè pieno)");
                         }
                         break;
                     }
@@ -2359,7 +2361,7 @@ dist = 250;
                     ((newJamFlag.Length > 0) ? "<br>" : "") +
                     ((activeJitsi.Length > 0) ?
                         "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
-                    (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)") + "<br>") : "") +
+                    (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)", "(Nuovo server.)") + "<br>") : "") +
                     liveSnippet +
                     listenNow +
                     htmlForVideoUrl + 
@@ -2410,7 +2412,7 @@ dist = 250;
                     // LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
                     if (leavers.Length > 0) 
                         newline += "<center><font color='gray' size='-2'><i>" 
-                            + LocalizedText("Bye", "再見", "บ๊ายบาย", "Tschüss") 
+                            + LocalizedText("Bye", "再見", "บ๊ายบาย", "Tschüss", "Ciao") 
                             + " " 
                             + leavers.Substring(0, leavers.Length - WholeMiddotString.Length) + "</i></font></center>";
                     
@@ -2473,7 +2475,7 @@ dist = 250;
                         newline +=
                             "<font size='-1'>" +
                             s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
-                            (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") +
+                            (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") + // um, is this line active? It's not localized.
                             "</center><hr>" +
                             noBRName +
                             DurationHere(s.serverIpAddress + ":" + s.serverPort, GetHash(myCopyOfWho[0].name, myCopyOfWho[0].country, myCopyOfWho[0].instrument)) + "</div>";  // we know there's just one! i hope!
