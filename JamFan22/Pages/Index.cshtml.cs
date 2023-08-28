@@ -3244,7 +3244,9 @@ namespace JamFan22.Pages
 
                 if (recommended.HasValues)
                 {
-                    string output = "<h1>Coming Up</h1><table border='0'>";
+                    string output = 
+//                        "<h2>Soon</h2>" + 
+                        "<table border='0'>";
                     //
 
                     for (int iEntry = 0; iEntry < recommended.Count; iEntry++)
