@@ -105,7 +105,7 @@ namespace JamFan22
                                     {
                                         DiscreetLinkForServer(inlineURL);
                                     }
-                                    if (inlineURL.ToLower().Contains("https://us02web.zoom.us/"))
+                                    if (inlineURL.ToLower().Contains(".zoom.us/"))
                                     {
                                         DiscreetLinkForServer(inlineURL);
                                     }
