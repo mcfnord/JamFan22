@@ -2167,8 +2167,8 @@ namespace JamFan22.Pages
                     string newJamFlag = "";
                     foreach (var user in myCopyOfWho)
                     {
-                        string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;raccolto.");
-                        newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Piena. ") : "") + translatedPhrase + ")";
+                        string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;connessi.");
+                        newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Pieno. ") : "") + translatedPhrase + ")";
                         if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 14)
                             continue;
 
@@ -2179,7 +2179,7 @@ namespace JamFan22.Pages
                         else
                         {
                             if (s.usercount + 1 == s.maxusercount)
-                                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(pressochè pieno)");
+                                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)");
                         }
                         break;
                     }
