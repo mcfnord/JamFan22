@@ -2500,7 +2500,7 @@ namespace JamFan22.Pages
         public static Dictionary<string, DateTime> m_clientIPLastVisit = new Dictionary<string, DateTime>();
         public static Dictionary<string, DateTime> m_clientIPsDeemedLegit = new Dictionary<string, DateTime>();
         public static Dictionary<string, DateTime> m_countriesDeemedLegit = new Dictionary<string, DateTime>();
-        public static Dictionary<DateTime, int> m_usersCounted = new Dictionary<DateTime, int>();
+//      public static Dictionary<DateTime, int> m_usersCounted = new Dictionary<DateTime, int>();
         public static Dictionary<string, int> m_countryRefreshCounts = new Dictionary<string, int>();
         public static Dictionary<string, HashSet<string>> m_bucketUniqueIPsByCountry = new Dictionary<string, HashSet<string>>();
         public static Dictionary<string, HashSet<string>> m_userServerViewTracker = new Dictionary<string, HashSet<string>>();
@@ -2807,13 +2807,8 @@ namespace JamFan22.Pages
                 m_serializerMutex.WaitOne();
                 try
                 {
-                    int iActiveJamFans = 0;
-                    foreach (var timeski in m_clientIPsDeemedLegit.Values)
-                    {
-//                          if (DateTime.Now < timeski.AddMinutes(60))
-                            if (DateTime.Now < timeski.AddDays(1))
-                                iActiveJamFans++;
-                    }
+
+                    /*
                     var iNations = 0;
                     foreach (var timeski in m_countriesDeemedLegit.Values)
                     {
@@ -2822,6 +2817,8 @@ namespace JamFan22.Pages
                     }
 
                     m_usersCounted.Add(DateTime.Now, iActiveJamFans);
+                     */
+
 
 
                     List<string> svrActivesIpPort = new List<string>();
@@ -2909,6 +2906,7 @@ namespace JamFan22.Pages
                         }
                     }
 
+                    /*
                     int iTopCount = 0;
                     DateTime timeOfTopCount = DateTime.Now;
 
@@ -2921,6 +2919,7 @@ namespace JamFan22.Pages
                                 timeOfTopCount = timeski;
                             }
                     }
+                    */
 
                     string ret = "";
                     /*
@@ -2940,10 +2939,18 @@ namespace JamFan22.Pages
 
 
                     {
+                        int iActiveJamFans = 0;
+                        foreach (var timeski in m_clientIPsDeemedLegit.Values)
+                        {
+                            //                          if (DateTime.Now < timeski.AddMinutes(60))
+                            if (DateTime.Now < timeski.AddDays(1))
+                                iActiveJamFans++;
+                        }
+
                         ret += "" +
                         //                                ". " +
 //                        SinceNowInText(timeOfTopCount) +
-                        " Over the last day, " + iTopCount.ToString() + " musicians watched this page";
+                        " Over the last day, " + iActiveJamFans.ToString() + " musicians watched this page";
                     }
                     //                    }
 
