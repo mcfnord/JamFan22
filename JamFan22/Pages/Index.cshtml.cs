@@ -3133,7 +3133,7 @@ namespace JamFan22.Pages
                                     // this IP is the key, and the time is the value?
                                     // yeah, cuz each IP counts once.
                                     m_clientIPsDeemedLegit[ipaddr] = DateTime.Now;
-                                    Console.WriteLine("  There are " + m_clientIPsDeemedLegit.Count + " IP addresses deemed to belong to confirmed users.");
+                                    Console.WriteLine("  " + m_clientIPsDeemedLegit.Count + " IP addresses of confirmed users since startup.");
 
                                     m_countriesDeemedLegit[userIpCachedItems[ipaddr].countryCode2]
                                         = DateTime.Now;
