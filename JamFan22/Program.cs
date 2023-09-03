@@ -348,29 +348,33 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
     });
 
 
-app.MapGet("/halostreaming/", (HttpContext context) =>
+app.MapGet("/halos/", (HttpContext context) =>
 {
-    //    JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
-    //    try
-    //    {
-
-
     string url = "https://jamulus.live/halo-streaming.txt";
     System.Threading.Tasks.Task<List<string>> task = JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
     task.Wait();
     List<string> halostreaming = task.Result;
 
-        string ret = "[";
 
-        const string QUOT = "\"";
+    url = "https://jamulus.live/halo-snippeting.txt";
+    System.Threading.Tasks.Task<List<string>> task2 = JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
+    task2.Wait();
+    List<string> halosnippeting = task.Result;
 
-        for (int i = 0; i < halostreaming.Count; i++) // of the top half...
-            ret += QUOT + halostreaming[i] + QUOT + ", ";
-        ret = ret.Substring(0, ret.Length - 2);
-        ret += "]";
-        return ret;
-//    }
-//    finally { JamFan22.Pages.IndexModel.m_serializerMutex.ReleaseMutex(); }
+    string ret = "[";
+
+    const string QUOT = "\"";
+
+    for (int i = 0; i < halostreaming.Count; i++) // of the top half...
+        ret += QUOT + halostreaming[i] + QUOT + ", ";
+
+    for (int i = 0; i < halosnippeting.Count; i++) // of the top half...
+        ret += QUOT + halosnippeting[i] + QUOT + ", ";
+
+    ret = ret.Substring(0, ret.Length - 2);
+
+    ret += "]";
+    return ret;
 });
 
 

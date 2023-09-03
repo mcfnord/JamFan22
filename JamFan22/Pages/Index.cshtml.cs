@@ -934,21 +934,55 @@ namespace JamFan22.Pages
 
 
 
+        static int m_lastRefreshSnippetingHalos = 0;
+        static List<string> m_halos_snippeting = new List<string>();
+
         static bool AnyoneBlockSnippeting(string ipport)
         {
-            return false; // for now, nobody blocks snippeting
+            if (m_lastRefreshSnippetingHalos != MinuteSince2023AsInt())
+            {
+                m_lastRefreshSnippetingHalos = MinuteSince2023AsInt();
+
+                string url = "https://jamulus.live/halo-snippeting.txt";
+                System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
+                task.Wait();
+                m_halos_snippeting = task.Result;
+            }
+
+            // determine if any halos are on ipport
+            foreach (var key in JamulusListURLs.Keys)
+            {
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                foreach (var server in serversOnList)
+                {
+                    string fulladdress = server.ip + ":" + server.port;
+                    if (fulladdress == ipport)
+                    {
+                        if (server.clients != null)
+                        {
+                            foreach (var guy in server.clients)
+                            {
+                                var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                if (m_halos_snippeting.Contains(stringHashOfGuy))
+                                    return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
 
 
 
-        static int m_lastRefresh = 0;
+        static int m_lastRefreshStreamingHalos = 0;
         static List<string> m_halos_streaming = new List<string>();
         static bool AnyoneBlockStreaming(string ipport)
         {
-            if (m_lastRefresh != MinuteSince2023AsInt())
+            if (m_lastRefreshStreamingHalos != MinuteSince2023AsInt())
             {
-                m_lastRefresh = MinuteSince2023AsInt();
+                m_lastRefreshStreamingHalos = MinuteSince2023AsInt();
 
                 string url = "https://jamulus.live/halo-streaming.txt";
                 System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);

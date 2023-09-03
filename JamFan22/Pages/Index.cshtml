@@ -147,9 +147,9 @@
             // window.scroll({ top: 0, left: 0, behavior: 'smooth' });
         }
 
-        var halo = localStorage.getItem("halo");
+        var halo = localStorage.getItem("show-halos");
         if (null != halo) {
-            fetch('/halostreaming/')
+            fetch('/halos/')
                 .then(res => res.json())
                 .then((data) => {
                     //console.log(data);
@@ -161,7 +161,7 @@
 //                                    if ('1' !== peeps[0].parentElement.style.gridRowStart) 
                             {
 //                            var red = 255 ; var green = 0 ; var blue = 0 ;
-                            var col = "#FF0000" ; //  + red.toString(16) + green.toString(16) + blue.toString(16);
+                            var col = "#FFD580"; //  + red.toString(16) + green.toString(16) + blue.toString(16);
                             peeps[0].style.background = col;
                             }
                     }
