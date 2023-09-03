@@ -350,13 +350,15 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
 
 app.MapGet("/halostreaming/", (HttpContext context) =>
 {
-//    JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
-//    try
-//    {
-        List<string> halostreaming = new List<string>();
+    //    JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
+    //    try
+    //    {
 
-        halostreaming.Add("e5032aacaf0def551b2791119180a721"); // me
-    halostreaming.Add("e0d52ece5c0de7f7747f9c928b228d82"); // drummee mike as a test
+
+    string url = "https://jamulus.live/halo-streaming.txt";
+    System.Threading.Tasks.Task<List<string>> task = JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
+    task.Wait();
+    List<string> halostreaming = task.Result;
 
         string ret = "[";
 
