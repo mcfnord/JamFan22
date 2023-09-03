@@ -962,13 +962,17 @@ namespace JamFan22.Pages
                 var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
                 foreach (var server in serversOnList)
                 {
-                    if (server.clients != null)
+                    string fulladdress = server.ip + ":" + server.port;
+                    if (fulladdress == ipport)
                     {
-                        foreach (var guy in server.clients)
+                        if (server.clients != null)
                         {
-                            var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
-                            if (m_halos_streaming.Contains(stringHashOfGuy))
-                                return true;
+                            foreach (var guy in server.clients)
+                            {
+                                var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                if (m_halos_streaming.Contains(stringHashOfGuy))
+                                    return true;
+                            }
                         }
                     }
                 }
