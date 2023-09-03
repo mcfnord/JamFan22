@@ -348,6 +348,30 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
     });
 
 
+app.MapGet("/halostreaming/", (HttpContext context) =>
+{
+//    JamFan22.Pages.IndexModel.m_serializerMutex.WaitOne();
+//    try
+//    {
+        List<string> halostreaming = new List<string>();
+
+        halostreaming.Add("e5032aacaf0def551b2791119180a721"); // me
+    halostreaming.Add("e0d52ece5c0de7f7747f9c928b228d82"); // drummee mike as a test
+
+        string ret = "[";
+
+        const string QUOT = "\"";
+
+        for (int i = 0; i < halostreaming.Count; i++) // of the top half...
+            ret += QUOT + halostreaming[i] + QUOT + ", ";
+        ret = ret.Substring(0, ret.Length - 2);
+        ret += "]";
+        return ret;
+//    }
+//    finally { JamFan22.Pages.IndexModel.m_serializerMutex.ReleaseMutex(); }
+});
+
+
 Thread trd = new Thread(new ThreadStart(JamFan22.Pages.IndexModel.RefreshThreadTask));
 trd.IsBackground = true;
 trd.Start();

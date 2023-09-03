@@ -146,6 +146,27 @@
             // scroll to top so current server always visible.
             // window.scroll({ top: 0, left: 0, behavior: 'smooth' });
         }
+
+        var halo = localStorage.getItem("halo");
+        if (null != halo) {
+            fetch('/halostreaming/')
+                .then(res => res.json())
+                .then((data) => {
+                    //console.log(data);
+                    for (i = 0; i < data.length; i++) {
+                        var peeps = document.getElementsByClassName(data[i]);
+                        if (peeps.length > 0)
+//                            if (false == peeps[0].style.border.includes("solid"))
+//                                if (false == peeps[0].style.border.includes("dashed"))
+//                                    if ('1' !== peeps[0].parentElement.style.gridRowStart) 
+                            {
+//                            var red = 255 ; var green = 0 ; var blue = 0 ;
+                            var col = "#FF0000" ; //  + red.toString(16) + green.toString(16) + blue.toString(16);
+                            peeps[0].style.background = col;
+                            }
+                    }
+                }).catch(err => console.error(err));
+        }
     }
 
     function avoidWordWrap() {
