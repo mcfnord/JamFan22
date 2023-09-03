@@ -3,11 +3,13 @@
 // testing
 
 // using IPGeolocation;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.VisualBasic;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Net;
@@ -869,14 +871,113 @@ namespace JamFan22.Pages
         }
 */
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        public static async Task<List<string>> LoadLinesFromHttpTextFile(string url)
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                try
+                {
+                    HttpResponseMessage response = await client.GetAsync(url);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        List<string> lines = new List<string>();
+                        using (HttpContent content = response.Content)
+                        {
+                            // Read the content as a stream of lines
+                            using (System.IO.Stream stream = await content.ReadAsStreamAsync())
+                            using (System.IO.StreamReader reader = new System.IO.StreamReader(stream))
+                            {
+                                string line;
+                                while ((line = await reader.ReadLineAsync()) != null)
+                                {
+                                    lines.Add(line);
+                                }
+                            }
+                        }
+                        return lines;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to retrieve the file. Status code: " + response.StatusCode);
+                    }
+                }
+                catch (HttpRequestException e)
+                {
+                    Console.WriteLine("HttpRequestException: " + e.Message);
+                }
+            }
+
+            return new List<string>(); // Return an empty list if there's an error
+        }
+
+
+
         static bool AnyoneBlockSnippeting(string ipport)
         {
             return false; // for now, nobody blocks snippeting
         }
 
+
+
+
+        static int m_lastRefresh = 0;
+        static List<string> m_halos_streaming = new List<string>();
         static bool AnyoneBlockStreaming(string ipport)
         {
-            return false;  // for now, nobody blocks streaming
+            if (m_lastRefresh != MinuteSince2023AsInt())
+            {
+                m_lastRefresh = MinuteSince2023AsInt();
+
+                string url = "https://jamulus.live/halo-streaming.txt";
+                System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
+                task.Wait();
+                m_halos_streaming = task.Result;
+            }
+
+            // determine if any halos are on ipport
+            foreach (var key in JamulusListURLs.Keys)
+            {
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                foreach (var server in serversOnList)
+                {
+                    string fulladdress = server.ip + ":" + server.port;
+                    if (fulladdress == ipport)
+                    {
+                        if (server.clients != null)
+                        {
+                            foreach (var guy in server.clients)
+                            {
+                                var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                if (m_halos_streaming.Contains(stringHashOfGuy))
+                                    return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
 
