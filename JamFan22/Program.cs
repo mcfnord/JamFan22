@@ -47,6 +47,16 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
         Console.Write(context.Connection.RemoteIpAddress.ToString());
         Console.WriteLine(" requested dock to " + destination);
 
+        // let's run this past the halo list once more.
+        // should be extremely rare to hit here because I should have checked already when creating/not creating the listen link.
+
+        if ( JamFan22.Pages.IndexModel.AnyoneBlockStreaming(destination))
+        {
+            Console.WriteLine("Dock request forbidden; destination contains a halo user. Why did this request get created?");
+            context.Response.StatusCode = 403;
+            return context.Response.WriteAsync("Forbidden");
+        }
+
         using (var httpClient = new HttpClient())
         {
             // only set destination if there's a free instance

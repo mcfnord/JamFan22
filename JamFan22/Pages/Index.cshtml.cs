@@ -964,7 +964,10 @@ namespace JamFan22.Pages
                             {
                                 var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
                                 if (m_halos_snippeting.Contains(stringHashOfGuy))
+                                {
+                                    Console.WriteLine("A halo has blocked snippeting at " + ipport);
                                     return true;
+                                }
                             }
                         }
                     }
@@ -974,11 +977,9 @@ namespace JamFan22.Pages
         }
 
 
-
-
         static int m_lastRefreshStreamingHalos = 0;
         static List<string> m_halos_streaming = new List<string>();
-        static bool AnyoneBlockStreaming(string ipport)
+        public static bool AnyoneBlockStreaming(string ipport)
         {
             if (m_lastRefreshStreamingHalos != MinuteSince2023AsInt())
             {
@@ -1005,7 +1006,10 @@ namespace JamFan22.Pages
                             {
                                 var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
                                 if (m_halos_streaming.Contains(stringHashOfGuy))
+                                {
+                                    Console.WriteLine("A halo has blocked streaming as an option at " + ipport);
                                     return true;
+                                }
                             }
                         }
                     }
