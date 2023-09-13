@@ -74,7 +74,7 @@ namespace JamFan22.Pages
 
         public static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
-            /*
+
 {"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" }
 ,{"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
 ,{"Any Genre 3", "https://jamulus.softins.co.uk/servers.php?central=anygenre3.jamulus.io:22624" }
@@ -82,7 +82,9 @@ namespace JamFan22.Pages
 ,{"Genre Jazz",  "https://jamulus.softins.co.uk/servers.php?central=jazz.jamulus.io:22324" }
 ,{"Genre Classical/Folk",  "https://jamulus.softins.co.uk/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Choral/BBShop",  "https://jamulus.softins.co.uk/servers.php?central=choral.jamulus.io:22724" }
-            */
+
+
+            /*
 {"Any Genre 1", "http://143.198.104.205/servers.php?central=anygenre1.jamulus.io:22124" }
 ,{"Any Genre 2", "http://143.198.104.205/servers.php?central=anygenre2.jamulus.io:22224" }
 ,{"Any Genre 3", "http://143.198.104.205/servers.php?central=anygenre3.jamulus.io:22624" }
@@ -90,6 +92,7 @@ namespace JamFan22.Pages
 ,{"Genre Jazz",  "http://143.198.104.205/servers.php?central=jazz.jamulus.io:22324" }
 ,{"Genre Classical/Folk",  "http://143.198.104.205/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Choral/BBShop",  "http://143.198.104.205/servers.php?central=choral.jamulus.io:22724" }
+            */
 
         };
 
@@ -3373,6 +3376,7 @@ namespace JamFan22.Pages
         {
             get
             {
+                return "";
                 // if current minute isn't iMinuteOfSample, then re-sample from http://52.53.180.64/predicted.json
                 if (MinuteSince2023AsInt() != iMinuteOfSample)
                 {
@@ -3388,6 +3392,7 @@ namespace JamFan22.Pages
                     recommended = JArray.Parse(s);
                 }
 
+                if(null != recommended)
                 if (recommended.HasValues)
                 {
                     string output = 
