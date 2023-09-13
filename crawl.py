@@ -20,13 +20,13 @@ time.sleep(5)
 
 while True:
     probe = ""
-    isLoungeFree = str(urllib.request.urlopen("http://lounge.jamulus.live/free.txt").readline().decode('utf-8').strip())
+    isLoungeFree = str(urllib.request.urlopen("http://hear.jamulus.live/free.txt").readline().decode('utf-8').strip())
     if isLoungeFree == "True":
-        probe = "lounge"
-    else:
-        isRadioFree = str(urllib.request.urlopen("http://radio.jamulus.live/free.txt").readline().decode('utf-8').strip())
-        if isRadioFree == "True":
-            probe = "radio"
+        probe = "hear"
+#    else:
+#        isRadioFree = str(urllib.request.urlopen("http://radio.jamulus.live/free.txt").readline().decode('utf-8').strip())
+#        if isRadioFree == "True":
+#            probe = "radio"
 
     if probe == "":
         print("no probes available.")
@@ -71,5 +71,4 @@ while True:
             else:
                 print("probe failed.")
                 os.system("sudo sh -c 'echo " + ipPort + " >> /root/JamFan22/JamFan22/wwwroot/cannot-dock.txt'") # add to denylist
-            break
     exit() # time.sleep(60) # just unclear about speed.
