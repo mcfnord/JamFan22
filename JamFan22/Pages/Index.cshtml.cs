@@ -83,7 +83,8 @@ namespace JamFan22.Pages
 ,{"Genre Classical/Folk",  "https://explorer.jamulus.io/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Choral/BBShop",  "https://explorer.jamulus.io/servers.php?central=choral.jamulus.io:22724" }
 
-/*
+
+            /*
 {"Any Genre 1", "http://143.198.104.205/servers.php?central=anygenre1.jamulus.io:22124" }
 ,{"Any Genre 2", "http://143.198.104.205/servers.php?central=anygenre2.jamulus.io:22224" }
 ,{"Any Genre 3", "http://143.198.104.205/servers.php?central=anygenre3.jamulus.io:22624" }
@@ -91,7 +92,7 @@ namespace JamFan22.Pages
 ,{"Genre Jazz",  "http://143.198.104.205/servers.php?central=jazz.jamulus.io:22324" }
 ,{"Genre Classical/Folk",  "http://143.198.104.205/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Choral/BBShop",  "http://143.198.104.205/servers.php?central=choral.jamulus.io:22724" }
-*/
+            */
 
         };
 
@@ -3375,7 +3376,7 @@ namespace JamFan22.Pages
         {
             get
             {
-                // if current minute isn't iMinuteOfSample, then re-sample from http://3.101.112.133/predicted.json
+                // if current minute isn't iMinuteOfSample, then re-sample
                 if (MinuteSince2023AsInt() != iMinuteOfSample)
                 {
                     iMinuteOfSample = MinuteSince2023AsInt();
@@ -3396,6 +3397,7 @@ Console.WriteLine("Just failed to get prediction.") ;
 return "";
 }
 
+                if(null != recommended)
                 if (recommended.HasValues)
                 {
                     string output = 
