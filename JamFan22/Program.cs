@@ -365,6 +365,11 @@ app.MapGet("/halos/", (HttpContext context) =>
     task.Wait();
     List<string> halostreaming = task.Result;
 
+    if (halostreaming.Count == 0)
+    {
+        Console.WriteLine("halostreaming.txt is empty, maybe things are offline.");
+        return "[]";
+    }
 
     url = "https://jamulus.live/halo-snippeting.txt";
     System.Threading.Tasks.Task<List<string>> task2 = JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
