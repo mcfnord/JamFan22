@@ -187,6 +187,7 @@ namespace JamFan22
                                                 title = title.Replace("at Ultimate-Guitar", "");
                                                 title = title.Replace("ACOUSTIC", "");
                                                 title = title.Replace("for guitar, ukulele, piano", "");
+                                                title = title.Replace("UNNAMED ARTIST — ", "");
                                                 Console.WriteLine("Title I'll publish: " + title);
 
                                                 // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
