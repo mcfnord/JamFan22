@@ -2360,6 +2360,7 @@ namespace JamFan22.Pages
                         m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
                         m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
                         m_connectedLounges["https://lobby.jamulusth.com/"] = "103.246.19.200:22124";
+                        m_connectedLounges["https://lobbypro.jamulusth.com/"] = "103.91.189.71:22124";
 
                     }
 
