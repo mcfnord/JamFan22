@@ -1,8 +1,9 @@
-//#define WINDOWS
+#define WINDOWS
 
 // testing
 
 // using IPGeolocation;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -1639,7 +1640,11 @@ namespace JamFan22.Pages
             if (smartCity == "-")
                 smartCity = "";
 
-            return smartCity;
+            string pattern = @"\([^)]*\)";
+            string textWithoutParentheses = Regex.Replace(smartCity, pattern, "");
+
+
+            return textWithoutParentheses;
         }
 
 
