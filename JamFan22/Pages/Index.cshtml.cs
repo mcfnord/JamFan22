@@ -4,6 +4,7 @@
 
 // using IPGeolocation;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -469,6 +470,17 @@ namespace JamFan22.Pages
                         string jsonString = JsonSerializer.Serialize(sortedByLongest);
                         System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
                         Console.WriteLine(sortedByLongest.Count + " pair durations saved.");
+
+                        if(DateTime.Now.DayOfYear != m_lastDayNotched)
+                        {
+                            m_lastDayNotched = DateTime.Now.DayOfYear;
+
+                            System.IO.File.AppendAllText("wwwroot\\paircount.csv",
+                                MinutesSince2023() + "," 
+                                    + sortedByLongest.Count
+                                    + Environment.NewLine);
+                        }
+
                     }
 
                     {
@@ -486,6 +498,7 @@ namespace JamFan22.Pages
                 }
             }
         }
+        static int m_lastDayNotched = 0;
 
         static int m_secondsPause = 12;
 
@@ -500,7 +513,7 @@ namespace JamFan22.Pages
             return mins;
         }
 
-        public static string MinuteSince2023()
+        public static string MinutesSince2023()
         {
             var mins = MinuteSince2023AsInt();
             return mins.ToString();
@@ -620,7 +633,7 @@ namespace JamFan22.Pages
                             {
                                 string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
 
-                                System.IO.File.AppendAllText("census.csv", MinuteSince2023() + ","
+                                System.IO.File.AppendAllText("census.csv", MinutesSince2023() + ","
                                                             + stringHashOfGuy + ","
                                                             + server.ip + ":" + server.port
                                                             + Environment.NewLine);
