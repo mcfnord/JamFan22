@@ -333,6 +333,8 @@ namespace JamFan22.Pages
         static int? m_lastSaveHourNumber = null;
         //static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
         static DateTime m_lastSift = DateTime.Now; // Time since boot or since last culling of unmentioned pairs
+        static int m_lastDayNotched = 0; // At least once a day, record the number of pairs in the last, dunno, 21 days
+
         protected static void ReportPairTogether(string us, TimeSpan durationBetweenSamples)
         {
             if (null == m_timeTogether)
@@ -498,7 +500,7 @@ namespace JamFan22.Pages
                 }
             }
         }
-        static int m_lastDayNotched = 0;
+
 
         static int m_secondsPause = 12;
 
@@ -2294,14 +2296,20 @@ namespace JamFan22.Pages
                 }
                 var s_myUserCount = myCopyOfWho.Count;
 
-                string blocks = "";
                 try
                 {
-                    blocks = System.IO.File.ReadAllText("erased.txt");
-                    // if there's a line, i match the first line
-                    if (blocks.Length > 0)
-                        if (s.name.ToLower().Contains(blocks.Trim().ToLower()))
-                            continue;
+                    List<string> blocks = new List<string>();
+                    blocks = System.IO.File.ReadAllLines("erased.txt").ToList();
+                    bool bSkip = false;
+
+                    foreach (var line in blocks)
+                    {
+                        if (s.name.ToLower().Contains(line.Trim().ToLower()))
+                            bSkip = true;
+                    }
+
+                    if (bSkip)
+                        continue;
                 }
                 catch (FileNotFoundException)
                 {
