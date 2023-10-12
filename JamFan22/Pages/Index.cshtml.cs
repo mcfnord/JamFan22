@@ -477,7 +477,7 @@ namespace JamFan22.Pages
                         {
                             m_lastDayNotched = DateTime.Now.DayOfYear;
 
-                            System.IO.File.AppendAllText("wwwroot\\paircount.csv",
+                            System.IO.File.AppendAllText("wwwroot/paircount.csv",
                                 MinutesSince2023() + "," 
                                     + sortedByLongest.Count
                                     + Environment.NewLine);
@@ -2304,8 +2304,9 @@ namespace JamFan22.Pages
 
                     foreach (var line in blocks)
                     {
-                        if (s.name.ToLower().Contains(line.Trim().ToLower()))
-                            bSkip = true;
+                        if(line.Trim().Length > 0)
+                            if (s.name.ToLower().Contains(line.Trim().ToLower()))
+                                bSkip = true;
                     }
 
                     if (bSkip)
