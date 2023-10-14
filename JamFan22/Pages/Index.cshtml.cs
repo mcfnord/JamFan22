@@ -1789,6 +1789,7 @@ namespace JamFan22.Pages
                 case "STUDIO BRIDGE": return true;
                 case "CLICK": return true;
                 case "LOBBY [0]": return true;
+                case "LOBBY[0]": return true;
                 case "LOBBY": return true;
                 case "REFERENCE": return true;
                 // case "JAMULUS   TH": return true;
@@ -2076,6 +2077,7 @@ namespace JamFan22.Pages
                         nam = nam.Replace("  ", " "); // don't want crazy space names
                         nam = nam.Replace("  ", " "); // don't want crazy space names
                         nam = nam.Replace("  ", " "); // don't want crazy space names
+                        nam = nam.Replace("<", ""); // don't trigger HTML hijinx
 
                         // Fuck these namelesses who have no proper instrument.
                         if (nam.Length == 0)
