@@ -2426,12 +2426,16 @@ namespace JamFan22.Pages
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            // I ONLY want to show the bold Listen link IF a lobby is found in the userlist of that server.
-                            // This will save people from clicking a Listen link that is broken or lost somewhere else.
-//                                if (s.who.Contains("obby"))
+                            while(true)
                             {
-                                listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
-                                m_listenLinkDeployment.Add(ipport);
+                                foreach (var user in s.whoObjectFromSourceData)
+                                {
+                                    if (user.name.Contains("obby"))
+                                    {
+                                        listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
+                                        m_listenLinkDeployment.Add(ipport);
+                                        break;
+                                    }
                             }
                             break;
                         }
