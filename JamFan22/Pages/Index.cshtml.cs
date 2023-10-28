@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.VisualBasic;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq.Expressions;
@@ -481,6 +482,14 @@ namespace JamFan22.Pages
                                 MinutesSince2023() + "," 
                                     + sortedByLongest.Count
                                     + Environment.NewLine);
+
+                            // tell me a time span
+                            TimeSpan totalGlobalDuration = TimeSpan.Zero;
+                            foreach (TimeSpan duration in m_timeTogether.Values)
+                            {
+                                totalGlobalDuration += duration;
+                            }
+                            Console.WriteLine("Total global duration: " + (int) totalGlobalDuration.TotalDays + " days.");
                         }
 
                     }
@@ -1784,6 +1793,7 @@ namespace JamFan22.Pages
             {
                 case "BIT A BIT": return true;
                 case "JAMONET": return true;
+                case "JAMONET'": return true;
                 case "JAMSUCKER": return true;
                 case "JAM FEED": return true;
                 case "STUDIO BRIDGE": return true;
@@ -2051,7 +2061,19 @@ namespace JamFan22.Pages
                         continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
                     /// EMPTY SERVERS CAN KICK ROCKS
                     /// SERVERS WITH ONE PERSON MIGHT BE THE PERSON I'M SEARCHING FOR
+                    /// 
 
+                    // Maybe here I ask if the IP of the browser is geolocated close to the server
+                    // and suppress ones far away.
+
+                    // I WOULD LIKE THE GEOLOCATION LIMITER FOR CBVB TO COVER ONE-CONNECTION AND MULTI-CONNECTION SERVERS EQUALLY
+                    // so i probably examine here.
+                    if(server.name.ToLower().Contains("cbvb"))
+                    {
+                        // what is the distance from this server to the browser's ip
+                        // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
+                        // and is chicago closer? if so, suppress.
+                    }
 
                     List<string> userCountries = new List<string>();
 
@@ -2401,8 +2423,17 @@ namespace JamFan22.Pages
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
-                            m_listenLinkDeployment.Add(ipport);
+                            // I ONLY want to show the bold Listen link IF a lobby is found in the userlist of that server.
+                            // This will save people from clicking a Listen link that is broken or lost somewhere else.
+                            if (s.who.Contains("obby"))
+                            {
+                                listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
+                                m_listenLinkDeployment.Add(ipport);
+                            }
+                            else
+                            {
+                                Console.WriteLine("Don't see obby so hiding listen link.");
+                            }
                             break;
                         }
                     }
