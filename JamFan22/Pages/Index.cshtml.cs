@@ -2419,20 +2419,19 @@ namespace JamFan22.Pages
 
                     string listenNow = "";
                     string ipport = s.serverIpAddress + ":" + s.serverPort;
+                    Console.WriteLine(s.who);
+//                    if (s.who.Contains("obby"))
+//                        Console.WriteLine("obby");
                     foreach (var url in m_connectedLounges.Keys)
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
                             // I ONLY want to show the bold Listen link IF a lobby is found in the userlist of that server.
                             // This will save people from clicking a Listen link that is broken or lost somewhere else.
-                            if (s.who.Contains("obby"))
+//                                if (s.who.Contains("obby"))
                             {
                                 listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
                                 m_listenLinkDeployment.Add(ipport);
-                            }
-                            else
-                            {
-                                Console.WriteLine("Don't see obby so hiding listen link.");
                             }
                             break;
                         }
