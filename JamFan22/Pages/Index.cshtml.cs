@@ -2436,8 +2436,9 @@ namespace JamFan22.Pages
                                         m_listenLinkDeployment.Add(ipport);
                                         break;
                                     }
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
 
