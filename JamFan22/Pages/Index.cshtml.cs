@@ -78,8 +78,8 @@ namespace JamFan22.Pages
         public static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
 
-{"Any Genre 1", "https://jamulus.softins.co.uk/servers.php?central=anygenre1.jamulus.io:22124" }
-,{"Any Genre 2", "https://jamulus.softins.co.uk/servers.php?central=anygenre2.jamulus.io:22224" }
+{"Any Genre 1", "http://143.198.104.205/servers.php?central=anygenre1.jamulus.io:22124" }
+,{"Any Genre 2", "http://143.198.104.205/servers.php?central=anygenre2.jamulus.io:22224" }
 ,{"Any Genre 3", "https://jamulus.softins.co.uk/servers.php?central=anygenre3.jamulus.io:22624" }
 ,{"Genre Rock",  "https://jamulus.softins.co.uk/servers.php?central=rock.jamulus.io:22424" }
 ,{"Genre Jazz",  "http://143.198.104.205/servers.php?central=jazz.jamulus.io:22324" }
@@ -2073,6 +2073,13 @@ namespace JamFan22.Pages
                         // what is the distance from this server to the browser's ip
                         // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
                         // and is chicago closer? if so, suppress.
+                        /*
+                        distanceToChicagoFromVirginia = 123.45;
+                        if(DistanceFromBrowserToServer() > distanceToChicagoFromVirginia)
+                        {
+                                continue; // suppress this server
+                        }
+                        */
                     }
 
                     List<string> userCountries = new List<string>();
@@ -2419,7 +2426,7 @@ namespace JamFan22.Pages
 
                     string listenNow = "";
                     string ipport = s.serverIpAddress + ":" + s.serverPort;
-                    Console.WriteLine(s.who);
+//                    Console.WriteLine(s.who);
 //                    if (s.who.Contains("obby"))
 //                        Console.WriteLine("obby");
                     foreach (var url in m_connectedLounges.Keys)
