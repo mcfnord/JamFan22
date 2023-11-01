@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualBasic;
 using Newtonsoft.Json.Linq;
 using System;
@@ -1799,6 +1800,15 @@ namespace JamFan22.Pages
                 case "STUDIO BRIDGE": return true;
                 case "CLICK": return true;
                 case "LOBBY [0]": return true;
+                case "LOBBY [1]": return true;
+                case "LOBBY [2]": return true;
+                case "LOBBY [3]": return true;
+                case "LOBBY [4]": return true;
+                case "LOBBY [5]": return true;
+                case "LOBBY [6]": return true;
+                case "LOBBY [7]": return true;
+                case "LOBBY [8]": return true;
+                case "LOBBY [9]": return true;
                 case "LOBBY[0]": return true;
                 case "LOBBY": return true;
                 case "REFERENCE": return true;
@@ -2439,7 +2449,17 @@ namespace JamFan22.Pages
                                 {
                                     if (user.name.Contains("obby"))
                                     {
-                                        listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b></br>";
+                                        string num = "";
+                                        // snag that user count if non-zero
+                                        var iPos = user.name.IndexOf("[");
+                                        if (iPos > 0)
+                                        {
+                                            if('0' != user.name[iPos + 1])
+                                                num = " [" + user.name[iPos + 1] + "]";
+                                        }
+                                        listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen"
+                                            + num
+                                            + "</a></b></br>";
                                         m_listenLinkDeployment.Add(ipport);
                                         break;
                                     }
