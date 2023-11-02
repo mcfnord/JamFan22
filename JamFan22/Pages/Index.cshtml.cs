@@ -1323,6 +1323,7 @@ namespace JamFan22.Pages
                     ("administrative" == typeOfMatch) ||
                     ("state" == typeOfMatch) ||
                     ("boundary" == typeOfMatch) ||
+//                    ("railway" == typeOfMatch) ||
                     ("country" == typeOfMatch))
                 {
                     lat = (string)latLongJson["results"][0]["geometry"]["lat"];
@@ -2083,6 +2084,22 @@ namespace JamFan22.Pages
                         // what is the distance from this server to the browser's ip
                         // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
                         // and is chicago closer? if so, suppress.
+
+                        /*
+
+                        string latt = "";
+                        string lonn = "";
+                        PlaceToLatLon(server.city.ToUpper(),
+                            // "," + server.country,
+                            "", server.ip, ref latt, ref lonn);
+                        int iDist = DistanceFromClient(latt, lonn);
+                        Console.WriteLine("Distance from browser to server: " + iDist);
+
+                        */
+
+
+
+
                         /*
                         distanceToChicagoFromVirginia = 123.45;
                         if(DistanceFromBrowserToServer() > distanceToChicagoFromVirginia)
@@ -2241,6 +2258,8 @@ namespace JamFan22.Pages
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
                     char zone = ' ';
+//                    if(lat != null)
+//                    if(lon != null)
                     if (lat.Length > 1 || lon.Length > 1)
                     {
                         dist = DistanceFromClient(lat, lon);
