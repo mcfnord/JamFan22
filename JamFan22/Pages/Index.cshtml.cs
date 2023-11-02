@@ -1,4 +1,4 @@
-#define WINDOWS
+//#define WINDOWS
 
 // testing
 
@@ -1323,6 +1323,7 @@ namespace JamFan22.Pages
                     ("administrative" == typeOfMatch) ||
                     ("state" == typeOfMatch) ||
                     ("boundary" == typeOfMatch) ||
+("railway" == typeOfMatch) ||
                     ("country" == typeOfMatch))
                 {
                     lat = (string)latLongJson["results"][0]["geometry"]["lat"];
@@ -2083,13 +2084,24 @@ namespace JamFan22.Pages
                         // what is the distance from this server to the browser's ip
                         // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
                         // and is chicago closer? if so, suppress.
-                        /*
-                        distanceToChicagoFromVirginia = 123.45;
-                        if(DistanceFromBrowserToServer() > distanceToChicagoFromVirginia)
-                        {
-                                continue; // suppress this server
-                        }
-                        */
+
+
+
+/*
+
+                        string latt = "";
+                        string lonn = "";
+                        PlaceToLatLon(server.city.ToUpper(),
+                            // "," + server.country,
+                            "", server.ip, ref latt, ref lonn);
+                        int iDist = DistanceFromClient(latt, lonn);
+                        Console.WriteLine("Distance from browser to server: " + iDist);
+
+*/
+
+
+
+
                     }
 
                     List<string> userCountries = new List<string>();
@@ -2241,6 +2253,8 @@ namespace JamFan22.Pages
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
                     char zone = ' ';
+if(lat != null)
+if(lon != null)
                     if (lat.Length > 1 || lon.Length > 1)
                     {
                         dist = DistanceFromClient(lat, lon);
@@ -2455,11 +2469,11 @@ namespace JamFan22.Pages
                                         if (iPos > 0)
                                         {
                                             if('0' != user.name[iPos + 1])
-                                                num = " [" + user.name[iPos + 1] + "]";
+                                                num = "<sub> " + user.name[iPos + 1] + "</sub>";
                                         }
-                                        listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen"
+                                        listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b>"
                                             + num
-                                            + "</a></b></br>";
+                                            + "</br>";
                                         m_listenLinkDeployment.Add(ipport);
                                         break;
                                     }
