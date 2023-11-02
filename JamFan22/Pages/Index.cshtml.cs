@@ -1,4 +1,4 @@
-//#define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -2083,7 +2083,13 @@ namespace JamFan22.Pages
                         // what is the distance from this server to the browser's ip
                         // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
                         // and is chicago closer? if so, suppress.
-
+                        string latt = "";
+                        string lonn = "";
+                        PlaceToLatLon(server.city.ToUpper(),
+                            // "," + server.country,
+                            "", server.ip, ref latt, ref lonn);
+                        int iDist = DistanceFromClient(latt, lonn);
+                        Console.WriteLine("Distance from browser to server: " + iDist);
                     }
 
                     List<string> userCountries = new List<string>();
@@ -2237,7 +2243,7 @@ namespace JamFan22.Pages
                     char zone = ' ';
 //                    if(lat != null)
 //                    if(lon != null)
-                    if (lat.Length > 1 || lon.Length > 1)
+                    if (lat.Length > 1 || lon.Length > 1) // maybe ipstack didn't bill me?
                     {
                         dist = DistanceFromClient(lat, lon);
 
