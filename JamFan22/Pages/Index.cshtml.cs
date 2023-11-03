@@ -2090,6 +2090,8 @@ namespace JamFan22.Pages
                             "", server.ip, ref latt, ref lonn);
                         int iDist = DistanceFromClient(latt, lonn);
                         Console.WriteLine("Distance from browser to server: " + iDist);
+                        if (iDist > 1000)
+                            continue;
                     }
 
                     List<string> userCountries = new List<string>();
