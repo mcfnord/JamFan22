@@ -2063,6 +2063,8 @@ namespace JamFan22.Pages
                         continue; // they wanna talk chinese, with no music
                     if (server.city.ToLower().Contains("peterborough"))
                         continue; // bye jimmy
+                    if (server.name.ToLower().Contains("peachjam3"))
+                        continue; // always a duplicate of peachjam2
 
                     int people = 0;
                     if (server.clients != null)
@@ -2090,7 +2092,7 @@ namespace JamFan22.Pages
                             "", server.ip, ref latt, ref lonn);
                         int iDist = DistanceFromClient(latt, lonn);
                         Console.WriteLine("Distance from browser to server: " + iDist);
-                        if (iDist > 1000)
+                        if (iDist > 2000)
                             continue;
                     }
 
@@ -2414,8 +2416,10 @@ namespace JamFan22.Pages
                     if (s.name.Length > 0)
                     {
                         string name = s.name;
+                        /* now only appears within 1000 miles, ~ the distance between Virgina and Chicago
                         if (name.Contains("CBVB"))
                             name += " (UNSTABLE)";
+                         */
                         newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
                     }
 
@@ -2699,8 +2703,10 @@ namespace JamFan22.Pages
                         if (s.name.Length > 0)
                         {
                             string name = s.name;
+                            /* distance between Chicago and virginia ~1000m or km or something
                             if (name.Contains("CBVB"))
                                 name += " (UNSTABLE)";
+                            */
 
                             newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
                         }
