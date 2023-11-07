@@ -27,14 +27,22 @@ namespace JamFan22
 
         }
 
-        static void ShortLivedTitleForServer(string title)
+        static void ShortLivedTitleForServer(string title, string url)
         {
             if (title.Length > 0) // when i do get an empty title, don't overwrite.
             {
-                string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
+                string where = "1.2.3.4";
+                if(false == JamFan22.Pages.IndexModel.IsDebuggingOnWindows)
+                    where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
                 m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 2;
+
+                System.IO.File.AppendAllText("urls.csv",
+                    JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + ","
+                    + where + ","
+                    + url
+                    + Environment.NewLine);
             }
         }
 
@@ -125,7 +133,7 @@ namespace JamFan22
                                             {
                                                 var title = m.Groups[1].Value;
                                                 Console.WriteLine("Title I'll publish: " + title);
-                                                ShortLivedTitleForServer(title); 
+                                                ShortLivedTitleForServer(title, inlineURL); 
                                             }
                                         }
                                     }
@@ -143,7 +151,7 @@ namespace JamFan22
                                                 var title = m.Groups[1].Value;
                                                 title = title.Replace(".jpg", "");
                                                 Console.WriteLine("Title I'll publish: " + title);
-                                                ShortLivedTitleForServer(title);
+                                                ShortLivedTitleForServer(title, inlineURL);
                                             }
                                         }
                                     }
@@ -187,12 +195,13 @@ namespace JamFan22
                                                 title = title.Replace("at Ultimate-Guitar", "");
                                                 title = title.Replace("ACOUSTIC", "");
                                                 title = title.Replace("for guitar, ukulele, piano", "");
+                                                title = title.Replace("Chords & Lyrics", "");
                                                 title = title.Replace("UNNAMED ARTIST — ", "");
                                                 Console.WriteLine("Title I'll publish: " + title);
 
                                                 // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
                                                 //m_liveTitles.Add(title, DateTime.Now.AddMinutes(10)); // hmmm, TTL on birth?
-                                                ShortLivedTitleForServer(title); //, DateTime.Now.AddMinutes(3)); // hmmm, TTL on birth?
+                                                ShortLivedTitleForServer(title, inlineURL); //, DateTime.Now.AddMinutes(3)); // hmmm, TTL on birth?
                                             }
                                         }
                                     }

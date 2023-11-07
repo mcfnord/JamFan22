@@ -63,6 +63,18 @@ namespace JamFan22.Pages
 
     public class IndexModel : PageModel
     {
+        public static bool IsDebuggingOnWindows
+        {
+            get
+            {
+#if WINDOWS
+                return true;
+#else
+                return false ;
+#endif
+            }
+        }
+
         private readonly ILogger<IndexModel> _logger;
 
         public IndexModel(ILogger<IndexModel> logger)
