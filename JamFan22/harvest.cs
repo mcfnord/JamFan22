@@ -41,7 +41,7 @@ namespace JamFan22
                 System.IO.File.AppendAllText("urls.csv",
                     JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + ","
                     + where + ","
-                    + url
+                    + System.Web.HttpUtility.UrlEncode(url)
                     + Environment.NewLine);
             }
         }
