@@ -22,6 +22,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using static System.Reflection.Metadata.BlobBuilder;
 // using MongoDB.Driver;
 
 namespace JamFan22.Pages
@@ -2510,11 +2511,15 @@ namespace JamFan22.Pages
                                         {
                                             if (false == AnyoneBlockStreaming(ipport))
                                             {
-                                                // ok, it's free and can dock, so add a link.
-                                                listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
-                                                    + ipport
-                                                    + "'>Listen</a></br>";
-                                                m_listenLinkDeployment.Add(ipport);
+                                                var lobby = System.IO.File.ReadAllLines("lobby.txt").ToList();
+                                                if (lobby.Count <= 1)
+                                                {
+                                                    // ok, it's free and can dock, so add a link.
+                                                    listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
+                                                        + ipport
+                                                        + "'>Listen</a></br>";
+                                                    m_listenLinkDeployment.Add(ipport);
+                                                }
                                             }
                                         }
                                     }

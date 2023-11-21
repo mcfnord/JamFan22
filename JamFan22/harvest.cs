@@ -196,6 +196,7 @@ namespace JamFan22
                                                 title = title.Replace("ACOUSTIC", "");
                                                 title = title.Replace("for guitar, ukulele, piano", "");
                                                 title = title.Replace("Chords & Lyrics", "");
+                                                title = title.Replace("Tabs & Lyrics", "");
                                                 title = title.Replace("UNNAMED ARTIST — ", "");
                                                 Console.WriteLine("Title I'll publish: " + title);
 
