@@ -56,32 +56,33 @@ namespace JamFan22
             {
                 try
                 {
+                    // Relocating this to the top of the loop, so that it's not dependent on the stream, which hangs.
+                    // Every new minute, i might kill some entries
+                    if (JamFan22.Pages.IndexModel.MinuteSince2023AsInt() > m_minuteOfLastActivity)
+                    {
+                        m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt();
+                        var rng = new Random();
+
+                        for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)
+                        {
+                            // 1:3 odds that I remove this entry
+                            if (0 == rng.Next(3))
+                                m_songTitle.Remove(m_songTitle.ElementAt(iPos).Key);
+                        }
+
+                        for (int iPos = m_discreetLinks.Count - 1; iPos >= 0; iPos--)
+                        {
+                            // 1:4 odds that I remove this entry
+                            if (0 == rng.Next(4))
+                                m_discreetLinks.Remove(m_discreetLinks.ElementAt(iPos).Key);
+                        }
+                    }
+
                     Console.WriteLine("Establishing connection");
                     using (var streamReader = new StreamReader(await client.GetStreamAsync(url)))
                     {
                         while (!streamReader.EndOfStream)
                         {
-                            // Every new minute, i might kill some entries
-                            if(JamFan22.Pages.IndexModel.MinuteSince2023AsInt() > m_minuteOfLastActivity)
-                            {
-                                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt();
-                                var rng = new Random();
-
-                                for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)
-                                {
-                                    // 1:3 odds that I remove this entry
-                                    if (0 == rng.Next(3))
-                                        m_songTitle.Remove(m_songTitle.ElementAt(iPos).Key);
-                                }
-
-                                for(int iPos = m_discreetLinks.Count - 1; iPos >= 0; iPos--)
-                                {
-                                    // 1:4 odds that I remove this entry
-                                    if (0 == rng.Next(4))
-                                        m_discreetLinks.Remove(m_discreetLinks.ElementAt(iPos).Key);
-                                }
-                            }
-
                             var message = await streamReader.ReadLineAsync();
                             //                        Console.WriteLine($"{message}");
                             message = message.Replace("data: ", "");
