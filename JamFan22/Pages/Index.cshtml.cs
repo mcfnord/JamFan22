@@ -528,7 +528,7 @@ namespace JamFan22.Pages
         static int m_secondsPause = 12;
 
 
-        public static int MinuteSince2023AsInt()
+        public static int MinutesSince2023AsInt()
         {
             var now = DateTime.UtcNow;
             var then = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -540,8 +540,8 @@ namespace JamFan22.Pages
 
         public static string MinutesSince2023()
         {
-            var mins = MinuteSince2023AsInt();
-            return mins.ToString();
+            var mins = MinutesSince2023AsInt();
+            return mins.ToString("D7");
         }
         public static void RefreshThreadTask()
         {
@@ -983,9 +983,9 @@ namespace JamFan22.Pages
 
         static bool AnyoneBlockSnippeting(string ipport)
         {
-            if (m_lastRefreshSnippetingHalos != MinuteSince2023AsInt())
+            if (m_lastRefreshSnippetingHalos != MinutesSince2023AsInt())
             {
-                m_lastRefreshSnippetingHalos = MinuteSince2023AsInt();
+                m_lastRefreshSnippetingHalos = MinutesSince2023AsInt();
 
                 string url = "https://jamulus.live/halo-snippeting.txt";
                 System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
@@ -1025,9 +1025,9 @@ namespace JamFan22.Pages
         static List<string> m_halos_streaming = new List<string>();
         public static bool AnyoneBlockStreaming(string ipport)
         {
-            if (m_lastRefreshStreamingHalos != MinuteSince2023AsInt())
+            if (m_lastRefreshStreamingHalos != MinutesSince2023AsInt())
             {
-                m_lastRefreshStreamingHalos = MinuteSince2023AsInt();
+                m_lastRefreshStreamingHalos = MinutesSince2023AsInt();
 
                 string url = "https://jamulus.live/halo-streaming.txt";
                 System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
@@ -3498,9 +3498,9 @@ namespace JamFan22.Pages
             get
             {
                 // if current minute isn't iMinuteOfSample, then re-sample
-                if (MinuteSince2023AsInt() != iMinuteOfSample)
+                if (MinutesSince2023AsInt() != iMinuteOfSample)
                 {
-                    iMinuteOfSample = MinuteSince2023AsInt();
+                    iMinuteOfSample = MinutesSince2023AsInt();
 
                     string endpoint = "https://tucc.us/u/predicted.json";
                     using var client = new HttpClient();
