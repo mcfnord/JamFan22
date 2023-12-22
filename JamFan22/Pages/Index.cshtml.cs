@@ -3502,7 +3502,7 @@ namespace JamFan22.Pages
                 {
                     iMinuteOfSample = MinutesSince2023AsInt();
 
-                    string endpoint = "https://tucc.us/u/predicted.json";
+                    string endpoint = "http://35.89.188.108/predicted.json";
                     using var client = new HttpClient();
                     System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                     task.Wait();
