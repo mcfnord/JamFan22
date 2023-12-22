@@ -23,7 +23,7 @@ namespace JamFan22
             string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
             m_discreetLinks[where] = url;
 
-            m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 3;
+            m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 3;
 
         }
 
@@ -36,10 +36,10 @@ namespace JamFan22
                     where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
-                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 2;
+                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
 
                 System.IO.File.AppendAllText("urls.csv",
-                    JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + ","
+                    JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + ","
                     + where + ","
                     + System.Web.HttpUtility.UrlEncode(url)
                     + Environment.NewLine);
@@ -58,9 +58,9 @@ namespace JamFan22
                 {
                     // Relocating this to the top of the loop, so that it's not dependent on the stream, which hangs.
                     // Every new minute, i might kill some entries
-                    if (JamFan22.Pages.IndexModel.MinuteSince2023AsInt() > m_minuteOfLastActivity)
+                    if (JamFan22.Pages.IndexModel.MinutesSince2023AsInt() > m_minuteOfLastActivity)
                     {
-                        m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt();
+                        m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt();
                         var rng = new Random();
 
                         for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)
