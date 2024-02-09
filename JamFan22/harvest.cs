@@ -23,7 +23,7 @@ namespace JamFan22
             string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
             m_discreetLinks[where] = url;
 
-            m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 3;
+            m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 3;
 
         }
 
@@ -36,10 +36,10 @@ namespace JamFan22
                     where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
-                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + 2;
+                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
 
                 System.IO.File.AppendAllText("urls.csv",
-                    JamFan22.Pages.IndexModel.MinuteSince2023AsInt() + ","
+                    JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + ","
                     + where + ","
                     + System.Web.HttpUtility.UrlEncode(url)
                     + Environment.NewLine);
@@ -58,9 +58,9 @@ namespace JamFan22
                 {
                     // Relocating this to the top of the loop, so that it's not dependent on the stream, which hangs.
                     // Every new minute, i might kill some entries
-                    if (JamFan22.Pages.IndexModel.MinuteSince2023AsInt() > m_minuteOfLastActivity)
+                    if (JamFan22.Pages.IndexModel.MinutesSince2023AsInt() > m_minuteOfLastActivity)
                     {
-                        m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinuteSince2023AsInt();
+                        m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt();
                         var rng = new Random();
 
                         for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)
@@ -157,6 +157,25 @@ namespace JamFan22
                                         }
                                     }
 
+                                    if (inlineURL.ToLower().Contains("https://www.follner-music.de/Jamu/"))
+                                    {
+                                        using (HttpClient theclient = new HttpClient())
+                                        {
+                                            string s = await theclient.GetStringAsync(inlineURL);
+
+                                            // test with https://www.follner-music.de/Jamu/Hold_on_to_me.pdf
+                                            Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+
+                                            if (m.Success)
+                                            {
+                                                var title = m.Groups[1].Value;
+                                                Console.WriteLine("Title I'll publish: " + title);
+                                                ShortLivedTitleForServer(title, inlineURL);
+                                            }
+                                        }
+                                    }
+
+
 
                                     if (inlineURL.ToLower().Contains("https://tabs.ultimate-guitar.com/"))
                                     {
@@ -189,6 +208,7 @@ namespace JamFan22
                                                 title = title.Replace("(ver 8)", "");
                                                 title = title.Replace("(ver 9)", "");
                                                 title = title.Replace("(ver 10)", "");
+                                                title = title.Replace("(ver 11)", "");
                                                 title = title.Replace("by Misc", "");
                                                 title = title.Replace("Soundtrack", "");
                                                 title = title.Replace(" TAB", "");
@@ -199,6 +219,7 @@ namespace JamFan22
                                                 title = title.Replace("Chords & Lyrics", "");
                                                 title = title.Replace("Tabs & Lyrics", "");
                                                 title = title.Replace("UNNAMED ARTIST — ", "");
+                                                title = title.Replace("Originals", ""); 
                                                 Console.WriteLine("Title I'll publish: " + title);
 
                                                 // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
