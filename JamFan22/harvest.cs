@@ -157,6 +157,25 @@ namespace JamFan22
                                         }
                                     }
 
+                                    if (inlineURL.ToLower().Contains("https://www.follner-music.de/Jamu/"))
+                                    {
+                                        using (HttpClient theclient = new HttpClient())
+                                        {
+                                            string s = await theclient.GetStringAsync(inlineURL);
+
+                                            // test with https://www.follner-music.de/Jamu/Hold_on_to_me.pdf
+                                            Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+
+                                            if (m.Success)
+                                            {
+                                                var title = m.Groups[1].Value;
+                                                Console.WriteLine("Title I'll publish: " + title);
+                                                ShortLivedTitleForServer(title, inlineURL);
+                                            }
+                                        }
+                                    }
+
+
 
                                     if (inlineURL.ToLower().Contains("https://tabs.ultimate-guitar.com/"))
                                     {
@@ -189,6 +208,7 @@ namespace JamFan22
                                                 title = title.Replace("(ver 8)", "");
                                                 title = title.Replace("(ver 9)", "");
                                                 title = title.Replace("(ver 10)", "");
+                                                title = title.Replace("(ver 11)", "");
                                                 title = title.Replace("by Misc", "");
                                                 title = title.Replace("Soundtrack", "");
                                                 title = title.Replace(" TAB", "");
@@ -199,6 +219,7 @@ namespace JamFan22
                                                 title = title.Replace("Chords & Lyrics", "");
                                                 title = title.Replace("Tabs & Lyrics", "");
                                                 title = title.Replace("UNNAMED ARTIST — ", "");
+                                                title = title.Replace("Originals", ""); 
                                                 Console.WriteLine("Title I'll publish: " + title);
 
                                                 // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
