@@ -39,18 +39,27 @@ app.MapRazorPages();
 System.Threading.Mutex m_serializeDocks = new System.Threading.Mutex(false, "DOCK_MUTEX");
 
 
-app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
+
+app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext context) =>
 {
     m_serializeDocks.WaitOne();
     try
     {
         Console.Write(context.Connection.RemoteIpAddress.ToString());
-        Console.WriteLine(" requested dock to " + destination);
+        Console.WriteLine(" requested dock to " + hashDestination + " if I can turn it into an ipport.");
+
+        var clearDestination = JamFan22.hashSupport.GetIpPort(hashDestination);
+        if(clearDestination == null)
+        {
+            Console.WriteLine("Hash was not matched. Failure.");
+            context.Response.StatusCode = 403;
+            return context.Response.WriteAsync("Forbidden");
+        }
 
         // let's run this past the halo list once more.
         // should be extremely rare to hit here because I should have checked already when creating/not creating the listen link.
 
-        if ( JamFan22.Pages.IndexModel.AnyoneBlockStreaming(destination))
+        if ( JamFan22.Pages.IndexModel.AnyoneBlockStreaming(clearDestination))
         {
             Console.WriteLine("Dock request forbidden; destination contains a halo user. Why did this request get created?");
             context.Response.StatusCode = 403;
@@ -85,7 +94,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             // is this destination blocklisted?
             response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
             content = response.Content.ReadAsStringAsync().Result;
-            if (content.Contains(destination))
+            if (content.Contains(clearDestination))
             {
                 Console.WriteLine("Dock request forbidden; destination is blocklisted.");
                 context.Response.StatusCode = 403;
@@ -95,7 +104,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             // Is this destination allowlisted?
             response = httpClient.GetAsync("https://jamulus.live/can-dock.txt").Result;
             content = response.Content.ReadAsStringAsync().Result;
-            if (false == content.Contains(destination))
+            if (false == content.Contains(clearDestination))
             {
                 Console.WriteLine("Dock request forbidden; destination is not allowlisted.");
                 context.Response.StatusCode = 403;
@@ -105,7 +114,7 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             // Is a probe already deployed there? (two requests at one time can do it)
             foreach (var connectedIPPort in JamFan22.Pages.IndexModel.m_connectedLounges.Values)
             {
-                if (connectedIPPort == destination)
+                if (connectedIPPort == clearDestination)
                 {
                     Console.WriteLine("Dock request forbidden; destination is already connected.");
                     context.Response.StatusCode = 403;
@@ -114,11 +123,11 @@ app.MapGet("/dock/{destination}", (string destination, HttpContext context) =>
             }
 
             // for any line that contains this string, remove the line from the file.
-            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = destination;
+            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = clearDestination;
 
             //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
             string DIR = "/root/JamFan22/JamFan22/wwwroot/";
-            File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", destination);
+            File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", clearDestination);
 
             string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://"
                 + freeInstance
