@@ -1,10 +1,50 @@
-﻿using System;
+﻿using JamFan22.Pages;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.ConstrainedExecution;
 using System.Text.RegularExpressions;
 
 namespace JamFan22
 {
+
+    public class hashSupport
+    {
+        public static string GetIpPort(string destinationHash)
+        {
+            foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
+            {
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
+                foreach (var server in serversOnList)
+                {
+                    byte[] preHash1 = System.Text.Encoding.UTF8.GetBytes(server.ip + ":" + server.port + DateTime.UtcNow.Hour);
+                    var interimStep1 = System.Security.Cryptography.MD5.HashData(preHash1);
+                    var saltedHash1 = JamFan22.Pages.IndexModel.ToHex(interimStep1, false).Substring(0, 4);
+
+                    var priorHour = DateTime.UtcNow.Hour - 1;
+                    if (-1 == priorHour)
+                        priorHour = 23;
+                    byte[] preHash2 = System.Text.Encoding.UTF8.GetBytes(server.ip + ":" + server.port + priorHour);
+                    var interimStep2 = System.Security.Cryptography.MD5.HashData(preHash2);
+                    var saltedHash2 = JamFan22.Pages.IndexModel.ToHex(interimStep2, false).Substring(0, 4);
+
+                    if ((saltedHash1 == destinationHash) || (saltedHash2 == destinationHash))
+                    {
+                        if (saltedHash1 == destinationHash)
+                            Console.WriteLine("Salt from current hour.");
+                        else
+                            Console.WriteLine("Salt from previous hour.");
+
+                        Console.WriteLine("Dock request matched " + server.ip + ":" + server.port);
+                        var deHashedDestination = server.ip + ":" + server.port;
+                        return deHashedDestination;
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
+
     public class harvest
     {
         class ChatMessage

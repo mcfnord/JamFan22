@@ -15,6 +15,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Linq.Expressions;
 using System.Net;
 using System.Net.Http;
@@ -1503,6 +1504,8 @@ namespace JamFan22.Pages
 
             lat = serverLat;
             lon = serverLon;
+            Debug.Assert(lat != null);
+            Debug.Assert(lat != null);
             m_PlaceNameToLatLong[serverPlace.ToUpper()] = new LatLong(lat, lon);
         }
 
@@ -2514,9 +2517,15 @@ namespace JamFan22.Pages
                                                 var lobby = System.IO.File.ReadAllLines("lobby.txt").ToList();
                                                 if (lobby.Count <= 1)
                                                 {
+                                                    // i show the first four of an md5 of the ipport plus the hour for salt
+                                                    byte[] bytes = System.Text.Encoding.UTF8.GetBytes(ipport + DateTime.UtcNow.Hour);
+                                                    // var saltedHashOfDestination = System.Security.Cryptography.MD5.HashData(bytes).ToString().Substring(0, 4);
+                                                    var interimStep = System.Security.Cryptography.MD5.HashData(bytes);
+                                                    var saltedHashOfDestination = ToHex(interimStep, false).Substring(0, 4);
+
                                                     // ok, it's free and can dock, so add a link.
                                                     listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
-                                                        + ipport
+                                                        + saltedHashOfDestination
                                                         + "'>Listen</a></br>";
                                                     m_listenLinkDeployment.Add(ipport);
                                                 }
