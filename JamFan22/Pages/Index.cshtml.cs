@@ -1064,9 +1064,6 @@ namespace JamFan22.Pages
         }
 
 
-        // const string MYSTERY_STRING = "0db5e3c2eb494c8b825df53a1a63e80d";
-        const string IPSTACK_MYSTERY_STRING = "750d5e904ae4a2420edc0e47d4095917";
-
         protected void SmartGeoLocate(string ip, ref double latitude, ref double longitude)
         {
             // for any IP address, use a cached object if it's not too old.
@@ -1096,14 +1093,14 @@ namespace JamFan22.Pages
                 */
 
                 string ip4 = ip.Replace("::ffff:", "");
-                string endpoint = "http://api.ipstack.com/" + ip4 + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4 + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
                 using var client = new HttpClient();
                 System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                 task.Wait();
                 string s = task.Result;
                 JObject jsonGeo = JObject.Parse(s);
-                latitude = Convert.ToDouble(jsonGeo["latitude"]);
-                longitude = Convert.ToDouble(jsonGeo["longitude"]);
+                latitude = Convert.ToDouble(jsonGeo["location"]["latitude"]);
+                longitude = Convert.ToDouble(jsonGeo["location"]["longitude"]);
 
                 //                    latitude = Convert.ToDouble(geolocation.GetLatitude());
                 //                longitude = Convert.ToDouble(geolocation.GetLongitude());
@@ -1451,14 +1448,15 @@ namespace JamFan22.Pages
 
 
                 string ip4Addr = ipAddr.Replace("::ffff:", "");
-                string endpoint = "http://api.ipstack.com/" + ip4Addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                // string endpoint = "http://api.ipstack.com/" + ip4Addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4Addr + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
                 using var client = new HttpClient();
                 System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                 task.Wait();
                 string s = task.Result;
                 JObject jsonGeo = JObject.Parse(s);
-                serverIPLat = (string)jsonGeo["latitude"];
-                serverIPLon = (string)jsonGeo["longitude"];
+                serverIPLat = (string)jsonGeo["location"]["latitude"];
+                serverIPLon = (string)jsonGeo["location"]["longitude"];
 
                 fServerIPLLSuccess = true;
                 m_ipAddrToLatLong[ipAddr] = new LatLong(serverIPLat, serverIPLon);
@@ -3313,6 +3311,10 @@ namespace JamFan22.Pages
             set { }
         }
 
+
+        static string GEOAPIFY_MYSTERY_STRING = null;
+
+
         static bool m_bUserWaiting = false;
         public string RightNow
         {
@@ -3363,16 +3365,23 @@ namespace JamFan22.Pages
                                 Console.WriteLine("Error in geolocation: " + e.Message);
                             }
                             */
+
+                            if(null == GEOAPIFY_MYSTERY_STRING)
+                            {
+                                var stringFromFile = System.IO.File.ReadAllLines("secretGeoApifykey.txt").ToList();
+                                GEOAPIFY_MYSTERY_STRING = stringFromFile[0];
+                            }
                             string ip4addr = ipaddr.Replace("::ffff:", "");
-                            string endpoint = "http://api.ipstack.com/" + ip4addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                            // string endpoint = "http://api.ipstack.com/" + ip4addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
+                            string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4addr + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
                             using var client = new HttpClient();
                             System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
                             task.Wait();
                             string s = task.Result;
                             JObject jsonGeo = JObject.Parse(s);
                             var candy = new MyUserGeoCandy();
-                            candy.city = (string)jsonGeo["city"];
-                            candy.countryCode2 = (string)jsonGeo["country_code"];
+                            candy.city = (string)jsonGeo["city"]["name"];
+                            candy.countryCode2 = (string)jsonGeo["country"]["iso_code"];
                             userIpCachedItems[ipaddr] = candy;
                             Console.WriteLine("Candy: " + candy.city + " " + candy.countryCode2);
                         }
