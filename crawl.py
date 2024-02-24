@@ -61,7 +61,7 @@ while True:
             DEPLOYMENT_REQUEST_FILE = "/root/JamFan22/JamFan22/wwwroot/requested_on_" + probe + ".txt"
             os.system("sudo sh -c 'echo " + ipPort + " > " + DEPLOYMENT_REQUEST_FILE + "'")
 
-            time.sleep(40) # wait for the probe to arrive. wait a super long time.
+            time.sleep(60) # wait for the probe to arrive. wait a super long time.
 
             didlobbyarrive = str(urllib.request.urlopen("http://143.198.104.205/servers.php?server=" + ipPort).read())
             if didlobbyarrive.find("obby") != -1:
