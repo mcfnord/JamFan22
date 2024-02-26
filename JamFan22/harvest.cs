@@ -1,4 +1,5 @@
 ﻿using JamFan22.Pages;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.ConstrainedExecution;
@@ -6,6 +7,25 @@ using System.Text.RegularExpressions;
 
 namespace JamFan22
 {
+
+    public class forbidder
+    {
+        public static Task ForbidThem(HttpContext context, string ip)
+        {
+            // and their whole ISP until tomorrow.
+            using var client = new HttpClient();
+            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + ip);
+            task.Wait();
+            string s = task.Result;
+            JObject json = JObject.Parse(s);
+            Console.WriteLine(json);
+
+            context.Response.StatusCode = 403;
+            return context.Response.WriteAsync("Forbidden");
+        }
+    }
+
+
 
     public class hashSupport
     {

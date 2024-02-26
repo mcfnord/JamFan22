@@ -45,15 +45,15 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
     m_serializeDocks.WaitOne();
     try
     {
-        Console.Write(context.Connection.RemoteIpAddress.ToString());
+        string theirIp = context.Connection.RemoteIpAddress.ToString();
+        Console.Write(theirIp);
         Console.WriteLine(" requested dock to " + hashDestination + " if I can turn it into an ipport.");
 
         var clearDestination = JamFan22.hashSupport.GetIpPort(hashDestination);
         if(clearDestination == null)
         {
             Console.WriteLine("Hash was not matched. Failure.");
-            context.Response.StatusCode = 403;
-            return context.Response.WriteAsync("Forbidden");
+            return JamFan22.forbidder.ForbidThem(context, theirIp);
         }
 
         // let's run this past the halo list once more.
@@ -62,8 +62,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
         if ( JamFan22.Pages.IndexModel.AnyoneBlockStreaming(clearDestination))
         {
             Console.WriteLine("Dock request forbidden; destination contains a halo user. Why did this request get created?");
-            context.Response.StatusCode = 403;
-            return context.Response.WriteAsync("Forbidden");
+            return JamFan22.forbidder.ForbidThem(context, theirIp);
         }
 
         using (var httpClient = new HttpClient())
@@ -86,8 +85,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
                 */
                 {
                     Console.WriteLine("Dock request forbidden; neither hear is not free.");
-                    context.Response.StatusCode = 403;
-                    return context.Response.WriteAsync("Forbidden");
+                    return JamFan22.forbidder.ForbidThem(context, theirIp);
                 }
             }
 
@@ -97,8 +95,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
             if (content.Contains(clearDestination))
             {
                 Console.WriteLine("Dock request forbidden; destination is blocklisted.");
-                context.Response.StatusCode = 403;
-                return context.Response.WriteAsync("Forbidden");
+                return JamFan22.forbidder.ForbidThem(context, theirIp);
             }
 
             // Is this destination allowlisted?
@@ -107,8 +104,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
             if (false == content.Contains(clearDestination))
             {
                 Console.WriteLine("Dock request forbidden; destination is not allowlisted.");
-                context.Response.StatusCode = 403;
-                return context.Response.WriteAsync("Forbidden");
+                return JamFan22.forbidder.ForbidThem(context, theirIp);
             }
 
             // Is a probe already deployed there? (two requests at one time can do it)
@@ -117,8 +113,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
                 if (connectedIPPort == clearDestination)
                 {
                     Console.WriteLine("Dock request forbidden; destination is already connected.");
-                    context.Response.StatusCode = 403;
-                    return context.Response.WriteAsync("Forbidden");
+                    return JamFan22.forbidder.ForbidThem(context, theirIp);
                 }
             }
 
