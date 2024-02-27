@@ -3312,6 +3312,9 @@ namespace JamFan22.Pages
         }
 
 
+        List<string> eachIpIveSeenAndDescribed = new List<string>();
+
+
         static string GEOAPIFY_MYSTERY_STRING = null;
 
 
@@ -3326,6 +3329,21 @@ namespace JamFan22.Pages
                 try
                 {
                     string ipaddr = HttpContext.Connection.RemoteIpAddress.ToString();
+
+                    // To learn more about my users and non-users, let's reveal their ISP clues.
+                    // I wanna know about this IP address the first time it appears.
+                    if (false == eachIpIveSeenAndDescribed.Contains(ipaddr))
+                    {
+                        eachIpIveSeenAndDescribed.Add(ipaddr);
+                        Console.WriteLine("New IP details: " + ipaddr);
+                        using var client = new HttpClient();
+                        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + ipaddr);
+                        task.Wait();
+                        string s = task.Result;
+                        JObject json = JObject.Parse(s);
+                        Console.WriteLine(json);
+                    }
+
 
                     if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
                         ipaddr = HttpContext.Request.Headers["X-Forwarded-For"];
