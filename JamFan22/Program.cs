@@ -52,7 +52,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
         var clearDestination = JamFan22.hashSupport.GetIpPort(hashDestination);
         if(clearDestination == null)
         {
-            Console.WriteLine("Hash was not matched. Failure.");
+            Console.WriteLine("Dock request forbidden; hash was not matched.");
             return JamFan22.forbidder.ForbidThem(context, theirIp);
         }
 
