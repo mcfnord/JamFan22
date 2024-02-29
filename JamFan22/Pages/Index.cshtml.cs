@@ -648,7 +648,7 @@ namespace JamFan22.Pages
                             if (people < 1)
                                 continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
 
-                            System.IO.File.AppendAllText("server.csv",
+                            System.IO.File.AppendAllText("data/server.csv",
                                                           server.ip + ":" + server.port + ","
                                                         + System.Web.HttpUtility.UrlEncode(server.name) + ","
                                                         + System.Web.HttpUtility.UrlEncode(server.city) + ","
@@ -659,12 +659,12 @@ namespace JamFan22.Pages
                             {
                                 string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
 
-                                System.IO.File.AppendAllText("census.csv", MinutesSince2023() + ","
+                                System.IO.File.AppendAllText("data/census.csv", MinutesSince2023() + ","
                                                             + stringHashOfGuy + ","
                                                             + server.ip + ":" + server.port
                                                             + Environment.NewLine);
 
-                                System.IO.File.AppendAllText("censusgeo.csv",
+                                System.IO.File.AppendAllText("data/censusgeo.csv",
                                                               stringHashOfGuy + ","
                                                             + System.Web.HttpUtility.UrlEncode(guy.name) + ","
                                                             + guy.instrument + ","
