@@ -1,4 +1,4 @@
-#define WINDOWS
+//#define WINDOWS
 
 // testing
 
@@ -3312,7 +3312,7 @@ namespace JamFan22.Pages
         }
 
 
-        List<string> eachIpIveSeenAndDescribed = new List<string>();
+        static List<string> eachIpIveSeenAndDescribed = new List<string>();
 
 
         static string GEOAPIFY_MYSTERY_STRING = null;
