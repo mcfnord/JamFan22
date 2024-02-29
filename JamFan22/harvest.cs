@@ -10,6 +10,9 @@ namespace JamFan22
 
     public class forbidder
     {
+        public static List<string> m_forbade = new List<string>();
+        protected static int hourForbade = -1 ;
+
         public static Task ForbidThem(HttpContext context, string ip)
         {
             // and their whole ISP until tomorrow.
@@ -19,6 +22,13 @@ namespace JamFan22
             string s = task.Result;
             JObject json = JObject.Parse(s);
             Console.WriteLine(json);
+
+            if(hourForbade != DateTime.UtcNow.Hour)
+            {
+                m_forbade.Clear();
+                hourForbade = DateTime.UtcNow.Hour;
+            }
+            m_forbade.Add((string)json["as"]);
 
             context.Response.StatusCode = 403;
             return context.Response.WriteAsync("Forbidden");
@@ -98,7 +108,7 @@ namespace JamFan22
 
                 m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
 
-                System.IO.File.AppendAllText("urls.csv",
+                System.IO.File.AppendAllText("data/urls.csv",
                     JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + ","
                     + where + ","
                     + System.Web.HttpUtility.UrlEncode(url)
