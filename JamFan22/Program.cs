@@ -1,5 +1,7 @@
+using JamFan22;
 using JamFan22.Pages;
 using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
 
@@ -61,7 +63,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
 
         if ( JamFan22.Pages.IndexModel.AnyoneBlockStreaming(clearDestination))
         {
-            Console.WriteLine("Dock request forbidden; destination contains a halo user. Why did this request get created?");
+            Console.WriteLine("Dock request forbidden; destination contains a halo user.");
             return JamFan22.forbidder.ForbidThem(context, theirIp);
         }
 
@@ -84,7 +86,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
                 else
                 */
                 {
-                    Console.WriteLine("Dock request forbidden; neither hear is not free.");
+                    Console.WriteLine("Dock request forbidden; hear not free.");
                     return JamFan22.forbidder.ForbidThem(context, theirIp);
                 }
             }
@@ -124,6 +126,16 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
             string DIR = "/root/JamFan22/JamFan22/wwwroot/";
             File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", clearDestination);
 
+            // Associate ISP of dock requestor with server
+            using var client = new HttpClient();
+            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + theirIp);
+            task.Wait();
+            string s = task.Result;
+            JObject json = JObject.Parse(s);
+            forbidder.m_dockRequestor[clearDestination] = (string)json["as"];
+            Console.WriteLine("Dock requestor ISP: " + (string)json["as"]);
+
+            // Redirection is your fate
             string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://"
                 + freeInstance
                 + ".jamulus.live\"></head><body><font size='+4'><br><br><b>WAIT 10 SECONDS...</b></font></body></html>";
@@ -139,6 +151,7 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
     }
 });
 
+/*
 app.MapGet("/servers/{target}", (string target, HttpContext context) =>
 {
     using var client = new HttpClient();
@@ -146,6 +159,22 @@ app.MapGet("/servers/{target}", (string target, HttpContext context) =>
     task.Wait();
     return task.Result;
 });
+*/
+
+app.MapGet("/b/{banDockDiddler}", (string banDockDiddler, HttpContext context) =>
+{
+    if(forbidder.m_dockRequestor.ContainsKey(banDockDiddler))
+    {
+        forbidder.m_forbiddenIsp.Add(forbidder.m_dockRequestor[banDockDiddler]);
+
+        string theirIp = context.Connection.RemoteIpAddress.ToString();
+
+        Console.WriteLine("{0} blocked {1}", theirIp, forbidder.m_dockRequestor[banDockDiddler]);
+        return "OK";
+    }
+    return "NO";
+});
+
 
 app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =>
     {
