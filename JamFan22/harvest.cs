@@ -10,26 +10,15 @@ namespace JamFan22
 
     public class forbidder
     {
-        public static List<string> m_forbade = new List<string>();
-        protected static int hourForbade = -1 ;
+        public static Dictionary<string, string> m_dockRequestor = new Dictionary<string, string>();
+        public static List<string> m_forbiddenIsp = new List<string>();
+
+//        public static List<string> m_forbade = new List<string>();
+//        protected static int hourForbade = -1 ;
 
         public static Task ForbidThem(HttpContext context, string ip)
         {
-            // and their whole ISP until tomorrow.
-            using var client = new HttpClient();
-            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + ip);
-            task.Wait();
-            string s = task.Result;
-            JObject json = JObject.Parse(s);
-            Console.WriteLine(json);
-
-            if(hourForbade != DateTime.UtcNow.Hour)
-            {
-                m_forbade.Clear();
-                hourForbade = DateTime.UtcNow.Hour;
-            }
-            m_forbade.Add((string)json["as"]);
-
+            Console.WriteLine("Forbidden act.");
             context.Response.StatusCode = 403;
             return context.Response.WriteAsync("Forbidden");
         }
