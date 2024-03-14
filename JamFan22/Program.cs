@@ -119,21 +119,28 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
                 }
             }
 
-            // for any line that contains this string, remove the line from the file.
-            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = clearDestination;
-
-            //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
-            string DIR = "/root/JamFan22/JamFan22/wwwroot/";
-            File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", clearDestination);
-
             // Associate ISP of dock requestor with server
             using var client = new HttpClient();
             System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + theirIp);
             task.Wait();
             string s = task.Result;
             JObject json = JObject.Parse(s);
-            forbidder.m_dockRequestor[clearDestination] = (string)json["as"];
-            Console.WriteLine("Dock requestor ISP: " + (string)json["as"]);
+            string isp = (string)json["as"];
+            if (forbidder.m_forbiddenIsp.Contains(isp))
+            {
+                Console.WriteLine("Dock request forbidden; ISP '{0}' is forbidden. How did they get the dock link? It doesn't go to their ISP.", isp );
+                return JamFan22.forbidder.ForbidThem(context, theirIp);
+            }
+            // Associate ISP of dock requestor with server
+            forbidder.m_dockRequestor[clearDestination] = isp;
+            Console.WriteLine("Dock requestor ISP: " + isp);
+
+            // for any line that contains this string, remove the line from the file.
+            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = clearDestination;
+
+            //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
+            string DIR = "/root/JamFan22/JamFan22/wwwroot/";
+            File.WriteAllText(DIR + "requested_on_" + freeInstance + ".txt", clearDestination);
 
             // Redirection is your fate
             string html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta http-equiv=\"refresh\" content=\"10;url=https://"
