@@ -2019,9 +2019,12 @@ namespace JamFan22.Pages
         bool InstanceIsFree(string url, string currentDock)
         {
             // is this dock creator's ISP allowed to create leases?
-            if( null != currentDock)
-                if( forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]) )
-                   return true ;
+            if (null != currentDock)
+                if (forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]))
+                {
+                    Console.WriteLine("The lease is free because the current dock is a forbidden ISP.");
+                    return true;
+                }
 
             // ok, is it free?
             if (twoSecondZoneOfLastSample.ContainsKey(url))
