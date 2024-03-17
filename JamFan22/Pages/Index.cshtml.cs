@@ -1010,7 +1010,7 @@ namespace JamFan22.Pages
                                 var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
                                 if (m_halos_snippeting.Contains(stringHashOfGuy))
                                 {
-                                    Console.WriteLine("A halo has blocked snippeting at " + ipport);
+                                    Console.WriteLine("A halo has prevented the snippeting option at " + ipport);
                                     return true;
                                 }
                             }
@@ -1052,7 +1052,7 @@ namespace JamFan22.Pages
                                 var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
                                 if (m_halos_streaming.Contains(stringHashOfGuy))
                                 {
-                                    Console.WriteLine("A halo has blocked streaming as an option at " + ipport);
+                                    Console.WriteLine("A halo has prevented streaming as an option at " + ipport);
                                     return true;
                                 }
                             }
@@ -2016,8 +2016,14 @@ namespace JamFan22.Pages
 
         static Dictionary<string, int> twoSecondZoneOfLastSample = new Dictionary<string, int>();
         static Dictionary<string, bool> freeStatusCache = new Dictionary<string, bool>();
-        bool InstanceIsFree(string url)
+        bool InstanceIsFree(string url, string currentDock)
         {
+            // is this dock creator's ISP allowed to create leases?
+            if( null != currentDock)
+                if( forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]) )
+                   return true ;
+
+            // ok, is it free?
             if (twoSecondZoneOfLastSample.ContainsKey(url))
                 if (twoSecondZoneOfLastSample[url] == DateTime.Now.Second / 2)
                     return freeStatusCache[url];
@@ -2041,6 +2047,24 @@ namespace JamFan22.Pages
         public static Dictionary<string, string> m_connectedLounges = new Dictionary<string, string>();
         public static List<string> m_listenLinkDeployment = new List<string>();
         public static int m_snippetsDeployed = 0;
+
+
+public static Dictionary<string, JObject>  m_ipapiOutputs = new Dictionary<string, JObject>();
+
+public static JObject GetClientIPDetails( string clientIP )
+{
+if(m_ipapiOutputs.ContainsKey(clientIP))
+  return m_ipapiOutputs[clientIP] ;
+
+var client = new HttpClient() ;
+                             System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
+                             task.Wait();
+                             string st = task.Result;
+                             JObject json = JObject.Parse(st);
+m_ipapiOutputs[clientIP] = json ;
+return json ;
+}
+
 
         public async Task<string> GetGutsRightNow()
         {
@@ -2494,7 +2518,11 @@ namespace JamFan22.Pages
                     // if listenNow wasn't assigned by the map, maybe assign it because there's a free instance and this IP:port is allowed
                     if (listenNow.Length == 0)
                     {
-                        bool a = InstanceIsFree("http://hear.jamulus.live/free.txt");
+			string currentHear = null;
+                        if(m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
+                            currentHear = m_connectedLounges["https://hear.jamulus.live/"] ;
+      
+                        bool a = InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
                         bool b = false; // offline InstanceIsFree("http://radio.jamulus.live/free.txt");
                         if (a || b)
                         {
@@ -2517,10 +2545,11 @@ namespace JamFan22.Pages
                                                 {
                                                     string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
                                                     using var client = new HttpClient();
-                                                    System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
-                                                    task.Wait();
-                                                    string st = task.Result;
-                                                    JObject json = JObject.Parse(st);
+JObject json = GetClientIPDetails(clientIP);
+//                                                    System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
+  //                                                  task.Wait();
+    //                                                string st = task.Result;
+      //                                              JObject json = JObject.Parse(st);
                                                     if (false == forbidder.m_forbiddenIsp.Contains(json["as"].ToString()))
                                                     {
                                                         // i show the first four of an md5 of the ipport plus the hour for salt
@@ -3345,12 +3374,13 @@ namespace JamFan22.Pages
                     {
                         eachIpIveSeenAndDescribed.Add(ipaddr);
                         Console.WriteLine("New IP details: " + ipaddr);
-                        using var client = new HttpClient();
-                        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + ipaddr);
-                        task.Wait();
-                        string s = task.Result;
-                        JObject json = JObject.Parse(s);
-                        Console.WriteLine(json);
+// Console.WriteLine( (string) GetClientIPDetails( ipaddr )) ;
+//                        using var client = new HttpClient();
+  //                      System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + ipaddr);
+    //                    task.Wait();
+      //                  string s = task.Result;
+        //                JObject json = JObject.Parse(s);
+          //              Console.WriteLine(json);
                     }
 
 

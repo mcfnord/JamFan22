@@ -120,11 +120,13 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
             }
 
             // Associate ISP of dock requestor with server
-            using var client = new HttpClient();
-            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + theirIp);
-            task.Wait();
-            string s = task.Result;
-            JObject json = JObject.Parse(s);
+JObject json = JamFan22.Pages.IndexModel.GetClientIPDetails (theirIp) ;
+
+//            using var client = new HttpClient();
+  //          System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + theirIp);
+    //        task.Wait();
+      //      string s = task.Result;
+        //    JObject json = JObject.Parse(s);
             string isp = (string)json["as"];
             if (forbidder.m_forbiddenIsp.Contains(isp))
             {
