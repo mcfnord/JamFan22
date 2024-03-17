@@ -2049,21 +2049,28 @@ namespace JamFan22.Pages
         public static int m_snippetsDeployed = 0;
 
 
-public static Dictionary<string, JObject>  m_ipapiOutputs = new Dictionary<string, JObject>();
+        public static Dictionary<string, JObject>  m_ipapiOutputs = new Dictionary<string, JObject>();
+        static int m_hourLastFlushed = -1 ;
 
-public static JObject GetClientIPDetails( string clientIP )
-{
-if(m_ipapiOutputs.ContainsKey(clientIP))
-  return m_ipapiOutputs[clientIP] ;
+        public static JObject GetClientIPDetails(string clientIP)
+        {
+            if( DateTime.Now.Hour != m_hourLastFlushed)
+            {
+                m_ipapiOutputs.Clear();
+                m_hourLastFlushed = DateTime.Now.Hour;
+            }
 
-var client = new HttpClient() ;
-                             System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
-                             task.Wait();
-                             string st = task.Result;
-                             JObject json = JObject.Parse(st);
-m_ipapiOutputs[clientIP] = json ;
-return json ;
-}
+            if (m_ipapiOutputs.ContainsKey(clientIP))
+                return m_ipapiOutputs[clientIP];
+
+            var client = new HttpClient();
+            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
+            task.Wait();
+            string st = task.Result;
+            JObject json = JObject.Parse(st);
+            m_ipapiOutputs[clientIP] = json;
+            return json;
+        }
 
 
         public async Task<string> GetGutsRightNow()
