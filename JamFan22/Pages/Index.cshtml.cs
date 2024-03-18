@@ -2020,11 +2020,14 @@ namespace JamFan22.Pages
         {
             // is this dock creator's ISP allowed to create leases?
             if (null != currentDock)
+{
+Console.WriteLine("CurrentDock: " + currentDock) ;
                 if (forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]))
                 {
                     Console.WriteLine("The lease is free because the current dock is a forbidden ISP.");
                     return true;
                 }
+}
 
             // ok, is it free?
             if (twoSecondZoneOfLastSample.ContainsKey(url))
@@ -2086,7 +2089,7 @@ namespace JamFan22.Pages
 
 #if WINDOWS
             // When debugging, have one simulated connected lounge at Hear
-            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live"] = "157.245.224.141:22124";
+            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live/"] = "157.245.224.141:22124";
 #endif
 
 
