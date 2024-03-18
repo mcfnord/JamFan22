@@ -138,7 +138,7 @@ JObject json = JamFan22.Pages.IndexModel.GetClientIPDetails (theirIp) ;
             Console.WriteLine("Dock requestor ISP: " + isp);
 
             // for any line that contains this string, remove the line from the file.
-            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live"] = clearDestination;
+            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://{freeInstance}.jamulus.live/"] = clearDestination;
 
             //      string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\"; // for WINDOWS debug
             string DIR = "/root/JamFan22/JamFan22/wwwroot/";

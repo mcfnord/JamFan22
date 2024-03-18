@@ -278,7 +278,8 @@ namespace JamFan22
                                                 title = title.Replace("Chords & Lyrics", "");
                                                 title = title.Replace("Tabs & Lyrics", "");
                                                 title = title.Replace("UNNAMED ARTIST — ", "");
-                                                title = title.Replace("Originals", ""); 
+                                                title = title.Replace("Originals", "");
+                                                title = title.Replace("by Praise and Harmony", "");
                                                 Console.WriteLine("Title I'll publish: " + title);
 
                                                 // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
