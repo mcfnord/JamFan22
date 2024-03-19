@@ -69,31 +69,37 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
 
         using (var httpClient = new HttpClient())
         {
-            // only set destination if there's a free instance
-            string freeInstance = "";
+            // string freeInstance = "";
+            string freeInstance = "hear"; // we just hve one instance.
 
+            // Is the hear instance free? Its lease is rfee, or its lease was made by an ISP forbidden from docking.
+            if (JamFan22.Pages.IndexModel.InstanceIsFree(
+                "http://hear.jamulus.live/free.txt",
+                JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live/"]))
+            {
+                Console.WriteLine("Dock request forbidden; hear not free or hear was docked by forbidden ISP.");
+                return JamFan22.forbidder.ForbidThem(context, theirIp);
+            }
+
+
+            /*
             var response = httpClient.GetAsync("http://hear.jamulus.live/free.txt").Result;
             var content = response.Content.ReadAsStringAsync().Result;
             if (content.Contains("True"))
                 freeInstance = "hear";
             else
             {
-                /* there is no radio anymore. just hear.
-                response = httpClient.GetAsync("http://radio.jamulus.live/free.txt").Result;
-                content = response.Content.ReadAsStringAsync().Result;
-                if (content.Contains("True"))
-                    freeInstance = "radio";
-                else
-                */
                 {
                     Console.WriteLine("Dock request forbidden; hear not free.");
                     return JamFan22.forbidder.ForbidThem(context, theirIp);
                 }
             }
+            */
+
 
             // is this destination blocklisted?
-            response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
-            content = response.Content.ReadAsStringAsync().Result;
+            var response = httpClient.GetAsync("https://jamulus.live/cannot-dock.txt").Result;
+            var content = response.Content.ReadAsStringAsync().Result;
             if (content.Contains(clearDestination))
             {
                 Console.WriteLine("Dock request forbidden; destination is blocklisted.");
