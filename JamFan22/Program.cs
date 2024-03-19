@@ -73,12 +73,16 @@ app.MapGet("/dock/{hashDestination}", (string hashDestination, HttpContext conte
             string freeInstance = "hear"; // we just hve one instance.
 
             // Is the hear instance free? Its lease is rfee, or its lease was made by an ISP forbidden from docking.
-            if (JamFan22.Pages.IndexModel.InstanceIsFree(
-                "http://hear.jamulus.live/free.txt",
-                JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live/"]))
+            // but on first run, we don't have a connected lounge noted yet.
+            if (JamFan22.Pages.IndexModel.m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
             {
-                Console.WriteLine("Dock request forbidden; hear not free or hear was docked by forbidden ISP.");
-                return JamFan22.forbidder.ForbidThem(context, theirIp);
+                if (JamFan22.Pages.IndexModel.InstanceIsFree(
+                    "http://hear.jamulus.live/free.txt",
+                    JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live/"]))
+                {
+                    Console.WriteLine("Dock request forbidden; hear not free or hear was docked by forbidden ISP.");
+                    return JamFan22.forbidder.ForbidThem(context, theirIp);
+                }
             }
 
 
