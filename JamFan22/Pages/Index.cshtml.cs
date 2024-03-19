@@ -2016,7 +2016,7 @@ namespace JamFan22.Pages
 
         static Dictionary<string, int> twoSecondZoneOfLastSample = new Dictionary<string, int>();
         static Dictionary<string, bool> freeStatusCache = new Dictionary<string, bool>();
-        bool InstanceIsFree(string url, string currentDock)
+        public static bool InstanceIsFree(string url, string currentDock)
         {
             // is this dock creator's ISP allowed to create leases?
             if (null != currentDock)
@@ -2024,7 +2024,7 @@ namespace JamFan22.Pages
 Console.WriteLine("CurrentDock: " + currentDock) ;
                 if (forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]))
                 {
-                    Console.WriteLine("The lease is free because the current dock is a forbidden ISP.");
+                    Console.WriteLine("The lease is free because the current dock was made by a forbidden ISP.");
                     return true;
                 }
 }
