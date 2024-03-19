@@ -53,7 +53,7 @@ namespace JamFan22
                         else
                             Console.WriteLine("Salt from previous hour.");
 
-                        Console.WriteLine("Dock request matched " + server.ip + ":" + server.port);
+                        Console.WriteLine("Dock request matched " + server.ip + ":" + server.port + "... " + server.name );
                         var deHashedDestination = server.ip + ":" + server.port;
                         return deHashedDestination;
                     }
