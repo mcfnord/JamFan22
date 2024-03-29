@@ -2021,7 +2021,7 @@ namespace JamFan22.Pages
             // is this dock creator's ISP allowed to create leases?
             if (null != currentDock)
 {
-Console.WriteLine("CurrentDock: " + currentDock) ;
+//Console.WriteLine("CurrentDock: " + currentDock) ;
                 if (forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]))
                 {
                     Console.WriteLine("The lease is free because the current dock was made by a forbidden ISP.");
@@ -2489,6 +2489,7 @@ Console.WriteLine("CurrentDock: " + currentDock) ;
                         m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
                         m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
                         m_connectedLounges["https://lobby.jamulusth.com/"] = "103.246.19.200:22124";
+                        m_connectedLounges["https://pro.jamulusth.com/"] = "103.246.19.183:22124";
                         m_connectedLounges["https://lobbypro.jamulusth.com/"] = "103.91.189.71:22124";
 
                     }
