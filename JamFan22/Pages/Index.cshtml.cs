@@ -582,6 +582,68 @@ namespace JamFan22.Pages
                         goto JUST_TRY_AGAIN;
                     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+m_serializerMutex.WaitOne(); // get the global mutex
+try
+{
+    if (newReportedList != "CRC mismatch in received message")
+    {
+        if (LastReportedList.ContainsKey(key))
+        {
+            // Console.WriteLine(key);
+            DetectJoiners(LastReportedList[key], newReportedList);
+        }
+        LastReportedList[key] = newReportedList;
+    }
+    else
+    {
+        Console.WriteLine("CRC mismatch in received message");
+        Thread.Sleep(1000);
+        goto JUST_TRY_AGAIN;
+    }
+}
+finally
+{
+    m_serializerMutex.ReleaseMutex();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+
                     if (newReportedList != "CRC mismatch in received message")
                     {
                         m_serializerMutex.WaitOne(); // get the global mutex
@@ -605,6 +667,25 @@ namespace JamFan22.Pages
                         Thread.Sleep(1000);
                         goto JUST_TRY_AGAIN;
                     }
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 }
 
                 Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
@@ -624,6 +705,8 @@ namespace JamFan22.Pages
                     ListServicesOffline.Clear();
                     foreach (var keyHere in JamulusListURLs.Keys)
                     {
+Console.WriteLine("keyHere: " + keyHere);
+Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
                         var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
                         if (serversOnList.Count == 0)
                         {
