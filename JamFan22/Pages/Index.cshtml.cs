@@ -1,4 +1,4 @@
-//#define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -2172,7 +2172,8 @@ Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
 
 #if WINDOWS
             // When debugging, have one simulated connected lounge at Hear
-            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live/"] = "157.245.224.141:22124";
+            // UNLESS WE ARE IMPLEMENTING THE THAI LIST.
+            // JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live/"] = "157.245.224.141:22124";
 #endif
 
 
@@ -2569,12 +2570,16 @@ Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
                     // For every entry in the map of connected docks, add Listen link if ip:port matches.
                     if (m_connectedLounges.Count == 0)
                     {
-                        m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
-                        m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
-                        m_connectedLounges["https://lobby.jamulusth.com/"] = "103.246.19.200:22124";
-                        m_connectedLounges["https://pro.jamulusth.com/"] = "103.246.19.183:22124";
-                        m_connectedLounges["https://lobbypro.jamulusth.com/"] = "103.91.189.71:22124";
+                        // parse thai list once
+                        HttpClient client = new HttpClient();
+                        HttpResponseMessage response = await client.GetAsync("https://mjth.live/lounges.json");
+                        response.EnsureSuccessStatusCode();
+                        string responseBody = await response.Content.ReadAsStringAsync();
+                        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(responseBody);
+                        foreach( var kvp in data)
+                            m_connectedLounges[kvp.Value] = kvp.Key; // swap 'em
 
+                        m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
                     }
 
                     string listenNow = "";
@@ -2618,8 +2623,8 @@ Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
 			string currentHear = null;
                         if(m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
                             currentHear = m_connectedLounges["https://hear.jamulus.live/"] ;
-      
-                        bool a = InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
+
+                        bool a = false; // just stop this crashing here: InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
                         bool b = false; // offline InstanceIsFree("http://radio.jamulus.live/free.txt");
                         if (a || b)
                         {
@@ -2679,7 +2684,7 @@ JObject json = GetClientIPDetails(clientIP);
                         string DIR = "";
 
 #if WINDOWS
-                        DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+                        DIR = "C:\\Users\\Administrator\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
 #else
                     DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
 #endif
@@ -3268,7 +3273,7 @@ JObject json = GetClientIPDetails(clientIP);
 
                                 // Don't want to re-sample if this one's sampled now:
 #if WINDOWS
-                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+                                string DIR = "C:\\Users\\Administrator\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
 #else
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
 #endif
