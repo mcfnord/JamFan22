@@ -1,4 +1,4 @@
-//#define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -582,7 +582,8 @@ namespace JamFan22.Pages
                         goto JUST_TRY_AGAIN;
                     }
 
-                    if (newReportedList != "CRC mismatch in received message")
+                    //if (newReportedList != "CRC mismatch in received message")
+                    if (newReportedList[0] != 'C') 
                     {
                         m_serializerMutex.WaitOne(); // get the global mutex
                         try
