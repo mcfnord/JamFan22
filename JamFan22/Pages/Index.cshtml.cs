@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -705,8 +705,8 @@ finally
                     ListServicesOffline.Clear();
                     foreach (var keyHere in JamulusListURLs.Keys)
                     {
-Console.WriteLine("keyHere: " + keyHere);
-Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
+// Console.WriteLine("keyHere: " + keyHere);
+// Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
                         var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
                         if (serversOnList.Count == 0)
                         {
