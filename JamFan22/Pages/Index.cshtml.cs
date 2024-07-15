@@ -582,12 +582,8 @@ namespace JamFan22.Pages
                         goto JUST_TRY_AGAIN;
                     }
 
-
-
-
-
-
-
+                    //if (newReportedList != "CRC mismatch in received message")
+                    if (newReportedList[0] != 'C') 
 
 
 
@@ -629,46 +625,6 @@ finally
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-
-                    if (newReportedList != "CRC mismatch in received message")
-                    {
-                        m_serializerMutex.WaitOne(); // get the global mutex
-                        try
-                        {
-                            if (LastReportedList.ContainsKey(key))
-                            {
-                                // Console.WriteLine(key);
-                                DetectJoiners(LastReportedList[key], newReportedList);
-                            }
-                            LastReportedList[key] = newReportedList;
-                        }
-                        finally
-                        {
-                            m_serializerMutex.ReleaseMutex();
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine("CRC mismatch in received message");
-                        Thread.Sleep(1000);
-                        goto JUST_TRY_AGAIN;
-                    }
-
-*/
 
 
 
@@ -2684,7 +2640,7 @@ JObject json = GetClientIPDetails(clientIP);
                         string DIR = "";
 
 #if WINDOWS
-                        DIR = "C:\\Users\\Administrator\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+                        DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
 #else
                     DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
 #endif
@@ -3273,7 +3229,7 @@ JObject json = GetClientIPDetails(clientIP);
 
                                 // Don't want to re-sample if this one's sampled now:
 #if WINDOWS
-                                string DIR = "C:\\Users\\Administrator\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
+                                string DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\"; // for WINDOWS debug
 #else
                                 string DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/"; // for prod
 #endif
