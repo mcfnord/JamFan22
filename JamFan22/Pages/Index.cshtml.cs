@@ -584,28 +584,64 @@ namespace JamFan22.Pages
 
                     //if (newReportedList != "CRC mismatch in received message")
                     if (newReportedList[0] != 'C') 
-                    {
-                        m_serializerMutex.WaitOne(); // get the global mutex
-                        try
-                        {
-                            if (LastReportedList.ContainsKey(key))
-                            {
-                                // Console.WriteLine(key);
-                                DetectJoiners(LastReportedList[key], newReportedList);
-                            }
-                            LastReportedList[key] = newReportedList;
-                        }
-                        finally
-                        {
-                            m_serializerMutex.ReleaseMutex();
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine("CRC mismatch in received message");
-                        Thread.Sleep(1000);
-                        goto JUST_TRY_AGAIN;
-                    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+m_serializerMutex.WaitOne(); // get the global mutex
+try
+{
+    if (newReportedList != "CRC mismatch in received message")
+    {
+        if (LastReportedList.ContainsKey(key))
+        {
+            // Console.WriteLine(key);
+            DetectJoiners(LastReportedList[key], newReportedList);
+        }
+        LastReportedList[key] = newReportedList;
+    }
+    else
+    {
+        Console.WriteLine("CRC mismatch in received message");
+        Thread.Sleep(1000);
+        goto JUST_TRY_AGAIN;
+    }
+}
+finally
+{
+    m_serializerMutex.ReleaseMutex();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 }
 
                 Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
@@ -625,6 +661,8 @@ namespace JamFan22.Pages
                     ListServicesOffline.Clear();
                     foreach (var keyHere in JamulusListURLs.Keys)
                     {
+Console.WriteLine("keyHere: " + keyHere);
+Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
                         var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
                         if (serversOnList.Count == 0)
                         {
@@ -2090,7 +2128,8 @@ namespace JamFan22.Pages
 
 #if WINDOWS
             // When debugging, have one simulated connected lounge at Hear
-            JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live/"] = "157.245.224.141:22124";
+            // UNLESS WE ARE IMPLEMENTING THE THAI LIST.
+            // JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live/"] = "157.245.224.141:22124";
 #endif
 
 
@@ -2487,12 +2526,16 @@ namespace JamFan22.Pages
                     // For every entry in the map of connected docks, add Listen link if ip:port matches.
                     if (m_connectedLounges.Count == 0)
                     {
-                        m_connectedLounges["https://lobby.musicjammingth.net/"] = "150.95.25.226:22124";
-                        m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
-                        m_connectedLounges["https://lobby.jamulusth.com/"] = "103.246.19.200:22124";
-                        m_connectedLounges["https://pro.jamulusth.com/"] = "103.246.19.183:22124";
-                        m_connectedLounges["https://lobbypro.jamulusth.com/"] = "103.91.189.71:22124";
+                        // parse thai list once
+                        HttpClient client = new HttpClient();
+                        HttpResponseMessage response = await client.GetAsync("https://mjth.live/lounges.json");
+                        response.EnsureSuccessStatusCode();
+                        string responseBody = await response.Content.ReadAsStringAsync();
+                        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(responseBody);
+                        foreach( var kvp in data)
+                            m_connectedLounges[kvp.Value] = kvp.Key; // swap 'em
 
+                        m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
                     }
 
                     string listenNow = "";
@@ -2536,8 +2579,8 @@ namespace JamFan22.Pages
 			string currentHear = null;
                         if(m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
                             currentHear = m_connectedLounges["https://hear.jamulus.live/"] ;
-      
-                        bool a = InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
+
+                        bool a = false; // just stop this crashing here: InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
                         bool b = false; // offline InstanceIsFree("http://radio.jamulus.live/free.txt");
                         if (a || b)
                         {
