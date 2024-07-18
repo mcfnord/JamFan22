@@ -560,6 +560,8 @@ namespace JamFan22.Pages
 
                 using var client = new HttpClient(httpClientHandler);
 
+            LOOPY_LOOP:
+
                 var serverStates = new Dictionary<string, Task<string>>();
 
                 foreach (var key in JamulusListURLs.Keys)
@@ -574,6 +576,12 @@ namespace JamFan22.Pages
                     try
                     {
                         newReportedList = serverStates[key].Result; // only proceeds when data arrives
+                        if (newReportedList[0] == 'C')
+                        {
+                            Console.WriteLine("Indication of data failure: " + newReportedList);
+                            Thread.Sleep(1000);
+                            goto LOOPY_LOOP;
+                        }
                     }
                     catch (System.AggregateException)
                     {
@@ -583,65 +591,32 @@ namespace JamFan22.Pages
                     }
 
                     //if (newReportedList != "CRC mismatch in received message")
-                    if (newReportedList[0] != 'C') 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-m_serializerMutex.WaitOne(); // get the global mutex
-try
-{
-    if (newReportedList != "CRC mismatch in received message")
-    {
-        if (LastReportedList.ContainsKey(key))
-        {
-            // Console.WriteLine(key);
-            DetectJoiners(LastReportedList[key], newReportedList);
-        }
-        LastReportedList[key] = newReportedList;
-    }
-    else
-    {
-        Console.WriteLine("CRC mismatch in received message");
-        Thread.Sleep(1000);
-        goto JUST_TRY_AGAIN;
-    }
-}
-finally
-{
-    m_serializerMutex.ReleaseMutex();
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                    if (newReportedList[0] != 'C')
+                    {
+                        m_serializerMutex.WaitOne(); // get the global mutex
+                        try
+                        {
+                            if (newReportedList != "CRC mismatch in received message")
+                            {
+                                if (LastReportedList.ContainsKey(key))
+                                {
+                                    // Console.WriteLine(key);
+                                    DetectJoiners(LastReportedList[key], newReportedList);
+                                }
+                                LastReportedList[key] = newReportedList;
+                            }
+                            else
+                            {
+                                Console.WriteLine("CRC mismatch in received message");
+                                Thread.Sleep(1000);
+                                goto JUST_TRY_AGAIN;
+                            }
+                        }
+                        finally
+                        {
+                            m_serializerMutex.ReleaseMutex();
+                        }
+                    }
                 }
 
                 Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
@@ -661,8 +636,8 @@ finally
                     ListServicesOffline.Clear();
                     foreach (var keyHere in JamulusListURLs.Keys)
                     {
-Console.WriteLine("keyHere: " + keyHere);
-Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
+//Console.WriteLine("keyHere: " + keyHere);
+//Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
                         var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
                         if (serversOnList.Count == 0)
                         {
