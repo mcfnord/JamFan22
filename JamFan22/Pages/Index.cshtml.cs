@@ -1,4 +1,4 @@
-// #define WINDOWS
+//#define WINDOWS
 
 // testing
 
@@ -95,13 +95,13 @@ namespace JamFan22.Pages
 
 {"Any Genre 1", "http://143.198.104.205/servers.php?central=anygenre1.jamulus.io:22124" }
 ,{"Any Genre 2", "http://143.198.104.205/servers.php?central=anygenre2.jamulus.io:22224" }
-,{"Any Genre 3", "https://jamulus.softins.co.uk/servers.php?central=anygenre3.jamulus.io:22624" }
-,{"Genre Rock",  "https://jamulus.softins.co.uk/servers.php?central=rock.jamulus.io:22424" }
+,{"Any Genre 3", "https://explorer.jamulus.io/servers.php?central=anygenre3.jamulus.io:22624" }
+,{"Genre Rock",  "https://explorer.jamulus.io/servers.php?central=rock.jamulus.io:22424" }
 ,{"Genre Jazz",  "http://143.198.104.205/servers.php?central=jazz.jamulus.io:22324" }
-//,{"Genre Jazz",  "https://jamulus.softins.co.uk/servers.php?central=jazz.jamulus.io:22324" }
-// ,{"Genre Classical/Folk",  "https://jamulus.softins.co.uk/servers.php?central=classical.jamulus.io:22524" }
+//,{"Genre Jazz",  "https://explorer.jamulus.io/servers.php?central=jazz.jamulus.io:22324" }
+// ,{"Genre Classical/Folk",  "https://explorer.jamulus.io/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Classical/Folk",  "http://143.198.104.205/servers.php?central=classical.jamulus.io:22524" }
-,{"Genre Choral/BBShop",  "https://jamulus.softins.co.uk/servers.php?central=choral.jamulus.io:22724" }
+,{"Genre Choral/BBShop",  "https://explorer.jamulus.io/servers.php?central=choral.jamulus.io:22724" }
 
 /*
 // At least one operator relies on blocking this IP address as a master switch to opt out of everything
@@ -210,8 +210,20 @@ namespace JamFan22.Pages
             // determine servers where actor joined target
             // This count, multiplied by how long actor and target are together,
             // is strength of signal to provide actor about target.
-            var serverListThen = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(was);
-            var serverListNow = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(isnow);
+            List<JamulusServers> serverListThen = null;
+            List<JamulusServers> serverListNow = null;
+            try
+            {
+                serverListThen = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(was);
+                serverListNow = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(isnow);
+            }
+            catch(System.Text.Json.JsonException e)
+            {
+                Console.WriteLine("A fatal data ingestion error has occured.");
+                Console.WriteLine("was: " + was);
+                Console.WriteLine("isnow: " + isnow);
+                throw e;
+            }
 
             // for each server, find it in the other set, and notice user additions only. joiners.
             foreach (var server in serverListNow)
