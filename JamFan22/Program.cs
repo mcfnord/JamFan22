@@ -450,17 +450,16 @@ trd.IsBackground = true;
 trd.Start();
 
 
+/* I'm not harvesting music links right now.
+ 
+ 
 Thread trd2 = new Thread(() =>
 {
     Task.Run(async () => await JamFan22.harvest.HarvestLoop());
 });
 trd2.Start();
 
-/*
-Thread trd2 = new Thread(new ThreadStart(JamFan22.harvest.HarvestLoop));
-trd2.IsBackground = true;
-trd2.Start();*/
-
+*/
 
 
 
