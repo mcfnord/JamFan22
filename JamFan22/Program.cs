@@ -426,7 +426,7 @@ app.MapGet("/halos/", (HttpContext context) =>
     url = "https://jamulus.live/halo-snippeting.txt";
     System.Threading.Tasks.Task<List<string>> task2 = JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
     task2.Wait();
-    List<string> halosnippeting = task.Result;
+    List<string> halosnippeting = task2.Result;
 
     string ret = "[";
 
