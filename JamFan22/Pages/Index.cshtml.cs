@@ -1,4 +1,4 @@
-//#define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -1851,6 +1851,8 @@ namespace JamFan22.Pages
                 case "LOBBY [9]": return true;
                 case "LOBBY[0]": return true;
                 case "LOBBY": return true;
+                case "JAMULUS TH": return true;
+                case "DISCORD.EXE": return true;
                 case "REFERENCE": return true;
                 // case "JAMULUS   TH": return true;
                 // case "PETCH   BRB": return true;
