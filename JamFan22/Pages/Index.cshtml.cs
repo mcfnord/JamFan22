@@ -1,4 +1,4 @@
-//#define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -1851,6 +1851,8 @@ namespace JamFan22.Pages
                 case "LOBBY [9]": return true;
                 case "LOBBY[0]": return true;
                 case "LOBBY": return true;
+                case "JAMULUS TH": return true;
+                case "DISCORD.EXE": return true;
                 case "REFERENCE": return true;
                 // case "JAMULUS   TH": return true;
                 // case "PETCH   BRB": return true;
@@ -2433,6 +2435,16 @@ namespace JamFan22.Pages
                             if (s.name.ToLower().Contains(line.Trim().ToLower()))
                                 bSkip = true;
                     }
+
+                    List<string> ipblocks = new List<string>();
+                    ipblocks = System.IO.File.ReadAllLines("no-ping.txt").ToList();
+                    foreach (var line in ipblocks)
+                    {
+                        if (line.Trim().Length > 0)
+                            if (line.Contains(s.serverIpAddress + ":" + s.serverPort))
+                                bSkip = true;
+                    }
+
 
                     if (bSkip)
                         continue;
@@ -3207,6 +3219,13 @@ JObject json = GetClientIPDetails(clientIP);
                                 if (fAnyLobby)
                                     continue;
 
+
+
+                                 continue;
+                                if (server.name.ToLower().Contains("zeel")) // never sample "Zeeland"
+                                    continue;
+                                if (server.name.ToLower().Contains("immy")) // never sample "Timmy"
+                                    continue;
                                 if (server.name.ToLower().Contains("oscv")) // never sample "OSCvev"
                                     continue;
                                 if (server.name.ToLower().Contains("priv")) // don't sample self-described private areas
