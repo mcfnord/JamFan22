@@ -3219,9 +3219,6 @@ JObject json = GetClientIPDetails(clientIP);
                                 if (fAnyLobby)
                                     continue;
 
-
-
-                                 continue;
                                 if (server.name.ToLower().Contains("zeel")) // never sample "Zeeland"
                                     continue;
                                 if (server.name.ToLower().Contains("immy")) // never sample "Timmy"
@@ -3248,7 +3245,16 @@ JObject json = GetClientIPDetails(clientIP);
                                     // I don't want to sample any addresses that have a Listen link
                                     if (false == HasListenLink(fullAddress))
                                         if (false == AnyoneBlockSnippeting(fullAddress))
-                                            svrActivesIpPort.Add(fullAddress);
+                                        {
+                                            List<string> recents = new List<string>();
+                                            recents = System.IO.File.ReadAllLines("last-snippet.txt").ToList();
+                                            bool okToAdd = true;
+                                            foreach (var lin in recents)
+                                                if (lin.Contains(fullAddress))
+                                                    okToAdd = false;
+                                            if (okToAdd)
+                                                svrActivesIpPort.Add(fullAddress);
+                                        }
                                 }
 
                                 // else
