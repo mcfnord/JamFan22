@@ -2458,14 +2458,19 @@ namespace JamFan22.Pages
                 {
                     //                  if (s.name == "JamPad") continue;
 
-                    // once in a while, two people park on a single server. let's hide them after 6 hours.
+                    // once in a while, two people park on a single server. let's hide them after 8 hours.
+                    // BUT IF THE TITLE CONTAINS PRIV, hide them after only 4 hours.
+                    int iTimeoutPeriod = 8 * 60;
+                    if (s.name.ToLower().Contains("priv"))
+                        iTimeoutPeriod = 4 * 60;
+
                     bool fSuppress = true;
                     foreach (var user in myCopyOfWho)
                     {
-                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 8 * 60)
+                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < iTimeoutPeriod)
                         {
                             fSuppress = false;
-                            break; // someone was here less than 8 hours.
+                            break; // someone was here less than 4/8 hours.
                         }
                     }
                     if (fSuppress)
