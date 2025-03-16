@@ -22,6 +22,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using static System.Reflection.Metadata.BlobBuilder;
 // using MongoDB.Driver;
@@ -217,7 +218,7 @@ namespace JamFan22.Pages
                 serverListThen = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(was);
                 serverListNow = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(isnow);
             }
-            catch(System.Text.Json.JsonException e)
+            catch (System.Text.Json.JsonException e)
             {
                 Console.WriteLine("A fatal data ingestion error has occured.");
                 Console.WriteLine("was: " + was);
@@ -501,12 +502,12 @@ namespace JamFan22.Pages
                         System.IO.File.WriteAllText(TIME_TOGETHER, jsonString);
                         Console.WriteLine(sortedByLongest.Count + " pair durations saved.");
 
-                        if(DateTime.Now.DayOfYear != m_lastDayNotched)
+                        if (DateTime.Now.DayOfYear != m_lastDayNotched)
                         {
                             m_lastDayNotched = DateTime.Now.DayOfYear;
 
                             System.IO.File.AppendAllText("wwwroot/paircount.csv",
-                                MinutesSince2023() + "," 
+                                MinutesSince2023() + ","
                                     + sortedByLongest.Count
                                     + Environment.NewLine);
 
@@ -516,7 +517,7 @@ namespace JamFan22.Pages
                             {
                                 totalGlobalDuration += duration;
                             }
-                            Console.WriteLine("Total global duration: " + (int) totalGlobalDuration.TotalDays + " days.");
+                            Console.WriteLine("Total global duration: " + (int)totalGlobalDuration.TotalDays + " days.");
                         }
 
                     }
@@ -648,8 +649,8 @@ namespace JamFan22.Pages
                     ListServicesOffline.Clear();
                     foreach (var keyHere in JamulusListURLs.Keys)
                     {
-//Console.WriteLine("keyHere: " + keyHere);
-//Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
+                        //Console.WriteLine("keyHere: " + keyHere);
+                        //Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
                         var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
                         if (serversOnList.Count == 0)
                         {
@@ -2048,14 +2049,14 @@ namespace JamFan22.Pages
         {
             // is this dock creator's ISP allowed to create leases?
             if (null != currentDock)
-{
-//Console.WriteLine("CurrentDock: " + currentDock) ;
+            {
+                //Console.WriteLine("CurrentDock: " + currentDock) ;
                 if (forbidder.m_forbiddenIsp.Contains(forbidder.m_dockRequestor[currentDock]))
                 {
                     Console.WriteLine("The lease is free because the current dock was made by a forbidden ISP.");
                     return true;
                 }
-}
+            }
 
             // ok, is it free?
             if (twoSecondZoneOfLastSample.ContainsKey(url))
@@ -2083,12 +2084,15 @@ namespace JamFan22.Pages
         public static int m_snippetsDeployed = 0;
 
 
-        public static Dictionary<string, JObject>  m_ipapiOutputs = new Dictionary<string, JObject>();
-        static int m_hourLastFlushed = -1 ;
+        public static Dictionary<string, JObject> m_ipapiOutputs = new Dictionary<string, JObject>();
+        static int m_hourLastFlushed = -1;
+
+        public static Dictionary<string, DateTime> m_ArnOfIpGoodUntil = new Dictionary<string, DateTime>();
+        public static Dictionary<string, string> m_ArnOfIp = new Dictionary<string, string>();
 
         public static JObject GetClientIPDetails(string clientIP)
         {
-            if( DateTime.Now.Hour != m_hourLastFlushed)
+            if (DateTime.Now.Hour != m_hourLastFlushed)
             {
                 m_ipapiOutputs.Clear();
                 m_hourLastFlushed = DateTime.Now.Hour;
@@ -2107,7 +2111,36 @@ namespace JamFan22.Pages
         }
 
 
-        public async Task<string> GetGutsRightNow()
+        public static string AsnOfThisIp(string ip)
+        {
+            RE_SAMPLE:
+            if (false == m_ArnOfIpGoodUntil.ContainsKey(ip))
+            {
+                string endpoint = "http://ip-api.com/json/" + ip;
+                using var client = new HttpClient();
+                System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
+                task.Wait();
+                string st = task.Result;
+                JObject jsonGeo = JObject.Parse(st);
+                Random rnd = new Random();
+                m_ArnOfIp[ip] = jsonGeo["as"]?.ToString();
+                m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(rnd.Next(120, 240));
+                return m_ArnOfIp[ip];
+            }
+            else
+            {
+                if (m_ArnOfIpGoodUntil[ip] > DateTime.Now)
+                    return m_ArnOfIp[ip];
+
+                // mapping is stale.
+                m_ArnOfIpGoodUntil.Remove(ip);
+                goto RE_SAMPLE;
+            }
+        }
+
+
+
+    public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
@@ -2475,6 +2508,11 @@ namespace JamFan22.Pages
                     }
                     if (fSuppress)
                         continue; // skip it!
+
+                    string asn = AsnOfThisIp(s.serverIpAddress);
+                    var blockedArns = System.IO.File.ReadAllLines("arn-servers-blocked.txt").ToList();
+                    if (blockedArns.Contains(asn))
+                        continue;
 
                     // if everyone here got here less than 14 minutes ago, then this is just assembled
                     string newJamFlag = "";
