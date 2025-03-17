@@ -2124,7 +2124,7 @@ namespace JamFan22.Pages
                 JObject jsonGeo = JObject.Parse(st);
                 Random rnd = new Random();
                 m_ArnOfIp[ip] = jsonGeo["as"]?.ToString();
-                m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(rnd.Next(120, 240));
+                m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(rnd.Next(60 * 22, 60 * 26));
                 return m_ArnOfIp[ip];
             }
             else
@@ -2487,6 +2487,14 @@ namespace JamFan22.Pages
                     //                  Console.WriteLine("There's no erased.txt, so no suppression to do.");
                 }
 
+                string asn = AsnOfThisIp(s.serverIpAddress);
+                var blockedArns = System.IO.File.ReadAllLines("arn-servers-blocked.txt").ToList();
+                if (blockedArns.Contains(asn))
+                {
+                    Console.WriteLine(s.serverIpAddress + " blocked because in asn " + asn);
+                    continue;
+                }
+
                 if (s_myUserCount > 1)
                 {
                     //                  if (s.name == "JamPad") continue;
@@ -2508,11 +2516,6 @@ namespace JamFan22.Pages
                     }
                     if (fSuppress)
                         continue; // skip it!
-
-                    string asn = AsnOfThisIp(s.serverIpAddress);
-                    var blockedArns = System.IO.File.ReadAllLines("arn-servers-blocked.txt").ToList();
-                    if (blockedArns.Contains(asn))
-                        continue;
 
                     // if everyone here got here less than 14 minutes ago, then this is just assembled
                     string newJamFlag = "";
