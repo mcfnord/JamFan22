@@ -3363,18 +3363,24 @@ JObject json = GetClientIPDetails(clientIP);
 
 
                     {
-                        int iActiveJamFans = 0;
+                        int iActiveJamFansOver24Hours = 0;
+                        int iActiveJamFansOver1Hour = 0;
                         foreach (var timeski in m_clientIPsDeemedLegit.Values)
                         {
                             //                          if (DateTime.Now < timeski.AddMinutes(60))
                             if (DateTime.Now < timeski.AddDays(1))
-                                iActiveJamFans++;
+                                iActiveJamFansOver24Hours++;
+                            if (DateTime.Now < timeski.AddHours(1))
+                                iActiveJamFansOver1Hour++;
                         }
 
                         ret += "" +
                         //                                ". " +
 //                        SinceNowInText(timeOfTopCount) +
-                        " Over the last day, " + iActiveJamFans.ToString() + " musicians watched this page";
+                        " Over the last day, " + iActiveJamFansOver24Hours.ToString() + " musicians watched this page";
+
+                        if (iActiveJamFansOver1Hour > 0)
+                            ret += ", including " + iActiveJamFansOver1Hour.ToString() + " now";
                     }
                     //                    }
 
