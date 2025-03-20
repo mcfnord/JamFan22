@@ -1672,6 +1672,7 @@ namespace JamFan22.Pages
         public string SmartCity(string city, Client[] users)
         {
             string smartCity = city;
+
             if ((smartCity == "") || (smartCity == "yourCity")) // this didn't work: || (smartCity == "-"))
             {
                 // Hate these. Estimate a city based on participation.
@@ -2495,6 +2496,25 @@ namespace JamFan22.Pages
                     continue;
                 }
 
+                string evenSmarterCity = s.city;
+                if (evenSmarterCity.Contains(" Vultr"))
+                    evenSmarterCity = evenSmarterCity.Replace(" Vultr", "");
+
+                if (("AWS" == evenSmarterCity) || ("Linode Cloud" == evenSmarterCity))
+                {
+                    if (false == m_ipapiOutputs.ContainsKey(s.serverIpAddress))
+                    {
+                        var client = new HttpClient();
+                        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + s.serverIpAddress);
+                        task.Wait();
+                        string st = task.Result;
+                        JObject json = JObject.Parse(st);
+                        m_ipapiOutputs[s.serverIpAddress] = json;
+                    }
+
+                    evenSmarterCity = m_ipapiOutputs[s.serverIpAddress]["city"].ToString();
+                }
+
                 if (s_myUserCount > 1)
                 {
                     //                  if (s.name == "JamPad") continue;
@@ -2538,7 +2558,7 @@ namespace JamFan22.Pages
                         break;
                     }
 
-                    string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
+                    string smartcity = SmartCity(evenSmarterCity, myCopyOfWho.ToArray());
 
                     var serverAddress = s.serverIpAddress + ":" + s.serverPort;
 
