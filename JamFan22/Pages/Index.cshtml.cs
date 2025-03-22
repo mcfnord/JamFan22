@@ -1672,6 +1672,7 @@ namespace JamFan22.Pages
         public string SmartCity(string city, Client[] users)
         {
             string smartCity = city;
+
             if ((smartCity == "") || (smartCity == "yourCity")) // this didn't work: || (smartCity == "-"))
             {
                 // Hate these. Estimate a city based on participation.
@@ -2195,6 +2196,7 @@ namespace JamFan22.Pages
                     // so i probably examine here.
                     if(server.name.ToLower().Contains("cbvb"))
                     {
+                        /*
                         // what is the distance from this server to the browser's ip
                         // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
                         // and is chicago closer? if so, suppress.
@@ -2207,6 +2209,7 @@ namespace JamFan22.Pages
                         Console.WriteLine("Distance from browser to server: " + iDist);
                         if (iDist > 2000)
                             continue;
+                        */
                     }
 
                     List<string> userCountries = new List<string>();
@@ -2495,6 +2498,25 @@ namespace JamFan22.Pages
                     continue;
                 }
 
+                string evenSmarterCity = s.city;
+                if (evenSmarterCity.Contains(" Vultr"))
+                    evenSmarterCity = evenSmarterCity.Replace(" Vultr", "");
+
+                if (("AWS" == evenSmarterCity) || ("Linode Cloud" == evenSmarterCity))
+                {
+                    if (false == m_ipapiOutputs.ContainsKey(s.serverIpAddress))
+                    {
+                        var client = new HttpClient();
+                        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + s.serverIpAddress);
+                        task.Wait();
+                        string st = task.Result;
+                        JObject json = JObject.Parse(st);
+                        m_ipapiOutputs[s.serverIpAddress] = json;
+                    }
+
+                    evenSmarterCity = m_ipapiOutputs[s.serverIpAddress]["city"].ToString();
+                }
+
                 if (s_myUserCount > 1)
                 {
                     //                  if (s.name == "JamPad") continue;
@@ -2538,7 +2560,7 @@ namespace JamFan22.Pages
                         break;
                     }
 
-                    string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
+                    string smartcity = SmartCity(evenSmarterCity, myCopyOfWho.ToArray());
 
                     var serverAddress = s.serverIpAddress + ":" + s.serverPort;
 
@@ -2552,10 +2574,10 @@ namespace JamFan22.Pages
                     if (s.name.Length > 0)
                     {
                         string name = s.name;
-                        /* now only appears within 1000 miles, ~ the distance between Virgina and Chicago
+
                         if (name.Contains("CBVB"))
-                            name += " (UNSTABLE)";
-                         */
+                            name += " (Regional)";
+
                         newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
                     }
 
@@ -2852,7 +2874,7 @@ JObject json = GetClientIPDetails(clientIP);
                         if (s.name == "portable")
                             continue;
 
-                        string smartcity = SmartCity(s.city, myCopyOfWho.ToArray());
+                        string smartcity = SmartCity(evenSmarterCity, myCopyOfWho.ToArray());
 
                         string noBRName = s.who;
                         noBRName = noBRName.Replace("<br/>", " ");
