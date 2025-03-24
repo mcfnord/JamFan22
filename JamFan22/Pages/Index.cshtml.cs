@@ -2712,7 +2712,7 @@ JObject json = GetClientIPDetails(clientIP);
                     DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
 #endif
 
-                        string wildcard = serverAddress + "*";
+                        string wildcard = serverAddress + ".mp3";
 
                         var files = Directory.GetFiles(DIR, wildcard);
                         string myFile = null;
