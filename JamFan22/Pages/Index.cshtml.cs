@@ -3287,6 +3287,8 @@ JObject json = GetClientIPDetails(clientIP);
                                 if (fAnyLobby)
                                     continue;
 
+                                if (server.name.ToLower().Contains("blues/rock")) // never sample "Blues/Rock"
+                                    continue;
                                 if (server.name.ToLower().Contains("zeel")) // never sample "Zeeland"
                                     continue;
                                 if (server.name.ToLower().Contains("immy")) // never sample "Timmy"
