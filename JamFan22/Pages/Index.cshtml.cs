@@ -2702,33 +2702,54 @@ JObject json = GetClientIPDetails(clientIP);
 
                     string liveSnippet = "";
 
-                    if (listenNow.Length == 0) // if there's a listen link
-                    {
-                        string DIR = "";
-
+                    string DIR = "";
 #if WINDOWS
-                        DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+                    DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
 #else
                     DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
 #endif
 
-                        string wildcard = serverAddress + ".mp3";
-
-                        var files = Directory.GetFiles(DIR, wildcard);
-                        string myFile = null;
-
-                        if (files.GetLength(0) > 0)
+                    if (listenNow.Length == 0) // if there's a listen link
+                    {
                         {
-                            myFile = Path.GetFileName(files[0]);
+                            string wildcard = serverAddress + ".mp3";
+
+                            var files = Directory.GetFiles(DIR, wildcard);
+                            string myFile = null;
+
+                            if (files.GetLength(0) > 0)
+                            {
+                                myFile = Path.GetFileName(files[0]);
+                            }
+
+                            if (myFile != null)
+                            {
+                                liveSnippet =
+                                    (myFile != null
+                                        ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
+                                        : "");
+                                m_snippetsDeployed++;
+                            }
                         }
-
-                        if (myFile != null)
                         {
-                            liveSnippet =
-                                (myFile != null
-                                    ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
-                                    : "");
-                            m_snippetsDeployed++;
+                            string wildcard = serverAddress + ".sil"; // silence!
+
+                            var files = Directory.GetFiles(DIR, wildcard);
+                            string myFile = null;
+
+                            if (files.GetLength(0) > 0)
+                            {
+                                myFile = Path.GetFileName(files[0]);
+                            }
+
+                            if (myFile != null)
+                            {
+                                liveSnippet =
+                                    (myFile != null
+                                        ? "(Silent)"
+                                        : "");
+                                // m_snippetsDeployed++;
+                            }
                         }
                     }
 
