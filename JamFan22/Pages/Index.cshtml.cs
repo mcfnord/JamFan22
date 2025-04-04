@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -2477,7 +2477,7 @@ namespace JamFan22.Pages
                     foreach (var line in ipblocks)
                     {
                         if (line.Trim().Length > 0)
-                            if (line.Contains(s.serverIpAddress + ":" + s.serverPort))
+                            if ((s.serverIpAddress + ":" + s.serverPort).Contains(line))
                                 bSkip = true;
                     }
 
