@@ -75,6 +75,7 @@ namespace JamFan22
 
         public static Dictionary<string, string> m_discreetLinks = new Dictionary<string, string>();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
+        public static Dictionary<string, string> m_songTitleAtAddr = new Dictionary<string, string>();
         public static int m_minuteOfLastActivity = 0;
 
         static void DiscreetLinkForServer(string url) // ttl isn't built in
@@ -104,6 +105,190 @@ namespace JamFan22
                     + Environment.NewLine);
             }
         }
+
+        static void ShortLivedTitleForServerAtAddr(string title, string serverAddr)
+        {
+            if (title.Length > 0) // when i do get an empty title, don't overwrite.
+            {
+                string where = "1.2.3.4";
+                if (false == JamFan22.Pages.IndexModel.IsDebuggingOnWindows)
+                    where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
+                m_songTitleAtAddr[serverAddr] = title;
+
+                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
+
+                /*
+                System.IO.File.AppendAllText("data/urls.csv",
+                    JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + ","
+                    + where + ","
+                    + System.Web.HttpUtility.UrlEncode(url)
+                    + Environment.NewLine);
+                */
+            }
+        }
+
+
+        static Dictionary<string, string> m_lastLineMap = new Dictionary<string, string>(); // Tracks last lines ingested per server
+
+        public static async Task HarvestLoop2025()
+        {
+            Thread.Sleep(60 * 1000);
+
+            HttpClient httpClient = new HttpClient();
+
+            while (true)
+            {
+                foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
+                {
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
+                    foreach (var server in serversOnList)
+                    {
+                        string serveraddress = server.ip + "-" + server.port;
+                        string url = "http://outoforder.live/urls/" + serveraddress + ".txt";
+
+                        try
+                        {
+                            // Attempt to GET the URL content
+                            HttpResponseMessage response = await httpClient.GetAsync(url);
+                            if (response.IsSuccessStatusCode)
+                            {
+                                string content = await response.Content.ReadAsStringAsync();
+                                string lastLine = content.Trim().Split('\n').LastOrDefault();
+
+                                if (lastLine != null)
+                                    if (lastLine.Length > 0)
+                                        if (false == m_lastLineMap.ContainsKey(serveraddress) || m_lastLineMap[serveraddress] != lastLine)
+                                        {
+                                            m_lastLineMap[serveraddress] = lastLine;
+                                            IngestURL(serveraddress, lastLine);
+                                        }
+                            }
+                        }
+                        catch (HttpRequestException e)
+                        {
+                            // Handle unreachable URL, 404, etc.
+                            Console.WriteLine($"Error fetching URL {url}: {e.Message}");
+                        }
+                    }
+                }
+                Thread.Sleep(5000);
+            }
+        }
+
+
+
+        static async Task IngestURL(string server, string url)
+        {
+            if (url.ToLower().Contains("https://chordtabs.in.th/"))
+            {
+                using (HttpClient theclient = new HttpClient())
+                {
+                    string s = await theclient.GetStringAsync(url);
+
+                    Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+                    if (m.Success)
+                    {
+                        var title = m.Groups[1].Value;
+                        title = title.Replace("คอร์ด", "");
+                        Console.WriteLine("Title I'll publish: " + title);
+                        ShortLivedTitleForServerAtAddr(title, server);
+                    }
+                }
+            }
+
+
+            if (url.ToLower().Contains("https://designbetrieb.de/"))
+            {
+                using (HttpClient theclient = new HttpClient())
+                {
+                    string s = await theclient.GetStringAsync(url);
+
+                    Match m = Regex.Match(s, @"<TITLE>\s*(.+?)\s*</title>");
+                    if (m.Success)
+                    {
+                        var title = m.Groups[1].Value;
+                        title = title.Replace(".jpg", "");
+                        Console.WriteLine("Title I'll publish: " + title);
+                        ShortLivedTitleForServerAtAddr(title, server);
+                    }
+                }
+            }
+
+            if (url.ToLower().Contains("https://www.follner-music.de/Jamu/"))
+            {
+                using (HttpClient theclient = new HttpClient())
+                {
+                    string s = await theclient.GetStringAsync(url);
+
+                    // test with https://www.follner-music.de/Jamu/Hold_on_to_me.pdf
+                    Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+
+                    if (m.Success)
+                    {
+                        var title = m.Groups[1].Value;
+                        Console.WriteLine("Title I'll publish: " + title);
+                        ShortLivedTitleForServerAtAddr(title, server);
+                    }
+                }
+            }
+
+
+
+            if (url.ToLower().Contains("https://tabs.ultimate-guitar.com/"))
+            {
+
+                /*
+                IWebDriver driver = new ChromeDriver();
+                driver.Navigate().GoToUrl(inlineURL);
+                var title = driver.FindElement(By.CssSelector("h1"));
+                Console.WriteLine(title);
+                */
+
+                using (HttpClient theclient = new HttpClient())
+                {
+                    string s = await theclient.GetStringAsync(url);
+
+                    Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+                    if (m.Success)
+                    {
+                        var title = m.Groups[1].Value;
+                        title = title.Replace("@ Ultimate - Guitar.Com", "");
+                        title = title.Replace("@ Ultimate-Guitar.Com", "");
+                        title = title.Replace("@ Ultimate-Guitar.com", "");
+                        title = title.Replace("CHORDS", "");
+                        title = title.Replace("(ver 2)", "");
+                        title = title.Replace("(ver 3)", "");
+                        title = title.Replace("(ver 4)", "");
+                        title = title.Replace("(ver 5)", "");
+                        title = title.Replace("(ver 6)", "");
+                        title = title.Replace("(ver 7)", "");
+                        title = title.Replace("(ver 8)", "");
+                        title = title.Replace("(ver 9)", "");
+                        title = title.Replace("(ver 10)", "");
+                        title = title.Replace("(ver 11)", "");
+                        title = title.Replace("by Misc", "");
+                        title = title.Replace("Soundtrack", "");
+                        title = title.Replace(" TAB", "");
+                        title = title.Replace("Ultimate Guitar Pro - Play like a Pro", "");
+                        title = title.Replace("at Ultimate-Guitar", "");
+                        title = title.Replace("ACOUSTIC", "");
+                        title = title.Replace("for guitar, ukulele, piano", "");
+                        title = title.Replace("Chords & Lyrics", "");
+                        title = title.Replace("Tabs & Lyrics", "");
+                        title = title.Replace("UNNAMED ARTIST — ", "");
+                        title = title.Replace("Originals", "");
+                        title = title.Replace("by Praise and Harmony", "");
+                        Console.WriteLine("Title I'll publish: " + title);
+
+                        // Show to all, but let it live for just 3 minutes. (probably shown once, maybe twice)
+                        //m_liveTitles.Add(title, DateTime.Now.AddMinutes(10)); // hmmm, TTL on birth?
+                        ShortLivedTitleForServerAtAddr(title, server); //, DateTime.Now.AddMinutes(3)); // hmmm, TTL on birth?
+                    }
+                }
+            }
+        }
+
+
 
         public static async Task HarvestLoop()
         {

@@ -461,6 +461,11 @@ trd2.Start();
 
 */
 
+Thread trd2 = new Thread(() =>
+{
+    Task.Run(async () => await JamFan22.harvest.HarvestLoop2025());
+});
+trd2.Start();
 
 
 Thread.Sleep(6000); // let the thread get revved up first
