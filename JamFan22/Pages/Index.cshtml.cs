@@ -1,4 +1,4 @@
-// #define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -2712,6 +2712,30 @@ JObject json = GetClientIPDetails(clientIP);
                     if (listenNow.Length == 0) // if there's a listen link
                     {
                         {
+                            // This code would go in an async method
+                            string url = $"https://jamulus.live/mp3s/{serverAddress}.sil";
+
+                            using (var httpClient = new HttpClient())
+                            {
+                                try
+                                {
+                                    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
+
+                                    if (response.IsSuccessStatusCode)
+                                    {
+                                        // File exists at the URL
+                                        liveSnippet = "(Silent)";
+                                        // m_snippetsDeployed++;
+                                    }
+                                }
+                                catch (HttpRequestException ex)
+                                {
+                                    // Handle unreachable server, DNS errors, etc.
+                                    Console.WriteLine($"Error checking file at URL: {ex.Message}");
+                                }
+                            }
+                        }
+                        {
                             string wildcard = serverAddress + ".mp3";
 
                             var files = Directory.GetFiles(DIR, wildcard);
@@ -2729,26 +2753,6 @@ JObject json = GetClientIPDetails(clientIP);
                                         ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
                                         : "");
                                 m_snippetsDeployed++;
-                            }
-                        }
-                        {
-                            string wildcard = serverAddress + ".sil"; // silence!
-
-                            var files = Directory.GetFiles(DIR, wildcard);
-                            string myFile = null;
-
-                            if (files.GetLength(0) > 0)
-                            {
-                                myFile = Path.GetFileName(files[0]);
-                            }
-
-                            if (myFile != null)
-                            {
-                                liveSnippet =
-                                    (myFile != null
-                                        ? "(Silent)"
-                                        : "");
-                                // m_snippetsDeployed++;
                             }
                         }
                     }
@@ -2769,7 +2773,7 @@ JObject json = GetClientIPDetails(clientIP);
 
                     string title = "";
                     string titleToShow = "";
-                    if (harvest.m_songTitle.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out title))
+                    if (harvest.m_songTitleAtAddr.TryGetValue(s.serverIpAddress + "-" + s.serverPort, out title))
                     {
                         if (title.Length > 0)
                         {
