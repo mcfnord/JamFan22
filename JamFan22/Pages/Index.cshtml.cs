@@ -2773,8 +2773,10 @@ JObject json = GetClientIPDetails(clientIP);
 
                     string title = "";
                     string titleToShow = "";
+                    Console.WriteLine("Attempting to read: " + s.serverIpAddress + "-" + s.serverPort);
                     if (harvest.m_songTitleAtAddr.TryGetValue(s.serverIpAddress + "-" + s.serverPort, out title))
                     {
+                        Console.WriteLine("Song title found at that address:" + title);
                         if (title.Length > 0)
                         {
                             if (title.Length > 25)

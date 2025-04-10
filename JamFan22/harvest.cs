@@ -110,12 +110,12 @@ namespace JamFan22
         {
             if (title.Length > 0) // when i do get an empty title, don't overwrite.
             {
-                string where = "1.2.3.4";
-                if (false == JamFan22.Pages.IndexModel.IsDebuggingOnWindows)
-                    where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
+                // string where = "1.2.3.4";
+                //if (false == JamFan22.Pages.IndexModel.IsDebuggingOnWindows)
+                //    where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitleAtAddr[serverAddr] = title;
 
-                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
+                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2; // That's in the future.
 
                 /*
                 System.IO.File.AppendAllText("data/urls.csv",
@@ -191,6 +191,12 @@ namespace JamFan22
                     {
                         var title = m.Groups[1].Value;
                         title = title.Replace("คอร์ด", "");
+
+                        if (title.Contains("|"))
+                        {
+                            title = title.Split('|')[1].Trim();
+                        }
+
                         Console.WriteLine("Title I'll publish: " + title);
                         ShortLivedTitleForServerAtAddr(title, server);
                     }
