@@ -172,6 +172,7 @@ namespace JamFan22
                     }
                 }
                 Thread.Sleep(5000);
+                Console.WriteLine("HarvestLoop2025 slept five seconds, harvesting again.");
             }
         }
 
