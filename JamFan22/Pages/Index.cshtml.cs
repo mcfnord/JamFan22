@@ -25,6 +25,8 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using static System.Reflection.Metadata.BlobBuilder;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.IO;
 // using MongoDB.Driver;
 
 namespace JamFan22.Pages
@@ -2140,14 +2142,39 @@ namespace JamFan22.Pages
         }
 
 
+        static Dictionary<string, List<string>> m_predicted = new Dictionary<string, List<string>>();
+        static int m_lastMinSampledPredictions = -1;
 
-    public async Task<string> GetGutsRightNow()
+
+        public async Task<string> GetGutsRightNow()
         {
             m_allMyServers = new List<ServersForMe>();  // new list!
 
             m_listenLinkDeployment.Clear();
             m_snippetsDeployed = 0;
 
+            if (m_lastMinSampledPredictions != DateTime.Now.Minute)
+            {
+                switch (DateTime.Now.Minute % 5)
+                {
+                    case 0:
+                        break;
+                    case 1:
+                        break;
+                    case 2:
+                        break;
+                    case 3:
+                        break;
+                    default:
+                        {
+                            m_lastMinSampledPredictions = DateTime.Now.Minute;
+                            using var http = new HttpClient();
+                            string json = await http.GetStringAsync("https://jamulus.live/soon.json");
+                            m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
+                        }
+                        break;
+                }
+            }
 
 #if WINDOWS
             // When debugging, have one simulated connected lounge at Hear
@@ -2603,6 +2630,7 @@ namespace JamFan22.Pages
                             m_connectedLounges[kvp.Value] = kvp.Key; // swap 'em
 
                         m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
+                        m_connectedLounges["https://openjam.klinkanha.com/"] = "43.208.146.31:22124";
                     }
 
                     string listenNow = "";
@@ -2773,38 +2801,41 @@ JObject json = GetClientIPDetails(clientIP);
 
                     string title = "";
                     string titleToShow = "";
-                    Console.WriteLine("Attempting to read: " + s.serverIpAddress + "-" + s.serverPort);
+//                  Console.WriteLine("Attempting to read: " + s.serverIpAddress + "-" + s.serverPort);
                     if (harvest.m_songTitleAtAddr.TryGetValue(s.serverIpAddress + "-" + s.serverPort, out title))
                     {
-                        Console.WriteLine("Song title found at that address:" + title);
-                        if (title.Length > 0)
+                        if (MinutesSince2023AsInt() < harvest.m_timeToLive)
                         {
-                            if (title.Length > 25)
+                            Console.WriteLine("Song title found at that address:" + title);
+                            if (title.Length > 0)
                             {
-                                if (title.Contains(" by "))
+                                if (title.Length > 25)
                                 {
-                                    title = title.Replace("  ", " ");
-                                    title = title.Replace("  ", " ");
-                                    title = title.Replace(" ", "&nbsp;");
-                                    title = title.Replace("&nbsp;by&nbsp;", " by&nbsp;");
-                                }
-                                else
-                                {
-                                    if (title.Contains(" BY "))
+                                    if (title.Contains(" by "))
                                     {
                                         title = title.Replace("  ", " ");
                                         title = title.Replace("  ", " ");
                                         title = title.Replace(" ", "&nbsp;");
-                                        title = title.Replace("&nbsp;BY&nbsp;", " BY&nbsp;");
+                                        title = title.Replace("&nbsp;by&nbsp;", " by&nbsp;");
                                     }
+                                    else
+                                    {
+                                        if (title.Contains(" BY "))
+                                        {
+                                            title = title.Replace("  ", " ");
+                                            title = title.Replace("  ", " ");
+                                            title = title.Replace(" ", "&nbsp;");
+                                            title = title.Replace("&nbsp;BY&nbsp;", " BY&nbsp;");
+                                        }
+                                    }
+                                    // if (title.Contains(" — ")) title = title.Replace(" — ", "<br>");
                                 }
-                                // if (title.Contains(" — ")) title = title.Replace(" — ", "<br>");
+
+
+                                titleToShow = "<font size='-2'><i>" +
+                                    title +
+                                    "</i></font><br>";
                             }
-
-
-                            titleToShow = "<font size='-2'><i>" +
-                                title +
-                                "</i></font><br>";
                         }
                     }
 
@@ -2876,7 +2907,42 @@ JObject json = GetClientIPDetails(clientIP);
                             "<center><font size='-2'>" + smartNations.Trim() + "</font></center>";
                     }
 
+                    string soonNames = "";
+
+                    string serv = s.serverIpAddress + ":" + s.serverPort;
+                    if(m_predicted.ContainsKey(serv))
+                    {
+                        foreach(var dude in m_predicted[serv])
+                        {
+                            if (m_guidNamePairs.ContainsKey(dude))
+                                soonNames += m_guidNamePairs[dude] + " &#8226; ";
+                            else
+                            {
+                                Console.WriteLine("GUID not mapped to a name. Only long runtimes see everyone.");
+                                // get it from censusgeo.csv
+
+                                foreach (var line in System.IO.File.ReadLines("data/censusgeo.csv"))
+                                {
+                                    var fields = line.Split(',');
+
+                                    if (fields.Length >= 2 && fields[0] == dude)
+                                    {
+                                        string name = fields[1];
+                                        soonNames += name + " &#8226; ";
+                                        break; // stop after finding the first match
+                                    }
+                                }
+                            }
+                        }
+                        if (false) // not in prod yet // if(soonNames.Length > 0)
+                            soonNames = "<hr>Soon: " + soonNames.Substring(0, soonNames.Length - " &#8226; ".Length);
+                    }
+
+                    if (soonNames.Length > 0)
+                        newline += "<center>" + soonNames + "</center>";
+
                     newline += "</div>";
+
                     output += newline;
                 }
                 else
@@ -3324,6 +3390,8 @@ JObject json = GetClientIPDetails(clientIP);
                                     continue;
                                 if (server.name.ToLower().Contains("priv")) // don't sample self-described private areas
                                     continue;
+                                // if (server.country.Contains("Germany")) // don't sample German servers... wait, it's people, not servers
+                                //   continue;
 
                                 string fullAddress = server.ip + ":" + server.port;
 

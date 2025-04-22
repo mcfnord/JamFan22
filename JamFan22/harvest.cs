@@ -76,14 +76,14 @@ namespace JamFan22
         public static Dictionary<string, string> m_discreetLinks = new Dictionary<string, string>();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
         public static Dictionary<string, string> m_songTitleAtAddr = new Dictionary<string, string>();
-        public static int m_minuteOfLastActivity = 0;
+        public static int m_timeToLive = 0;
 
         static void DiscreetLinkForServer(string url) // ttl isn't built in
         {
             string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
             m_discreetLinks[where] = url;
 
-            m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 3;
+            m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 3;
 
         }
 
@@ -96,7 +96,7 @@ namespace JamFan22
                     where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
-                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
+                m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
 
                 System.IO.File.AppendAllText("data/urls.csv",
                     JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + ","
@@ -115,7 +115,7 @@ namespace JamFan22
                 //    where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitleAtAddr[serverAddr] = title;
 
-                m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2; // That's in the future.
+                m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 10; // Ten mins in the future
 
                 /*
                 System.IO.File.AppendAllText("data/urls.csv",
@@ -180,6 +180,33 @@ namespace JamFan22
 
         static async Task IngestURL(string server, string url)
         {
+
+
+
+            if (url.ToLower().Contains("https://busk.town/"))
+            {
+                using (HttpClient theclient = new HttpClient())
+                {
+                    string s = await theclient.GetStringAsync(url);
+
+                    Match m = Regex.Match(s, @"<title data-react-helmet=""true"">\s*(.+?)\s*</title>");
+                    if (m.Success)
+                    {
+                        var title = m.Groups[1].Value;
+                        title = title.Replace("คอร์ด", "");
+                        title = title.Replace(" - Busk", "");
+
+                        Console.WriteLine("Title I'll publish: " + title);
+                        ShortLivedTitleForServerAtAddr(title, server);
+                    }
+                }
+            }
+
+
+
+
+
+
             if (url.ToLower().Contains("https://chordtabs.in.th/"))
             {
                 using (HttpClient theclient = new HttpClient())
@@ -309,9 +336,9 @@ namespace JamFan22
                 {
                     // Relocating this to the top of the loop, so that it's not dependent on the stream, which hangs.
                     // Every new minute, i might kill some entries
-                    if (JamFan22.Pages.IndexModel.MinutesSince2023AsInt() > m_minuteOfLastActivity)
+                    if (JamFan22.Pages.IndexModel.MinutesSince2023AsInt() > m_timeToLive)
                     {
-                        m_minuteOfLastActivity = JamFan22.Pages.IndexModel.MinutesSince2023AsInt();
+                        m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt(); // This doesn't make sense, m_timeToLive is a minute of the future, not OTN
                         var rng = new Random();
 
                         for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)
