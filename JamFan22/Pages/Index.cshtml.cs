@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -2170,7 +2170,7 @@ namespace JamFan22.Pages
                             m_lastMinSampledPredictions = DateTime.Now.Minute;
                             using var http = new HttpClient();
                             string json = await http.GetStringAsync("https://jamulus.live/soon.json");
-                            m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
+                          //  m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
                         }
                         break;
                 }
@@ -2626,11 +2626,14 @@ namespace JamFan22.Pages
                         response.EnsureSuccessStatusCode();
                         string responseBody = await response.Content.ReadAsStringAsync();
                         var data = JsonSerializer.Deserialize<Dictionary<string, string>>(responseBody);
-                        foreach( var kvp in data)
+                        foreach (var kvp in data)
                             m_connectedLounges[kvp.Value] = kvp.Key; // swap 'em
 
                         m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
                         m_connectedLounges["https://openjam.klinkanha.com/"] = "43.208.146.31:22124";
+                        m_connectedLounges["https://icecast.voixtel.net.br:8000/stream"] = "189.126.207.3:22124";
+                        m_connectedLounges["http://1.onj.me:32123/"] = "139.162.251.38:22124";
+                        m_connectedLounges["http://3.onj.me:8000/jamulus4"] = "69.164.213.250:22124";
                     }
 
                     string listenNow = "";
@@ -2938,7 +2941,7 @@ JObject json = GetClientIPDetails(clientIP);
                             soonNames = "<hr>Soon: " + soonNames.Substring(0, soonNames.Length - " &#8226; ".Length);
                     }
 
-                    if (soonNames.Length > 0)
+                    if(false) // if (soonNames.Length > 0)
                         newline += "<center>" + soonNames + "</center>";
 
                     newline += "</div>";
