@@ -2649,7 +2649,7 @@ namespace JamFan22.Pages
                             {
                                 foreach (var user in s.whoObjectFromSourceData)
                                 {
-                                    if (user.name.Contains("obby"))
+                                    if (user.name.Contains("obby") || user.name == "")
                                     {
                                         string num = "";
                                         // snag that user count if non-zero
