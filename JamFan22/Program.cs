@@ -228,8 +228,11 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
 
 
             // If the user is online...
-            string res = JamFan22.Pages.IndexModel.NameFromHash(guid);
-            if (guid != res)
+            string theirName  = "" ;
+            string theirInstrument = "" ;
+            bool result = JamFan22.Pages.IndexModel.DetailsFromHash(guid, ref theirName, ref theirInstrument);
+            if (result == true)
+            // if (guid != res)
                 if (guid != "No Name")
                 {
                     // find the user's city-nation. If they don't have one, then we don't do nothin.
@@ -278,7 +281,7 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                                                     JamFan22.Pages.IndexModel.m_ipAddrToLatLong[ipaddr] = new JamFan22.Pages.IndexModel.LatLong(lat, lon);
 
                                                     Console.Write("From " + ipaddr + " ");
-                                                    Console.Write(res + " / ");
+                                                    Console.Write(result + " / ");
                                                     Console.Write(guy.city + ", " + guy.country + " ");
                                                     Console.WriteLine(lat + ", " + lon);
                                                 }
@@ -381,8 +384,11 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                     if (pair.Key.Contains(guid))
                     {
                         var otherGuysGuid = pair.Key.Replace(guid, "");
-                        var friendlyName = JamFan22.Pages.IndexModel.NameFromHash(otherGuysGuid);
-                        if (otherGuysGuid != friendlyName) // if they have a name, they're online
+                        string friendlyName = "";
+                        string friendlyInstrument = "";
+                        bool online = JamFan22.Pages.IndexModel.DetailsFromHash(otherGuysGuid, ref friendlyName, ref friendlyInstrument);
+                        //if (otherGuysGuid != friendlyName) // if they have a name, they're online
+                        if(online)
                             if ("No Name" != friendlyName)
                             if ("" != friendlyName)
                             if ("Studio Bridge" != friendlyName)

@@ -1,4 +1,4 @@
-// #define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -330,7 +330,7 @@ namespace JamFan22.Pages
 
 
         // just do our best finding the name on this LIVE DATA
-        public static string NameFromHash(string hash)
+        public static bool DetailsFromHash(string hash, ref string theirName, ref string theirInstrument)
         {
             foreach (var key in JamulusListURLs.Keys)
             {
@@ -348,12 +348,16 @@ namespace JamFan22.Pages
                             string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
                             */
                             if (hash == stringHashOfGuy)
-                                return guy.name;
+                            {
+                                theirName = guy.name;
+                                theirInstrument = guy.instrument;
+                                return true ;
+                            }
                         }
                     }
                 }
             }
-            return hash;
+            return false ;
         }
 
         static string TIME_TOGETHER = "timeTogether.json";
