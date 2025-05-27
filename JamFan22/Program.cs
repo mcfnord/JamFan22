@@ -389,6 +389,7 @@ app.MapGet("/hotties/{encodedGuid}", (string encodedGuid, HttpContext context) =
                         bool online = JamFan22.Pages.IndexModel.DetailsFromHash(otherGuysGuid, ref friendlyName, ref friendlyInstrument);
                         //if (otherGuysGuid != friendlyName) // if they have a name, they're online
                         if(online)
+                            if("Listener" != friendlyInstrument)
                             if ("No Name" != friendlyName)
                             if ("" != friendlyName)
                             if ("Studio Bridge" != friendlyName)
