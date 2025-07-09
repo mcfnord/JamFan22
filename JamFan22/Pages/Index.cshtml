@@ -13,11 +13,17 @@
         grid-gap: 1rem;
     }
 
-        .grid > div {
-            background: #D9F9F9;
-            padding: 1rem;
-            border-radius: 1rem;
-        }
+    .grid > div:hover {
+        transform: scale(1.20); /* Increased scale for bigger zoom */
+        box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.3); /* Optional: keep the shadow */
+        cursor: pointer; /* Optional: keep the pointer cursor */
+    }
+
+    .grid > div {
+        background: #D9F9F9;
+        padding: 1rem;
+        border-radius: 1rem;
+    }
 
     body {
         margin: 1rem;
