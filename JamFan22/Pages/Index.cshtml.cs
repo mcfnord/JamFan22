@@ -1,4 +1,4 @@
-// #define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -1579,6 +1579,11 @@ namespace JamFan22.Pages
             if (m_connectionFirstSighting.ContainsKey(hash))
             {
                 TimeSpan ts = DateTime.Now.Subtract(m_connectionFirstSighting[hash]);
+
+                var nonSignals = System.IO.File.ReadAllLines("non-signals.txt").ToList();
+                if(nonSignals.Contains(who))
+                    ts = ts.Add(TimeSpan.FromMinutes(60.0 * 5.75));
+
                 return ts.TotalMinutes;
             }
             return -1; //
