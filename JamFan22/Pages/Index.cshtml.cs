@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -13,9 +13,11 @@ using Microsoft.VisualBasic;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.IO;
 using System.Linq.Expressions;
 using System.Net;
 using System.Net.Http;
@@ -26,7 +28,6 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using static System.Reflection.Metadata.BlobBuilder;
 using static System.Runtime.InteropServices.JavaScript.JSType;
-using System.IO;
 // using MongoDB.Driver;
 
 namespace JamFan22.Pages
@@ -2102,6 +2103,9 @@ namespace JamFan22.Pages
         public static Dictionary<string, DateTime> m_ArnOfIpGoodUntil = new Dictionary<string, DateTime>();
         public static Dictionary<string, string> m_ArnOfIp = new Dictionary<string, string>();
 
+
+
+
         public static JObject GetClientIPDetails(string clientIP)
         {
             if (DateTime.Now.Hour != m_hourLastFlushed)
@@ -2113,8 +2117,10 @@ namespace JamFan22.Pages
             if (m_ipapiOutputs.ContainsKey(clientIP))
                 return m_ipapiOutputs[clientIP];
 
-            var client = new HttpClient();
-            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
+            // var client = new HttpClient();
+            // Reuse the same HttpClient instance with the timeout set
+        HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
             task.Wait();
             string st = task.Result;
             JObject json = JObject.Parse(st);
@@ -3610,172 +3616,220 @@ JObject json = GetClientIPDetails(clientIP);
 
 
         static bool m_bUserWaiting = false;
+
+        // Recommended: Use a single static HttpClient instance to avoid socket exhaustion.
+        private static readonly HttpClient httpClient = new HttpClient();
+        // private static string GEOAPIFY_MYSTERY_STRING; // Should be loaded from config once
+
+        // The original Mutex for synchronous locking.
+        // private readonly Mutex m_serializerMutex = new Mutex();
+
+
+
+        /// <summary>
+        /// Updates all user activity logs and statistics.
+        /// </summary>
+        private void UpdateUserStatistics(string ipAddress, MyUserGeoCandy geoData)
+        {
+            Console.Write($"{geoData.city}, {geoData.countryCode2}");
+
+            if (m_clientIPLastVisit.TryGetValue(ipAddress, out var lastRefresh))
+            {
+                var secondsSince = (DateTime.Now - lastRefresh).TotalSeconds;
+                var lowerBound = 120 + m_conditionsDelta - 30;
+                var upperBound = 120 + m_conditionsDelta + 30;
+
+                if (secondsSince > lowerBound && secondsSince < upperBound)
+                {
+                    Console.Write(" :)");
+                    m_clientIPsDeemedLegit[ipAddress] = DateTime.Now;
+                    m_countriesDeemedLegit[geoData.countryCode2] = DateTime.Now;
+
+                    // Increment country refresh count
+                    m_countryRefreshCounts.TryGetValue(geoData.countryCode2, out int count);
+                    m_countryRefreshCounts[geoData.countryCode2] = count + 1;
+
+                    // Add unique IP to country bucket
+                    if (!m_bucketUniqueIPsByCountry.TryGetValue(geoData.countryCode2, out var ipSet))
+                    {
+                        ipSet = new HashSet<string>();
+                        m_bucketUniqueIPsByCountry[geoData.countryCode2] = ipSet;
+                    }
+                    ipSet.Add(ipAddress);
+                }
+            }
+            m_clientIPLastVisit[ipAddress] = DateTime.Now;
+            Console.WriteLine($"  ({m_clientIPsDeemedLegit.Count} confirmed users)");
+        }
+
+        /// <summary>
+        /// Adjusts a performance delta based on request duration.
+        /// </summary>
+        private void AdjustPerformanceDelta(TimeSpan duration)
+        {
+            if (duration.TotalSeconds > 3)
+            {
+                Console.WriteLine($"Slow response: {duration.TotalSeconds:F2}s. Increasing delta.");
+                m_conditionsDelta++;
+            }
+            else if (duration.TotalSeconds < 1 && m_conditionsDelta > 0)
+            {
+                m_conditionsDelta--;
+            }
+        }
+
+
+        private string GetClientIpAddress()
+        {
+            var remoteIp = HttpContext.Connection.RemoteIpAddress;
+            string ipString = (remoteIp != null && System.Net.IPAddress.IsLoopback(remoteIp))
+                ? HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
+                : remoteIp?.ToString();
+
+            ipString ??= "75.172.123.21";
+            return ipString.StartsWith("::ffff:") ? ipString : $"::ffff:{ipString}";
+        }
+
+        private MyUserGeoCandy GetOrAddUserGeoData(string ipAddress)
+        {
+            if (userIpCachedItems.TryGetValue(ipAddress, out var cachedCandy))
+            {
+                return cachedCandy;
+            }
+
+            try
+            {
+                GEOAPIFY_MYSTERY_STRING ??= System.IO.File.ReadAllText("secretGeoApifykey.txt");
+                string ipv4Address = ipAddress.Replace("::ffff:", "");
+                string endpoint = $"https://api.geoapify.com/v1/ipinfo?ip={ipv4Address}&apiKey={GEOAPIFY_MYSTERY_STRING}";
+
+                // Blocking call to get the result from the async method
+                string jsonResponse = httpClient.GetStringAsync(endpoint).Result;
+                JObject jsonGeo = JObject.Parse(jsonResponse);
+
+                var newCandy = new MyUserGeoCandy
+                {
+                    city = (string)jsonGeo["city"]?["name"],
+                    countryCode2 = (string)jsonGeo["country"]?["iso_code"]
+                };
+
+                userIpCachedItems[ipAddress] = newCandy;
+                Console.WriteLine($"Cached new location: {newCandy.city}, {newCandy.countryCode2}");
+                return newCandy;
+            }
+            catch (Exception ex)
+            {
+                // AggregateException is common when blocking on Tasks, so we check for it.
+                Console.WriteLine($"Error fetching geolocation for {ipAddress}: {ex.InnerException?.Message ?? ex.Message}");
+                return null;
+            }
+        }
+
+        private static readonly ConcurrentDictionary<string, string> ipToGuidCache = new();
+        private static readonly ConcurrentDictionary<string, DateTime> ipCacheTime = new();
+        private static readonly TimeSpan cacheDuration = TimeSpan.FromMinutes(5);
+
+        public string GuidFromIp(string ipAddress)
+        {
+            string ipv4Address = ipAddress.Replace("::ffff:", "");
+
+            // 1. Check for a valid, non-expired cache entry.
+            if (ipCacheTime.TryGetValue(ipv4Address, out var cacheTime) &&
+                DateTime.UtcNow - cacheTime < cacheDuration &&
+                ipToGuidCache.TryGetValue(ipv4Address, out var cachedGuid))
+            {
+                return cachedGuid;
+            }
+
+            // 2. If miss, fetch the GUID from the URL synchronously.
+            string url = $"http://24.199.107.192:5000/lookup_guid/{ipv4Address}";
+
+            try
+            {
+                HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+
+                // Using .Result makes the call blocking.
+                string guid = client.GetStringAsync(url).Result;
+
+                if (!string.IsNullOrEmpty(guid))
+                {
+                    // 3. Update caches with new data.
+                    ipToGuidCache[ipv4Address] = guid;
+                    ipCacheTime[ipv4Address] = DateTime.UtcNow;
+                }
+                return guid;
+            }
+            catch (Exception e)
+            {
+                // .Result wraps the actual exception in an AggregateException
+                Console.WriteLine($"An error occurred: {e.InnerException?.Message ?? e.Message}");
+                return null;
+            }
+        }
+
+
+//        static string m_likelyGuidOfUser = null;
+
         public string RightNow
         {
             get
             {
-                DateTime started = DateTime.Now;
-                m_bUserWaiting = true;
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
                 m_serializerMutex.WaitOne();
                 try
                 {
-                    string ipaddr = HttpContext.Connection.RemoteIpAddress.ToString();
+                    string ipAddress = GetClientIpAddress();
+                    if (string.IsNullOrEmpty(ipAddress)) return string.Empty;
 
-                    // To learn more about my users and non-users, let's reveal their ISP clues.
-                    // I wanna know about this IP address the first time it appears.
-                    if (false == eachIpIveSeenAndDescribed.Contains(ipaddr))
+                    var geoData = GetOrAddUserGeoData(ipAddress);
+                    if (geoData != null)
                     {
-                        eachIpIveSeenAndDescribed.Add(ipaddr);
-                        Console.WriteLine("New IP details: " + ipaddr);
-// Console.WriteLine( (string) GetClientIPDetails( ipaddr )) ;
-//                        using var client = new HttpClient();
-  //                      System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + ipaddr);
-    //                    task.Wait();
-      //                  string s = task.Result;
-        //                JObject json = JObject.Parse(s);
-          //              Console.WriteLine(json);
+                        UpdateUserStatistics(ipAddress, geoData);
+                        m_TwoLetterNationCode = geoData.countryCode2;
                     }
 
-
-                    if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
-                        ipaddr = HttpContext.Request.Headers["X-Forwarded-For"];
-
-                    if (null == ipaddr)
-                    {
-                        //                        Console.WriteLine("A null IP address replaced by Microsoft's IP.");
-                        ipaddr = "75.172.123.21"; // me now
-                    }
-
-                    if (false == ipaddr.Contains("::ffff"))
-                        ipaddr = "::ffff:" + ipaddr;
-
-                    Console.WriteLine("Client IP: " + ipaddr);
-
-                    if (ipaddr.Length > 5)
-                    {
-                        if (false == userIpCachedItems.ContainsKey(ipaddr))
-                        {
-                            /*
-                            IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
-                            try
-                            {
-                                GeolocationParams geoParams = new GeolocationParams();
-                                //geoParams.SetIPAddress(ipaddr);
-                                geoParams.SetIp(ipaddr);
-                                geoParams.SetFields("geo,time_zone,currency");
-                                Geolocation geolocation = api.GetGeolocation(geoParams);
-                                // Console.WriteLine("Tick, another IP geolocation query: " + ipaddr);
-                                var candy = new MyUserGeoCandy();
-                                candy.city = geolocation.GetCity();
-                                candy.countryCode3 = geolocation.GetCountryCode3();
-                                userIpCachedItems[ipaddr] = candy;
-                            }
-                            catch (Exception e)
-                            {
-                                Console.WriteLine("Error in geolocation: " + e.Message);
-                            }
-                            */
-
-                            if(null == GEOAPIFY_MYSTERY_STRING)
-                            {
-                                var stringFromFile = System.IO.File.ReadAllLines("secretGeoApifykey.txt").ToList();
-                                GEOAPIFY_MYSTERY_STRING = stringFromFile[0];
-                            }
-                            string ip4addr = ipaddr.Replace("::ffff:", "");
-                            // string endpoint = "http://api.ipstack.com/" + ip4addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
-                            string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4addr + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
-                            using var client = new HttpClient();
-                            System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
-                            task.Wait();
-                            string s = task.Result;
-                            JObject jsonGeo = JObject.Parse(s);
-                            var candy = new MyUserGeoCandy();
-                            candy.city = (string)jsonGeo["city"]["name"];
-                            candy.countryCode2 = (string)jsonGeo["country"]["iso_code"];
-                            userIpCachedItems[ipaddr] = candy;
-                            Console.WriteLine("Candy: " + candy.city + " " + candy.countryCode2);
-                        }
-                        //                        Console.WriteLine(userIpCachedItems[ipaddr].city + ", " + userIpCachedItems[ipaddr].countryCode3);
-
-                        m_TwoLetterNationCode = userIpCachedItems[ipaddr].countryCode2; // global for this call (cuz of the mutex)
-
-                        /*
-                        if (userIpCachedItems.ContainsKey(ipaddr)) // maybe it failed!
-                            if (userIpCachedItems[ipaddr].city == "Princeton")
-                                m_ThreeLetterNationCode = "THA";
-                        */
-
-                        if (userIpCachedItems.ContainsKey(ipaddr)) // maybe it failed!
-                            Console.Write(userIpCachedItems[ipaddr].city +
-                                            ", " +
-                                            userIpCachedItems[ipaddr].countryCode2);
-
-                        // Visually indicate if we last heard from this ipaddr
-                        // after about 125 seconds has elapsed
-                        if (m_clientIPLastVisit.ContainsKey(ipaddr))
-                        {
-                            var lastRefresh = m_clientIPLastVisit[ipaddr];
-                            //  Console.Write((DateTime.Now - lastRefresh).ToString());
-                            if (DateTime.Now < lastRefresh.AddSeconds(120 + m_conditionsDelta + 30))
-                                if (DateTime.Now > lastRefresh.AddSeconds(120 + m_conditionsDelta - 30))
-                                {
-                                    Console.Write(" :)");
-
-                                    // this IP is the key, and the time is the value?
-                                    // yeah, cuz each IP counts once.
-                                    m_clientIPsDeemedLegit[ipaddr] = DateTime.Now;
-                                    Console.WriteLine("  " + m_clientIPsDeemedLegit.Count + " IP addresses of confirmed users since startup.");
-
-                                    m_countriesDeemedLegit[userIpCachedItems[ipaddr].countryCode2]
-                                        = DateTime.Now;
-
-                                    // Finally, count each confirmed refresh toward a running tally for each nation
-                                    if (false == m_countryRefreshCounts.ContainsKey(m_TwoLetterNationCode))
-                                        m_countryRefreshCounts[m_TwoLetterNationCode] = 1;
-                                    else
-                                        m_countryRefreshCounts[m_TwoLetterNationCode] += 1;
-
-                                    // And count UNIQUE IPs
-                                    //HashSet allows only the unique values to the list
-
-                                    if (false == m_bucketUniqueIPsByCountry.ContainsKey(m_TwoLetterNationCode))
-                                        m_bucketUniqueIPsByCountry[m_TwoLetterNationCode] = new HashSet<string>();
-                                    m_bucketUniqueIPsByCountry[m_TwoLetterNationCode].Add(ipaddr); // has means uniques only
-                                }
-                        }
-                        m_clientIPLastVisit[ipaddr] = DateTime.Now;
-
-                        Console.WriteLine();
-                    }
-
-                    var v = GetGutsRightNow();
-                    v.Wait();
-                    return v.Result;
+                    // Call the synchronous version or block the async version
+                    var task = GetGutsRightNow(); // Assuming GetGutsRightNow returns a Task<string>
+                    task.Wait();
+                    return task.Result;
                 }
                 finally
                 {
+                    stopwatch.Stop();
+                    AdjustPerformanceDelta(stopwatch.Elapsed);
                     m_serializerMutex.ReleaseMutex();
-                    TimeSpan duration = DateTime.Now - started;
-                    if (duration.TotalSeconds > 6) // double-slowdown for really unacceptable perf
-                    {
-                        Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
-                        m_conditionsDelta++;
-                    }
-                    if (duration.TotalSeconds > 3)
-                    {
-                        Console.WriteLine("Browser waited " + duration.TotalSeconds + " seconds.");
-                        m_conditionsDelta++;
-                    }
-                    if (duration.TotalSeconds < 1)
-                        m_conditionsDelta--;
-                    //                    Console.WriteLine("Adding this to everyone's 120-second auto-refresh: " + m_conditionsDelta.ToString());
                 }
             }
-            set
+
+        set
             {
             }
         }
 
+        public string IPDerivedHash
+        {
+            get 
+            {
+                string ipAddress = GetClientIpAddress();
+#if WINDOWS
+                // Testing on windows doesn't give real data so I do this.
+                ipAddress = "143.58.249.120";
+#endif
+                var likelyGuidOfUser = GuidFromIp(ipAddress); // Might be null!
+                if (null != likelyGuidOfUser)
+                {
+                    Console.WriteLine(likelyGuidOfUser + " is the likely guid of " + ipAddress);
+                    if (m_guidNamePairs.ContainsKey(likelyGuidOfUser))
+                        Console.WriteLine("  AKA: " + m_guidNamePairs[likelyGuidOfUser]);
+                }
+
+                if (null == likelyGuidOfUser)
+                    return "null";
+                else
+                    return "\"" + likelyGuidOfUser + "\"";
+            }
+            set { }
+        }
 
 
         /*
