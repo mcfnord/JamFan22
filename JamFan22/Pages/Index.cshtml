@@ -14,7 +14,7 @@
     }
 
     .grid > div:hover {
-        transform: scale(1.20); /* Increased scale for bigger zoom */
+        transform: scale(1.07);
         box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.3); /* Optional: keep the shadow */
         cursor: pointer; /* Optional: keep the pointer cursor */
     }
@@ -61,6 +61,8 @@
 </style>
 
 <script>
+
+    var ipDerivedLoginHash = @Html.Raw(Model.IPDerivedHash)
 
     PeopleCollection = "trackedPeople";
 
@@ -122,6 +124,30 @@
         }
     }
 
+    function getCurrentUserHash() {
+        // 1. Check for the Explicit Hash from localStorage.
+        const explicitHash = localStorage.getItem("loginHash");
+
+        // If visible, then use this.
+        if (explicitHash) {
+            if (document.getElementsByClassName(explicitHash).length > 0) {
+                return explicitHash;
+            }
+        }
+
+        // 2. Fallback to the IP-Derived Hash, if any
+        if (ipDerivedLoginHash) {
+                if (document.getElementsByClassName(ipDerivedLoginHash).length > 0) {
+                    return ipDerivedLoginHash;
+            }
+        }
+
+        // 3. Return null if no valid element was found for either hash.
+        return null;
+    }
+
+
+
     function refreshHighlights() {
         blankForRefresh();
         subRefresh("trackedPeople", "2px solid #FFFFCC", "#FFFFCC"); // 2px so i can see auto-selected's 1px in dark mode
@@ -131,12 +157,10 @@
         listRefresh("advancedTrackedPeople", "#DDFFCC", "#22FF22"); // Musician's List for RickD
 
         // promote the server i'm on
-        var loginHash = localStorage.getItem("loginHash");
+        var loginHash = getCurrentUserHash();
         if (null != loginHash) {
-//            console.log(loginHash);
             var me = document.getElementsByClassName(loginHash);
             if (me.length > 0) {
-//                me[0].parentElement.style.background = "#FFD7E6"; //  .style.border = "thick solid #9Dc8d6";
                 me[0].parentElement.style.border = "thick solid SteelBlue";
                 me[0].parentElement.style.gridRowStart = 1; 
 
@@ -723,33 +747,6 @@ var loginHashTest = localStorage.getItem("loginHash");
         <hr />
         <p>To import selections from another browser, paste their export code into this input field. (This won't delete any musicians already selected on this browser. It can only add selections.)</p>
         <p>Import field: <form onsubmit='importTracked()'><input type='text' id='importField' /><br /><input type='submit' value="Import" /></form></p>
-    </div>
-</div>
-
-<hr />
-
-<div id="blockBots">
-    <button type="button" class="collapsible">Ear bot</button>
-    <div class="content">
-        <p>
-            <p>This website sends a bot to servers on the Jamulus public network.</p>
-
-        <ul>
-            <li>Ear bot records ten seconds of sound that might be playable on this website until the audio file is erased 14 minutes later.</li>
- <!--           <li>Lobby bot streams audio to listeners at <a href="https://hear.jamulus.live/">https://hear.jamulus.live/</a>. These listeners can also see chat messages from musicians.
-                           The Lobby username shows the number of people listening. For example, <b>lobby [2]</b> shows that two people are listening. This bot can also record in Thailand and Brazil.
-                       </li>  -->
-        </ul>
-
-    <p>To block this bot, add "<b>priv</b>" to your server's name, or block this IP address in your firewall:</p>
-
-    <ul>
-            <!--               <li><b>157.245.224.141</b> or <b>hear.jamulus.live</b> (to block <b>lobby</b>) -->
-                <li><b>159.89.140.136</b> or <b>jamulus.live</b> (to block <b>Ear</b>)
-    </ul>
-        <p>
-            See active bots at <a type='_blank' href='https://jamulusjams.com'>Who Is On Jamulus</a>.
-            </p>
     </div>
 </div>
 
