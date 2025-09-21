@@ -4,8 +4,8 @@ set -x
 while true; do
   current_hour=$(date +"%H")
 
-  if [ "$current_hour" -ge 3 ] && [ "$current_hour" -lt 12 ]; then
-    echo "Script paused between 7pm and maybe 3am PST."
+  if [ "$current_hour" -ge 2 ] && [ "$current_hour" -lt 12 ]; then
+    echo "Script paused."
     sleep 3600
     continue
   fi
@@ -33,7 +33,7 @@ while true; do
         echo "Silence detected in $file_path. Logging details before deletion..." >> /root/JamFan22/JamFan22/mp3_metadata.log
         cat "$silence_log" >> /root/JamFan22/JamFan22/mp3_metadata.log
         rm "$file_path"
-        touch "/root/JamFan22/JamFan22/wwwroot/mp3s/$line.sil"
+#        touch "/root/JamFan22/JamFan22/wwwroot/mp3s/$line.sil"
     fi
 
     # Append last few lines of metadata
@@ -41,5 +41,5 @@ while true; do
 
   done < "serversToSample.txt"
 
-  sleep 260
+  sleep 520
 done
