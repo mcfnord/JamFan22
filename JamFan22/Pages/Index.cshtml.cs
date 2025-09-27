@@ -1,4 +1,4 @@
-// #define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -3813,7 +3813,7 @@ JObject json = GetClientIPDetails(clientIP);
                 string ipAddress = GetClientIpAddress();
 #if WINDOWS
                 // Testing on windows doesn't give real data so I do this.
-                ipAddress = "143.58.249.120";
+                ipAddress = "97.186.6.197";
 #endif
                 var likelyGuidOfUser = GuidFromIp(ipAddress); // Might be null!
                 if (null != likelyGuidOfUser)
@@ -3824,9 +3824,9 @@ JObject json = GetClientIPDetails(clientIP);
                 }
 
                 if (null == likelyGuidOfUser)
-                    return "null";
+                    return "null;";
                 else
-                    return "\"" + likelyGuidOfUser + "\"";
+                    return "\"" + likelyGuidOfUser + "\";";
             }
             set { }
         }

@@ -62,7 +62,7 @@
 
 <script>
 
-    var ipDerivedLoginHash = @Html.Raw(Model.IPDerivedHash)
+    const ipDerivedLoginHash = @Html.Raw(Model.IPDerivedHash)
 
     PeopleCollection = "trackedPeople";
 
@@ -131,6 +131,7 @@
         // If visible, then use this.
         if (explicitHash) {
             if (document.getElementsByClassName(explicitHash).length > 0) {
+                    console.log("returning explicitHash");
                 return explicitHash;
             }
         }
@@ -138,11 +139,13 @@
         // 2. Fallback to the IP-Derived Hash, if any
         if (ipDerivedLoginHash) {
                 if (document.getElementsByClassName(ipDerivedLoginHash).length > 0) {
+                        console.log("returning ipDerivedLoginHash");
                     return ipDerivedLoginHash;
             }
         }
 
         // 3. Return null if no valid element was found for either hash.
+        console.log("returning null");
         return null;
     }
 
@@ -639,12 +642,6 @@
 
 </script>
 
-<script>
-var loginHashTest = localStorage.getItem("loginHash");
-        if (null == loginHashTest)
-        document.write("Join a server in Jamulus. Then <a href='/login'>login to Jamulus.live</a>.<br>");
-</script>
-
 @Html.Raw(Model.SystemStatus)
 
 <div class="grid" style="font-family: Arial, Helvetica, sans-serif;">
@@ -653,11 +650,7 @@ var loginHashTest = localStorage.getItem("loginHash");
 
 <br />
 
-<script>
-var loginHashTest = localStorage.getItem("loginHash");
-        if (null != loginHashTest) 
-            document.write("<a href='/login'>Click here to login to a different account</a>. (Do this when you change your name, instrument, or country.)");
-</script>
+<a href='/login'>Click here to login to a different account</a>.
 
 <br />
 
@@ -768,7 +761,7 @@ var loginHashTest = localStorage.getItem("loginHash");
     avoidWordWrap();
     showFlagsForNonWindows();
 
-    var loginHash = localStorage.getItem("loginHash");
+    var loginHash = getCurrentUserHash();
     if (null != loginHash) {
         fetch('/hotties/' + encodeURIComponent(loginHash))
             .then(res => res.json())
