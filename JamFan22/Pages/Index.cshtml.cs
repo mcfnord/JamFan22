@@ -2254,6 +2254,20 @@ namespace JamFan22.Pages
                         */
                     }
 
+
+
+                    var blockedASNs = new HashSet<string>();
+                    string[] blockedLines = System.IO.File.ReadAllLines("wwwroot/asn-blocks.txt");
+                    foreach (string line in blockedLines)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            string asnIdentifier = line.Trim().Split(' ')[0];
+                            blockedASNs.Add(asnIdentifier);
+                        }
+                    }
+
+
                     List<string> userCountries = new List<string>();
 
                     string who = "";
@@ -2261,6 +2275,55 @@ namespace JamFan22.Pages
                     {
                         if (guy.name.ToLower().Contains("script"))
                             continue; // no XSS please
+
+
+
+                        string[] joinEvents = System.IO.File.ReadAllLines("join-events.csv");
+                        string musicianHash = GetHash(guy.name, guy.country, guy.instrument);
+                        string mostLikelyASN = null;
+
+                        const int asnColumnIndex = 12;
+
+                        for (int i = joinEvents.Length - 1; i >= 0; i--)
+                        {
+                            string candidateLine = joinEvents[i];
+
+                            // Step 1: Find a candidate line.
+                            // We are only interested in lines that match the client's hash.
+                            if (!candidateLine.Contains(musicianHash) || string.IsNullOrWhiteSpace(candidateLine))
+                            {
+                                continue; // Not a candidate, check the previous line.
+                            }
+
+                            // Step 2: Validate the candidate we just found.
+                            // Does it have a valid, unblocked ASN?
+                            string[] fields = candidateLine.Split(',');
+                            if (fields.Length > asnColumnIndex)
+                            {
+                                string fullAsnField = fields[asnColumnIndex].Trim();
+
+                                // A simple check to see if it even looks like an ASN field before parsing.
+                                // This confirms it "has an ASN value" before we check if it's blocked.
+                                if (fullAsnField.StartsWith("AS"))
+                                {
+                                    string asnIdentifier = fullAsnField.Split(' ')[0];
+                                    if (asnIdentifier.Length > 0)
+                                    {
+                                        mostLikelyASN = asnIdentifier;
+                                        break; // There's an ASN on the most recent line that matches this musician hash
+                                    }
+                                }
+                            }
+                        }
+
+                        if (mostLikelyASN != null)
+                        {
+                            if (blockedASNs.Contains(mostLikelyASN))
+                                continue;
+                        }
+
+
+
                         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
                         NotateWhoHere(server.ip + ":" + server.port, GetHash(guy.name, guy.country, guy.instrument));
 
