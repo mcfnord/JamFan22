@@ -2502,8 +2502,8 @@ namespace JamFan22.Pages
                             }
                     */
 
-
-                    m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, zone, who, server.clients, people, (int)server.maxclients));
+                    if(who.Length > 0)
+                        m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, zone, who, server.clients, people, (int)server.maxclients));
                 }
             }
 
