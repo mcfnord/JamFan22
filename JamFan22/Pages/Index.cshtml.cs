@@ -366,7 +366,7 @@ namespace JamFan22.Pages
         static string GUID_NAME_PAIRS = "guidNamePairs.json";
         public static Dictionary<string, TimeSpan> m_timeTogether = null;
         public static Dictionary<string, DateTime> m_timeTogetherUpdated = null;
-        static int? m_lastSaveHourNumber = null;
+        static int? m_lastSaveMinuteNumber = null;
         //static HashSet<string> m_updatedPairs = new HashSet<string>(); // RAM memory of pairs I've saved
         static DateTime m_lastSift = DateTime.Now; // Time since boot or since last culling of unmentioned pairs
         static int m_lastDayNotched = 0; // At least once a day, record the number of pairs in the last, dunno, 21 days
@@ -454,13 +454,13 @@ namespace JamFan22.Pages
 
             // Note current hour on first pass.
             // Then note if hour has changed.
-            if (null == m_lastSaveHourNumber)
-                m_lastSaveHourNumber = DateTime.Now.Hour;
+            if (null == m_lastSaveMinuteNumber)
+                m_lastSaveMinuteNumber = DateTime.Now.Minute;
             else
             {
-                if (m_lastSaveHourNumber != DateTime.Now.Hour)
+                if (m_lastSaveMinuteNumber != DateTime.Now.Minute)
                 {
-                    m_lastSaveHourNumber = DateTime.Now.Hour;
+                    m_lastSaveMinuteNumber = DateTime.Now.Minute;
 
                     /*
                     // If 21 days of uptime pass,
