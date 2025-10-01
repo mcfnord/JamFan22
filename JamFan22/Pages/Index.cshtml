@@ -131,21 +131,24 @@
         // If visible, then use this.
         if (explicitHash) {
             if (document.getElementsByClassName(explicitHash).length > 0) {
-                    console.log("returning explicitHash");
+         //           console.log("returning explicitHash");
                 return explicitHash;
             }
         }
 
         // 2. Fallback to the IP-Derived Hash, if any
         if (ipDerivedLoginHash) {
-                if (document.getElementsByClassName(ipDerivedLoginHash).length > 0) {
-                        console.log("returning ipDerivedLoginHash");
+           // don't insist that the IP-Derived Hash is only valid when the musician is found online.
+           // i want hotties all the time.
+           // any downsides?
+           //     if (document.getElementsByClassName(ipDerivedLoginHash).length > 0) {
+           //             console.log("returning ipDerivedLoginHash");
                     return ipDerivedLoginHash;
-            }
+            // }
         }
 
         // 3. Return null if no valid element was found for either hash.
-        console.log("returning null");
+        // console.log("returning null");
         return null;
     }
 
