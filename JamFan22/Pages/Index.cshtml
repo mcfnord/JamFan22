@@ -677,12 +677,10 @@
 <br />
 
 <div id="censusSection">
-    <button type="button" class="collapsible">Musicians</button>
-    <div class="content">
+    <button type="button" class="collapsible active">Nearby</button>
+    <div class="content" style="display: block;">
         <p>
-            These musicians are connected now.
-            <b>Often with</b> is <i>probably</i> the musician online now who you've spent the most time with.
-            <b>Tot. Time</b> is every minute you've been active on a public server since this website rebooted.
+            These musicians near you have been online in the last hour.
         </p>
         <p>@Html.Raw(@Model.UniqueServerCountOfEveryActiveUser)</p>
     </div>

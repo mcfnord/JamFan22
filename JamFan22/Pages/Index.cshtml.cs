@@ -352,13 +352,13 @@ namespace JamFan22.Pages
                             {
                                 theirName = guy.name;
                                 theirInstrument = guy.instrument;
-                                return true ;
+                                return true;
                             }
                         }
                     }
                 }
             }
-            return false ;
+            return false;
         }
 
         static string TIME_TOGETHER = "timeTogether.json";
@@ -1582,7 +1582,7 @@ namespace JamFan22.Pages
                 TimeSpan ts = DateTime.Now.Subtract(m_connectionFirstSighting[hash]);
 
                 var nonSignals = System.IO.File.ReadAllLines("non-signals.txt").ToList();
-                if(nonSignals.Contains(who))
+                if (nonSignals.Contains(who))
                     ts = ts.Add(TimeSpan.FromMinutes(60.0 * 5.75));
 
                 return ts.TotalMinutes;
@@ -2119,8 +2119,8 @@ namespace JamFan22.Pages
 
             // var client = new HttpClient();
             // Reuse the same HttpClient instance with the timeout set
-        HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
+            HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
             task.Wait();
             string st = task.Result;
             JObject json = JObject.Parse(st);
@@ -2131,7 +2131,7 @@ namespace JamFan22.Pages
 
         public static string AsnOfThisIp(string ip)
         {
-            RE_SAMPLE:
+        RE_SAMPLE:
             if (false == m_ArnOfIpGoodUntil.ContainsKey(ip))
             {
                 string endpoint = "http://ip-api.com/json/" + ip;
@@ -2185,7 +2185,7 @@ namespace JamFan22.Pages
                             m_lastMinSampledPredictions = DateTime.Now.Minute;
                             using var http = new HttpClient();
                             string json = await http.GetStringAsync("https://jamulus.live/soon.json");
-                          //  m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
+                            //  m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
                         }
                         break;
                 }
@@ -2236,7 +2236,7 @@ namespace JamFan22.Pages
 
                     // I WOULD LIKE THE GEOLOCATION LIMITER FOR CBVB TO COVER ONE-CONNECTION AND MULTI-CONNECTION SERVERS EQUALLY
                     // so i probably examine here.
-                    if(server.name.ToLower().Contains("cbvb"))
+                    if (server.name.ToLower().Contains("cbvb"))
                     {
                         /*
                         // what is the distance from this server to the browser's ip
@@ -2466,8 +2466,8 @@ namespace JamFan22.Pages
                     //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
                     int dist = 0;
                     char zone = ' ';
-//                    if(lat != null)
-//                    if(lon != null)
+                    //                    if(lat != null)
+                    //                    if(lon != null)
                     if (lat.Length > 1 || lon.Length > 1) // maybe ipstack didn't bill me?
                     {
                         dist = DistanceFromClient(lat, lon);
@@ -2502,7 +2502,7 @@ namespace JamFan22.Pages
                             }
                     */
 
-                    if(who.Length > 0)
+                    if (who.Length > 0)
                         m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, zone, who, server.clients, people, (int)server.maxclients));
                 }
             }
@@ -2572,7 +2572,7 @@ namespace JamFan22.Pages
 
                     foreach (var line in blocks)
                     {
-                        if(line.Trim().Length > 0)
+                        if (line.Trim().Length > 0)
                             if (s.name.ToLower().Contains(line.Trim().ToLower()))
                                 bSkip = true;
                     }
@@ -2716,14 +2716,14 @@ namespace JamFan22.Pages
 
                     string listenNow = "";
                     string ipport = s.serverIpAddress + ":" + s.serverPort;
-//                    Console.WriteLine(s.who);
-//                    if (s.who.Contains("obby"))
-//                        Console.WriteLine("obby");
+                    //                    Console.WriteLine(s.who);
+                    //                    if (s.who.Contains("obby"))
+                    //                        Console.WriteLine("obby");
                     foreach (var url in m_connectedLounges.Keys)
                     {
                         if (m_connectedLounges[url].Contains(ipport))
                         {
-                            while(true)
+                            while (true)
                             {
                                 foreach (var user in s.whoObjectFromSourceData)
                                 {
@@ -2734,7 +2734,7 @@ namespace JamFan22.Pages
                                         var iPos = user.name.IndexOf("[");
                                         if (iPos > 0)
                                         {
-                                            if('0' != user.name[iPos + 1])
+                                            if ('0' != user.name[iPos + 1])
                                                 num = "<sub> " + user.name[iPos + 1] + "</sub>";
                                         }
                                         listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b>"
@@ -2752,9 +2752,9 @@ namespace JamFan22.Pages
                     // if listenNow wasn't assigned by the map, maybe assign it because there's a free instance and this IP:port is allowed
                     if (listenNow.Length == 0)
                     {
-			string currentHear = null;
-                        if(m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
-                            currentHear = m_connectedLounges["https://hear.jamulus.live/"] ;
+                        string currentHear = null;
+                        if (m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
+                            currentHear = m_connectedLounges["https://hear.jamulus.live/"];
 
                         bool a = false; // just stop this crashing here: InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
                         bool b = false; // offline InstanceIsFree("http://radio.jamulus.live/free.txt");
@@ -2779,11 +2779,11 @@ namespace JamFan22.Pages
                                                 {
                                                     string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
                                                     using var client = new HttpClient();
-JObject json = GetClientIPDetails(clientIP);
-//                                                    System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
-  //                                                  task.Wait();
-    //                                                string st = task.Result;
-      //                                              JObject json = JObject.Parse(st);
+                                                    JObject json = GetClientIPDetails(clientIP);
+                                                    //                                                    System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
+                                                    //                                                  task.Wait();
+                                                    //                                                string st = task.Result;
+                                                    //                                              JObject json = JObject.Parse(st);
                                                     if (false == forbidder.m_forbiddenIsp.Contains(json["as"].ToString()))
                                                     {
                                                         // i show the first four of an md5 of the ipport plus the hour for salt
@@ -2882,7 +2882,7 @@ JObject json = GetClientIPDetails(clientIP);
 
                     string title = "";
                     string titleToShow = "";
-//                  Console.WriteLine("Attempting to read: " + s.serverIpAddress + "-" + s.serverPort);
+                    //                  Console.WriteLine("Attempting to read: " + s.serverIpAddress + "-" + s.serverPort);
                     if (harvest.m_songTitleAtAddr.TryGetValue(s.serverIpAddress + "-" + s.serverPort, out title))
                     {
                         if (MinutesSince2023AsInt() < harvest.m_timeToLive)
@@ -2991,9 +2991,9 @@ JObject json = GetClientIPDetails(clientIP);
                     string soonNames = "";
 
                     string serv = s.serverIpAddress + ":" + s.serverPort;
-                    if(m_predicted.ContainsKey(serv))
+                    if (m_predicted.ContainsKey(serv))
                     {
-                        foreach(var dude in m_predicted[serv])
+                        foreach (var dude in m_predicted[serv])
                         {
                             if (m_guidNamePairs.ContainsKey(dude))
                                 soonNames += m_guidNamePairs[dude] + " &#8226; ";
@@ -3019,7 +3019,7 @@ JObject json = GetClientIPDetails(clientIP);
                             soonNames = "<hr>Soon: " + soonNames.Substring(0, soonNames.Length - " &#8226; ".Length);
                     }
 
-                    if(false) // if (soonNames.Length > 0)
+                    if (false) // if (soonNames.Length > 0)
                         newline += "<center>" + soonNames + "</center>";
 
                     newline += "</div>";
@@ -3107,7 +3107,7 @@ JObject json = GetClientIPDetails(clientIP);
         public static Dictionary<string, DateTime> m_clientIPLastVisit = new Dictionary<string, DateTime>();
         public static Dictionary<string, DateTime> m_clientIPsDeemedLegit = new Dictionary<string, DateTime>();
         public static Dictionary<string, DateTime> m_countriesDeemedLegit = new Dictionary<string, DateTime>();
-//      public static Dictionary<DateTime, int> m_usersCounted = new Dictionary<DateTime, int>();
+        //      public static Dictionary<DateTime, int> m_usersCounted = new Dictionary<DateTime, int>();
         public static Dictionary<string, int> m_countryRefreshCounts = new Dictionary<string, int>();
         public static Dictionary<string, HashSet<string>> m_bucketUniqueIPsByCountry = new Dictionary<string, HashSet<string>>();
         public static Dictionary<string, HashSet<string>> m_userServerViewTracker = new Dictionary<string, HashSet<string>>();
@@ -3280,6 +3280,26 @@ JObject json = GetClientIPDetails(clientIP);
 
 
         // Show active users sorted by how many servers I've seen them on since startup
+
+        public string UniqueServerCountOfEveryActiveUser
+        {
+            get
+            {
+                var finder = new MusicianFinder();
+
+                string htmlResult = finder.FindMusiciansHtmlAsync(GetClientIpAddress()).GetAwaiter().GetResult();
+
+                return htmlResult;
+            }
+        }
+
+// Example usage:
+// double myLat = 47.6295;
+// double myLon = -122.3165;
+// string tableHtml = GetMusicianHtmlSynchronously(myLat, myLon);
+// Console.WriteLine(tableHtml);
+
+        /*
         public string UniqueServerCountOfEveryActiveUser
         {
             get
@@ -3371,20 +3391,10 @@ JObject json = GetClientIPDetails(clientIP);
                 {
                     m_serializerMutex.ReleaseMutex();
 
-                    /*
-                    if (m_serializerMutex.WaitOne(0)) // returns immediately
-                    {
-                        Console.WriteLine("YES, I got the Mutex.");
-                        m_serializerMutex.ReleaseMutex();
-                    }
-                    else
-                    {
-                        Console.WriteLine("NO, I didn't get the mutex.");
-                    }
-                    */
                 }
             }
         }
+        */
 
         /*
         static bool InMapFile(string fullAddress)
