@@ -529,18 +529,46 @@ namespace JamFan22.Pages
 
                     }
 
+                    // First file write operation
+                    try
                     {
                         string jsonString = JsonSerializer.Serialize(m_timeTogetherUpdated.ToList());
                         System.IO.File.WriteAllText(TIME_TOGETHER_UPDATED_AT, jsonString);
                     }
+                    catch (System.IO.IOException ex)
+                    {
+                        // Alert that the first attempt failed and a retry is happening.
+                        Console.WriteLine($"First attempt to write to {TIME_TOGETHER_UPDATED_AT} failed: {ex.Message}. Retrying in 1 second...");
 
+                        // Wait for 1 second.
+                        System.Threading.Thread.Sleep(1000);
+
+                        // Second attempt. If this fails, the exception will be thrown.
+                        string jsonString = JsonSerializer.Serialize(m_timeTogetherUpdated.ToList());
+                        System.IO.File.WriteAllText(TIME_TOGETHER_UPDATED_AT, jsonString);
+                    }
+
+                    // Second file write operation
+                    try
                     {
                         // Each time we save the durations, we also save the guid-name pairs.
                         var sortedByAlpha = m_guidNamePairs.OrderBy(x => x.Value).ToList();
                         string jsonString = JsonSerializer.Serialize(sortedByAlpha);
                         System.IO.File.WriteAllText(GUID_NAME_PAIRS, jsonString);
                     }
+                    catch (System.IO.IOException ex)
+                    {
+                        // Alert that the first attempt failed and a retry is happening.
+                        Console.WriteLine($"First attempt to write to {GUID_NAME_PAIRS} failed: {ex.Message}. Retrying in 1 second...");
 
+                        // Wait for 1 second.
+                        System.Threading.Thread.Sleep(1000);
+
+                        // Second attempt. If this fails, the exception will be thrown.
+                        var sortedByAlpha = m_guidNamePairs.OrderBy(x => x.Value).ToList();
+                        string jsonString = JsonSerializer.Serialize(sortedByAlpha);
+                        System.IO.File.WriteAllText(GUID_NAME_PAIRS, jsonString);
+                    }
                 }
             }
         }
