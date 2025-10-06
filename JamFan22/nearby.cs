@@ -13,21 +13,12 @@ using System.Threading.Tasks;
 
 public class MusicianFinder
 {
-    // --- CONFIGURATION ---
-    private static readonly string[] Urls =
-    {
-        "http://137.184.177.58/servers.php?central=anygenre1.jamulus.io:22124",
-        "http://137.184.177.58/servers.php?central=anygenre2.jamulus.io:22224",
-        "https://explorer.jamulus.io/servers.php?central=anygenre3.jamulus.io:22624",
-        "https://explorer.jamulus.io/servers.php?central=rock.jamulus.io:22424",
-        "http://137.184.177.58/servers.php?central=jazz.jamulus.io:22324",
-        "http://137.184.177.58/servers.php?central=classical.jamulus.io:22524",
-        "https://explorer.jamulus.io/servers.php?central=choral.jamulus.io:22724",
-    };
-
     private static readonly HttpClient HttpClient = new HttpClient();
     private static readonly ConcurrentDictionary<string, CacheItem<IpApiDetails>> IpCache = new ConcurrentDictionary<string, CacheItem<IpApiDetails>>();
-    private int _apiCallCounter; // Class-level counter for API calls per run.
+
+    // --- MODIFIED: A simple lock is sufficient for serializing requests ---
+    private static readonly object _apiLock = new object();
+
 
     /// <summary>
     /// Initializes a new instance of the MusicianFinder.
@@ -52,6 +43,7 @@ public class MusicianFinder
         public string Guid { get; set; }
         public string Name { get; set; }
         public string Instrument { get; set; }
+        public string UserCity { get; set; } // MODIFIED: Added to store the user-provided city
         public double Lat { get; set; }
         public double Lon { get; set; }
         public string IpAddress { get; set; }
@@ -67,8 +59,6 @@ public class MusicianFinder
     /// <returns>An HTML table string.</returns>
     public async Task<string> FindMusiciansHtmlAsync(string userIp)
     {
-        _apiCallCounter = 0; // Reset counter at the start of each public call.
-
         if (string.IsNullOrWhiteSpace(userIp))
         {
             return "<table><tr><td>Error: IP address cannot be empty.</td></tr></table>";
@@ -80,6 +70,8 @@ public class MusicianFinder
         {
             return $"<table><tr><td>Error: Could not determine your location from IP address {userIp}.</td></tr></table>";
         }
+
+        Console.WriteLine($"[Diagnostic] Client City: {userLocation.city}");
 
         // Call the private method with the looked-up coordinates
         return await FindMusiciansHtmlAsync(userLocation.lat, userLocation.lon);
@@ -128,7 +120,7 @@ public class MusicianFinder
         var musicianRecords = GetMusicianRecords(finalGuids, userLat, userLon);
 
         // Step 5: Get location details from IP API and determine final "Last Seen" status
-        foreach (var record in musicianRecords)
+        var musicianTasks = musicianRecords.Select(async record =>
         {
             record.Location = await GetIpDetailsAsync(record.IpAddress);
             // Default to now, then check the map for a more accurate recent time.
@@ -137,10 +129,15 @@ public class MusicianFinder
             {
                 record.LastSeen = seenDate;
             }
-        }
+            return record;
+        });
+        var completedMusicianRecords = await Task.WhenAll(musicianTasks);
 
-        return BuildHtmlTable(musicianRecords, liveGuids);
+        // --- MODIFIED: The first diagnostic block that showed musicians by distance has been removed. ---
+
+        return BuildHtmlTable(completedMusicianRecords, liveGuids);
     }
+
 
     private string BuildHtmlTable(IEnumerable<MusicianRecord> records, HashSet<string> liveGuids)
     {
@@ -148,31 +145,46 @@ public class MusicianFinder
         // Add CSS styles for borders, bulbs, grayed-out rows, and column widths
         sb.AppendLine("<style>");
         sb.AppendLine("  table, th, td { border: 1px solid #ccc; border-collapse: collapse; table-layout: fixed; }");
-        sb.AppendLine("  th, td { padding: 4px; text-align: left; word-wrap: break-word; }");
+        sb.AppendLine("  th, td { padding: 4px; text-align: left; word-wrap: break-word; vertical-align: middle; }");
         sb.AppendLine("  th { white-space: nowrap; }");
-        sb.AppendLine("  tbody tr:hover { background-color: #f5f5f5; }");
-        sb.AppendLine("  .bulb { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; vertical-align: middle; }");
+        sb.AppendLine("  th.col-musician { padding-left: 24px; }");
+        sb.AppendLine("  .musician-table tbody tr:hover td { background-color: #f5f5f5; }");
+        sb.AppendLine("  .bulb { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0; }");
         sb.AppendLine("  .green { background-color: #28a745; }");
         sb.AppendLine("  .gray { background-color: #adb5bd; }");
         sb.AppendLine("  .not-here { color: #6c757d; }");
         sb.AppendLine("  summary { cursor: pointer; color: #007bff; padding: 8px; }");
-        sb.AppendLine("  .col-musician { width: 28%; }");
-        sb.AppendLine("  .col-instrument { width: 17%; }");
-        sb.AppendLine("  .col-city { width: 25%; }");
-        sb.AppendLine("  .col-region { width: 20%; }");
-        sb.AppendLine("  .col-country { width: 10%; }");
-        sb.AppendLine("  .small-font { font-size: 0.9em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; }");
+        sb.AppendLine("  .col-musician { width: 55%; }");
+        sb.AppendLine("  .col-location { width: 45%; }");
+        sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }");
+        sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; }");
         sb.AppendLine("</style>");
 
-        sb.AppendLine("<table style='width: 100%;'>");
+        sb.AppendLine("<table style='width: 100%;' class='musician-table'>");
         sb.AppendLine("  <thead>");
-        sb.AppendLine("    <tr><th class='col-musician'>Musician</th><th class='col-instrument small-font'>Instrument</th><th class='col-city'>City</th><th class='col-region small-font'>Region</th><th class='col-country small-font'>Nation</th></tr>");
+        sb.AppendLine("    <tr><th class='col-musician'>Musician</th><th class='col-location'>Location</th></tr>");
         sb.AppendLine("  </thead>");
         sb.AppendLine("  <tbody>");
 
-        var orderedRecords = records.OrderBy(r => r.DistanceKm).ToList();
-        var nearbyRecords = orderedRecords.Where(r => r.DistanceKm < 3500).ToList();
-        var distantRecords = orderedRecords.Where(r => r.DistanceKm >= 3500).ToList();
+        var orderedRecords = records
+            .OrderBy(r => r.DistanceKm)
+            .GroupBy(r => $"{r.Name}|{r.Location?.city}|{r.Location?.regionName}")
+            .Select(g =>
+            {
+                var liveRecord = g.FirstOrDefault(r => liveGuids.Contains(r.Guid));
+                return liveRecord ?? g.First(); // Prioritize live record, otherwise take the closest.
+            })
+            .ToList();
+
+        var nearbyRecords = orderedRecords.Where(r => r.DistanceKm < 3000).ToList();
+        var distantRecords = orderedRecords.Where(r => r.DistanceKm >= 3000).ToList();
+
+        // If there are only a few distant musicians, add them to the main list.
+        if (distantRecords.Count <= 2)
+        {
+            nearbyRecords.AddRange(distantRecords);
+            distantRecords.Clear();
+        }
 
         // Render nearby musicians
         foreach (var record in nearbyRecords)
@@ -180,23 +192,43 @@ public class MusicianFinder
             bool isLive = liveGuids.Contains(record.Guid);
             string rowClass = isLive ? "" : " class='not-here'";
             string bulbClass = isLive ? "green" : "gray";
+
+            string ipDerivedRegion = record.Location?.regionName ?? "";
+            string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
+            string locationDisplay;
+
+            bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
+            bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
+
+            if (hasValidCity && cityIsDifferentFromRegion)
+            {
+                locationDisplay = $"{record.UserCity},<br/>{regionHtml}";
+            }
+            else
+            {
+                locationDisplay = regionHtml;
+            }
+
+            string instrumentHtml = "";
+            if (record.Instrument != null && record.Instrument.Trim() != "-")
+            {
+                instrumentHtml = $"<div class='sub-line'>{record.Instrument}</div>";
+            }
+
             sb.AppendLine($"    <tr{rowClass}>");
-            sb.AppendLine($"      <td class='col-musician'><span class='bulb {bulbClass}'></span>{record.Name}</td>");
-            sb.AppendLine($"      <td class='col-instrument small-font'>{record.Instrument}</td>");
-            sb.AppendLine($"      <td class='col-city'>{record.Location?.city ?? ""}</td>");
-            sb.AppendLine($"      <td class='col-region small-font'>{record.Location?.regionName ?? ""}</td>");
-            sb.AppendLine($"      <td class='col-country small-font'>{record.Location?.countryCode ?? ""}</td>");
+            sb.AppendLine($"      <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div>{record.Name}{instrumentHtml}</div></div></td>");
+            sb.AppendLine($"      <td class='col-location'>{locationDisplay}</td>");
             sb.AppendLine("    </tr>");
         }
 
-        // If there are distant musicians, create the collapsible section
+        // If there are still distant musicians, create the collapsible section
         if (distantRecords.Any())
         {
             sb.AppendLine("    <tr>");
-            sb.AppendLine("      <td colspan='5' style='padding: 0; border: none;'>");
+            sb.AppendLine("      <td colspan='2' style='padding: 0; border: none;'>");
             sb.AppendLine("        <details>");
-            sb.AppendLine("          <summary>see further</summary>");
-            sb.AppendLine("          <table style='width: 100%; border-collapse: collapse;'>");
+            sb.AppendLine($"          <summary>{distantRecords.Count} more</summary>");
+            sb.AppendLine("          <table style='width: 100%; border-collapse: collapse;' class='musician-table'>");
             sb.AppendLine("            <tbody>");
 
             foreach (var record in distantRecords)
@@ -204,12 +236,32 @@ public class MusicianFinder
                 bool isLive = liveGuids.Contains(record.Guid);
                 string rowClass = isLive ? "" : " class='not-here'";
                 string bulbClass = isLive ? "green" : "gray";
+
+                string ipDerivedRegion = record.Location?.regionName ?? "";
+                string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
+                string locationDisplay;
+
+                bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
+                bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
+
+                if (hasValidCity && cityIsDifferentFromRegion)
+                {
+                    locationDisplay = $"{record.UserCity},<br/>{regionHtml}";
+                }
+                else
+                {
+                    locationDisplay = regionHtml;
+                }
+
+                string instrumentHtml = "";
+                if (record.Instrument != null && record.Instrument.Trim() != "-")
+                {
+                    instrumentHtml = $"<div class='sub-line'>{record.Instrument}</div>";
+                }
+
                 sb.AppendLine($"              <tr{rowClass}>");
-                sb.AppendLine($"                <td class='col-musician'><span class='bulb {bulbClass}'></span>{record.Name}</td>");
-                sb.AppendLine($"                <td class='col-instrument small-font'>{record.Instrument}</td>");
-                sb.AppendLine($"                <td class='col-city'>{record.Location?.city ?? ""}</td>");
-                sb.AppendLine($"                <td class='col-region small-font'>{record.Location?.regionName ?? ""}</td>");
-                sb.AppendLine($"                <td class='col-country small-font'>{record.Location?.countryCode ?? ""}</td>");
+                sb.AppendLine($"                <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div>{record.Name}{instrumentHtml}</div></div></td>");
+                sb.AppendLine($"                <td class='col-location'>{locationDisplay}</td>");
                 sb.AppendLine("              </tr>");
             }
 
@@ -222,31 +274,81 @@ public class MusicianFinder
 
         sb.AppendLine("  </tbody>");
         sb.AppendLine("</table>");
+
+        foreach (var record in orderedRecords)
+        {
+            string musicianPart = (record.Instrument != null && record.Instrument.Trim() != "-")
+                ? $"{record.Name} ({record.Instrument})"
+                : record.Name;
+
+            string ipDerivedRegion = record.Location?.regionName ?? "";
+            string locationPart;
+
+            bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
+            bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
+
+            if (hasValidCity && cityIsDifferentFromRegion)
+            {
+                locationPart = $"{record.UserCity}, {ipDerivedRegion}";
+            }
+            else
+            {
+                locationPart = ipDerivedRegion;
+            }
+
+            // MODIFIED: Added the GUID to the beginning of the diagnostic line.
+            Console.WriteLine($"{record.Guid} APPEARS AS {musicianPart} -> {locationPart}");
+        }
+
         return sb.ToString();
     }
+
 
     private async Task<HashSet<string>> GetLiveGuidsFromApiAsync()
     {
         var liveGuids = new HashSet<string>();
-        foreach (var url in Urls)
+        // This logic assumes that JamFan22.Pages.IndexModel and its static members exist and are accessible.
+        // It also assumes 'JamulusServers' is a typo for the internal 'JamulusServer' class.
+        foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
         {
             try
             {
-                var response = await HttpClient.GetStringAsync(url);
-                var servers = JsonSerializer.Deserialize<List<JamulusServer>>(response);
-                if (servers == null) continue;
-
-                // ADDED: Filter out servers where the 'clients' list is null to prevent NullReferenceException.
-                foreach (var client in servers.Where(s => s != null && s.clients != null).SelectMany(s => s.clients))
+                if (JamFan22.Pages.IndexModel.LastReportedList.TryGetValue(key, out var jsonString) && !string.IsNullOrEmpty(jsonString))
                 {
-                    liveGuids.Add(GetGuid(client.name, client.country, client.instrument));
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServer>>(jsonString);
+
+                    if (serversOnList != null)
+                    {
+                        // Loop through each server object in the deserialized list.
+                        foreach (var server in serversOnList)
+                        {
+                            // Safety check: ensure the server object itself isn't null and its clients list exists.
+                            if (server != null && server.clients != null)
+                            {
+                                // Now, loop through the clients on this specific server.
+                                foreach (var client in server.clients)
+                                {
+                                    // Safety check for the client object.
+                                    if (client != null)
+                                    {
+                                        liveGuids.Add(GetGuid(client.name, client.country, client.instrument));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[GetLiveGuidsFromApiAsync] Error processing URL {url}. Exception: {ex.Message}");
+                // Provide context in the error message for better debugging.
+                Console.WriteLine($"[GetLiveGuidsFromApiAsync] Error processing data for key '{key}'. Exception: {ex.Message}");
             }
         }
+
+        // This method no longer performs any truly async operations based on your new code,
+        // but we keep the signature to match where it's called.
+        await Task.CompletedTask;
         return liveGuids;
     }
 
@@ -354,6 +456,8 @@ public class MusicianFinder
                         Guid = guid,
                         Name = WebUtility.UrlDecode(fields[3].Trim()),
                         Instrument = fields[4].Trim(),
+                        // MODIFIED: Split the city string at the comma and take the first part.
+                        UserCity = WebUtility.UrlDecode(fields[5].Trim()).Split(',')[0].Trim(),
                         Lat = lat,
                         Lon = lon,
                         IpAddress = fields[11].Trim()
@@ -382,47 +486,69 @@ public class MusicianFinder
         Console.WriteLine($"[GetMusicianRecords] Calculated distance for {distancedRecords.Count} musicians.");
 
         var finalRecords = distancedRecords
-            .Where(r => r.DistanceKm < 4000)
+            .Where(r => r.DistanceKm < 5000)
             .ToList();
-        Console.WriteLine($"[GetMusicianRecords] {finalRecords.Count} musicians remaining after distance filter (< 4000km).");
+        Console.WriteLine($"[GetMusicianRecords] {finalRecords.Count} musicians remaining after distance filter (< 5000km).");
 
         return finalRecords;
     }
 
     private async Task<IpApiDetails> GetIpDetailsAsync(string ip)
     {
-        var ipAddress = ip.Split(':')[0];
+        string ipAddress;
+        // Handle IPv4-mapped IPv6 addresses (e.g., ::ffff:123.123.123.123)
+        if (ip.Contains("::ffff:"))
+        {
+            ipAddress = ip.Substring(ip.LastIndexOf(':') + 1);
+        }
+        else
+        {
+            ipAddress = ip.Split(':')[0];
+        }
+
         if (IpCache.TryGetValue(ipAddress, out var cachedItem) && !cachedItem.IsExpired)
         {
             return cachedItem.Data;
         }
 
-        // If this is the 3rd call or later (index 2+), pause for 1 second.
-        if (_apiCallCounter >= 2)
-        {
-            await Task.Delay(1000); // 1 second pause
-        }
-        _apiCallCounter++; // Increment the counter for this run
+        int maxRetries = 4;
+        int delay = 2000; // Initial delay of 2 seconds
 
-        try
+        for (int i = 0; i < maxRetries; i++)
         {
-            var response = await HttpClient.GetStringAsync($"http://ip-api.com/json/{ipAddress}");
-            var details = JsonSerializer.Deserialize<IpApiDetails>(response);
-
-            if (details?.status == "success")
+            try
             {
-                IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
-                return details;
+                await Task.Delay(delay); // Wait before making the call
+
+                var response = await HttpClient.GetStringAsync($"http://ip-api.com/json/{ipAddress}");
+                var details = JsonSerializer.Deserialize<IpApiDetails>(response);
+
+                if (details?.status == "success")
+                {
+                    Console.WriteLine($"[GetIpDetailsAsync] API SUCCESS for {ipAddress}: City={details.city}, Lat={details.lat}, Lon={details.lon}");
+                    IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
+                    return details;
+                }
+                else
+                {
+                    Console.WriteLine($"[GetIpDetailsAsync] API FAILED for {ipAddress}: Status was '{details?.status}'. Retrying...");
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[GetIpDetailsAsync] Error looking up IP {ipAddress}. Exception: {ex.Message}");
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                Console.WriteLine($"[GetIpDetailsAsync] Rate limit hit (429) on attempt {i + 1} for IP {ipAddress}. Increasing delay and retrying.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetIpDetailsAsync] Error on attempt {i + 1} for IP {ipAddress}. Exception: {ex.Message}");
+            }
+
+            delay *= 2; // Double the delay for the next retry (exponential backoff)
         }
 
-        var failureResult = new IpApiDetails();
-        IpCache[ipAddress] = new CacheItem<IpApiDetails>(failureResult); // Cache failures too
-        return failureResult;
+        Console.WriteLine($"[GetIpDetailsAsync] All retry attempts failed for IP {ipAddress}.");
+        // MODIFIED: Do not cache failures.
+        return new IpApiDetails();
     }
 
     // --- UTILITY METHODS ---
@@ -454,4 +580,3 @@ public class MusicianFinder
         return $"{(int)ts.TotalMinutes} mins";
     }
 }
-
