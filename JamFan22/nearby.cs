@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -15,48 +15,60 @@ public class MusicianFinder
 {
     private static readonly HttpClient HttpClient = new HttpClient();
     private static readonly ConcurrentDictionary<string, CacheItem<IpApiDetails>> IpCache = new ConcurrentDictionary<string, CacheItem<IpApiDetails>>();
-
-    // --- MODIFIED: A simple lock is sufficient for serializing requests ---
     private static readonly object _apiLock = new object();
 
+    private static readonly HashSet<string> UsStateAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+        "DC"
+    };
 
     /// <summary>
     /// Initializes a new instance of the MusicianFinder.
     /// </summary>
     public MusicianFinder()
     {
-        // Constructor is now parameterless.
     }
-
 
     // --- DATA MODELS ---
     private class JamulusServer { public List<ApiClient> clients { get; set; } = new List<ApiClient>(); }
     private class ApiClient { public string name { get; set; } public string country { get; set; } public string instrument { get; set; } public string city { get; set; } }
     private class TimeRecord { public string Key { get; set; } public string Value { get; set; } }
-    // Modified to handle flexible date formats by reading the date as a string first.
     private class LastUpdateRecordRaw { public string Key { get; set; } public string Value { get; set; } }
     private class IpApiDetails { public string status { get; set; } public string city { get; set; } public string regionName { get; set; } public string countryCode { get; set; } public double lat { get; set; } public double lon { get; set; } }
     private class CacheItem<T> { public T Data { get; } public DateTime Expiration { get; } public CacheItem(T data) { Data = data; Expiration = DateTime.UtcNow.AddHours(1); } public bool IsExpired => DateTime.UtcNow > Expiration; }
+    
+    private class PredictedRecord
+    {
+        public DateTime PredictedArrivalTime { get; set; }
+        public string Guid { get; set; }
+        public string Name { get; set; }
+    }
+
     private class MusicianRecord
     {
         public long MinutesSinceEpoch { get; set; }
         public string Guid { get; set; }
         public string Name { get; set; }
         public string Instrument { get; set; }
-        public string UserCity { get; set; } // MODIFIED: Added to store the user-provided city
+        public string UserCity { get; set; }
         public double Lat { get; set; }
         public double Lon { get; set; }
         public string IpAddress { get; set; }
         public double DistanceKm { get; set; }
         public DateTime LastSeen { get; set; }
         public IpApiDetails Location { get; set; }
+        public bool IsPredicted { get; set; } = false;
+        public DateTime PredictedArrivalTime { get; set; }
     }
 
     /// <summary>
     /// Finds nearby musicians based on an IP address and returns an HTML table.
     /// </summary>
-    /// <param name="userIp">Your IP address.</param>
-    /// <returns>An HTML table string.</returns>
     public async Task<string> FindMusiciansHtmlAsync(string userIp)
     {
         if (string.IsNullOrWhiteSpace(userIp))
@@ -73,7 +85,6 @@ public class MusicianFinder
 
         Console.WriteLine($"[Diagnostic] Client City: {userLocation.city}");
 
-        // Call the private method with the looked-up coordinates
         return await FindMusiciansHtmlAsync(userLocation.lat, userLocation.lon);
     }
 
@@ -82,7 +93,6 @@ public class MusicianFinder
     /// </summary>
     private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
     {
-        // Check for required files before proceeding.
         const string joinEventsFile = "join-events.csv";
         const string timeTogetherFile = "timeTogether.json";
         const string lastUpdatesFile = "timeTogetherLastUpdates.json";
@@ -96,7 +106,6 @@ public class MusicianFinder
             return $"<table><tr><td>Error: Required data file(s) not found: {string.Join(", ", missingFiles)}</td></tr></table>";
         }
 
-        // Step 1: Get live and recent users
         var liveGuids = await GetLiveGuidsFromApiAsync();
         var lastSeenMap = GetLastSeenMap();
         var recentGuids = lastSeenMap
@@ -104,98 +113,83 @@ public class MusicianFinder
             .Select(kvp => kvp.Key)
             .ToHashSet();
         var allRelevantGuids = liveGuids.Union(recentGuids).ToHashSet();
-
-        // Step 2: Get GUIDs with significant session time
         var longSessionGuids = GetLongSessionGuids();
-
-        // Step 3: Final intersection of all criteria
         var finalGuids = allRelevantGuids.Intersect(longSessionGuids).ToHashSet();
+        var predictedUsers = GetPredictedUsers();
+        var finalPredictedUsers = predictedUsers
+            .Where(p => !finalGuids.Contains(p.Guid))
+            .ToList();
+        var predictedGuids = finalPredictedUsers.Select(p => p.Guid).ToHashSet();
+        var combinedGuidsForLookup = finalGuids.Union(predictedGuids).ToHashSet();
 
-        if (!finalGuids.Any())
+        if (!combinedGuidsForLookup.Any())
         {
             return "<table><tr><td>No musicians found matching all criteria in this cycle.</td></tr></table>";
         }
 
-        // Step 4: Process join-events.csv to get musician details
-        var musicianRecords = GetMusicianRecords(finalGuids, userLat, userLon);
+        var musicianRecords = GetMusicianRecords(combinedGuidsForLookup, userLat, userLon);
+        var predictedUserDataMap = finalPredictedUsers.ToDictionary(p => p.Guid);
 
-        // Step 5: Get location details from IP API and determine final "Last Seen" status
-        var musicianTasks = musicianRecords.Select(async record =>
+        // --- MODIFICATION: Replaced Task.WhenAll with a serial foreach loop ---
+        var completedMusicianRecords = new List<MusicianRecord>();
+        foreach (var record in musicianRecords)
         {
+            // This 'await' pauses the loop, ensuring requests happen one at a time.
             record.Location = await GetIpDetailsAsync(record.IpAddress);
-            // Default to now, then check the map for a more accurate recent time.
-            record.LastSeen = DateTime.UtcNow;
-            if (lastSeenMap.TryGetValue(record.Guid, out var seenDate))
-            {
-                record.LastSeen = seenDate;
-            }
-            return record;
-        });
-        var completedMusicianRecords = await Task.WhenAll(musicianTasks);
 
-        // --- MODIFIED: The first diagnostic block that showed musicians by distance has been removed. ---
+            if (predictedUserDataMap.TryGetValue(record.Guid, out var predictedData))
+            {
+                record.IsPredicted = true;
+                record.PredictedArrivalTime = predictedData.PredictedArrivalTime;
+                Console.WriteLine($"[Diagnostic] {record.Guid} ({record.Name}) is a PREDICTED user, expected at {record.PredictedArrivalTime:HH:mm:ss} UTC.");
+            }
+            else
+            {
+                record.IsPredicted = false;
+                record.LastSeen = DateTime.UtcNow;
+                if (lastSeenMap.TryGetValue(record.Guid, out var seenDate))
+                {
+                    record.LastSeen = seenDate;
+                }
+            }
+            completedMusicianRecords.Add(record);
+        }
 
         return BuildHtmlTable(completedMusicianRecords, liveGuids);
     }
 
+    private static string GetArrivalTimeDisplayString(DateTime arrivalTime)
+    {
+        double totalMinutes = (arrivalTime - DateTime.UtcNow).TotalMinutes;
 
-    private string BuildHtmlTable(IEnumerable<MusicianRecord> records, HashSet<string> liveGuids)
+        if (totalMinutes <= 0) return "DUE";
+        if (totalMinutes <= 20) return "soon";
+        if (totalMinutes <= 45) return "½ hour";
+        if (totalMinutes <= 75) return "1 hour";
+        return "2 hours";
+    }
+
+    private string BuildMusicianRowHtml(MusicianRecord record, HashSet<string> liveGuids)
     {
         var sb = new StringBuilder();
-        // Add CSS styles for borders, bulbs, grayed-out rows, and column widths
-        sb.AppendLine("<style>");
-        sb.AppendLine("  table, th, td { border: 1px solid #ccc; border-collapse: collapse; table-layout: fixed; }");
-        sb.AppendLine("  th, td { padding: 4px; text-align: left; word-wrap: break-word; vertical-align: middle; }");
-        sb.AppendLine("  th { white-space: nowrap; }");
-        sb.AppendLine("  th.col-musician { padding-left: 24px; }");
-        sb.AppendLine("  .musician-table tbody tr:hover td { background-color: #f5f5f5; }");
-        sb.AppendLine("  .bulb { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0; }");
-        sb.AppendLine("  .green { background-color: #28a745; }");
-        sb.AppendLine("  .gray { background-color: #adb5bd; }");
-        sb.AppendLine("  .not-here { color: #6c757d; }");
-        sb.AppendLine("  summary { cursor: pointer; color: #007bff; padding: 8px; }");
-        sb.AppendLine("  .col-musician { width: 55%; }");
-        sb.AppendLine("  .col-location { width: 45%; }");
-        sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }");
-        sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; }");
-        sb.AppendLine("</style>");
-
-        sb.AppendLine("<table style='width: 100%;' class='musician-table'>");
-        sb.AppendLine("  <thead>");
-        sb.AppendLine("    <tr><th class='col-musician'>Musician</th><th class='col-location'>Location</th></tr>");
-        sb.AppendLine("  </thead>");
-        sb.AppendLine("  <tbody>");
-
-        var orderedRecords = records
-            .OrderBy(r => r.DistanceKm)
-            .GroupBy(r => $"{r.Name}|{r.Location?.city}|{r.Location?.regionName}")
-            .Select(g =>
-            {
-                var liveRecord = g.FirstOrDefault(r => liveGuids.Contains(r.Guid));
-                return liveRecord ?? g.First(); // Prioritize live record, otherwise take the closest.
-            })
-            .ToList();
-
-        var nearbyRecords = orderedRecords.Where(r => r.DistanceKm < 3000).ToList();
-        var distantRecords = orderedRecords.Where(r => r.DistanceKm >= 3000).ToList();
-
-        // If there are only a few distant musicians, add them to the main list.
-        if (distantRecords.Count <= 2)
+        string bulbClass;
+        string rowClass = "";
+        string locationDisplay;
+        
+        if (record.IsPredicted)
         {
-            nearbyRecords.AddRange(distantRecords);
-            distantRecords.Clear();
+            bulbClass = "orange";
+            string arrivalString = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
+            locationDisplay = $"<span class='sub-line'>{arrivalString}</span>";
         }
-
-        // Render nearby musicians
-        foreach (var record in nearbyRecords)
+        else
         {
             bool isLive = liveGuids.Contains(record.Guid);
-            string rowClass = isLive ? "" : " class='not-here'";
-            string bulbClass = isLive ? "green" : "gray";
+            rowClass = isLive ? "" : " class='not-here'";
+            bulbClass = isLive ? "green" : "gray";
 
             string ipDerivedRegion = record.Location?.regionName ?? "";
             string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
-            string locationDisplay;
 
             bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
             bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
@@ -208,20 +202,83 @@ public class MusicianFinder
             {
                 locationDisplay = regionHtml;
             }
-
-            string instrumentHtml = "";
-            if (record.Instrument != null && record.Instrument.Trim() != "-")
-            {
-                instrumentHtml = $"<div class='sub-line'>{record.Instrument}</div>";
-            }
-
-            sb.AppendLine($"    <tr{rowClass}>");
-            sb.AppendLine($"      <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div>{record.Name}{instrumentHtml}</div></div></td>");
-            sb.AppendLine($"      <td class='col-location'>{locationDisplay}</td>");
-            sb.AppendLine("    </tr>");
         }
 
-        // If there are still distant musicians, create the collapsible section
+        string instrumentHtml = "";
+        if (record.Instrument != null && record.Instrument.Trim() != "-")
+        {
+            instrumentHtml = $"<div class='sub-line'>{record.Instrument}</div>";
+        }
+
+        sb.AppendLine($"        <tr{rowClass}>");
+        sb.AppendLine($"          <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div>{record.Name}{instrumentHtml}</div></div></td>");
+        sb.AppendLine($"          <td class='col-location'>{locationDisplay}</td>");
+        sb.AppendLine("        </tr>");
+        
+        return sb.ToString();
+    }
+    
+    private string BuildHtmlTable(IEnumerable<MusicianRecord> records, HashSet<string> liveGuids)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<style>");
+        sb.AppendLine("  table, th, td { border: 1px solid #ccc; border-collapse: collapse; table-layout: fixed; }");
+        sb.AppendLine("  th, td { padding: 4px; text-align: left; word-wrap: break-word; vertical-align: middle; }");
+        sb.AppendLine("  .bulb { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0; }");
+        sb.AppendLine("  .green { background-color: #28a745; }");
+        sb.AppendLine("  .gray { background-color: #adb5bd; }");
+        sb.AppendLine("  .orange { background-color: #fd7e14; }");
+        sb.AppendLine("  .not-here { color: #6c757d; }");
+        sb.AppendLine("  summary { cursor: pointer; color: #007bff; padding: 8px; }");
+        sb.AppendLine("  .col-musician { width: 55%; }");
+        sb.AppendLine("  .col-location { width: 45%; }");
+        sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }");
+        sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; }");
+        sb.AppendLine("</style>");
+
+        sb.AppendLine("<table style='width: 100%;' class='musician-table'>");
+        sb.AppendLine("  <tbody>");
+
+        var orderedRecords = records
+            .OrderBy(r => r.DistanceKm)
+            .GroupBy(r => $"{r.Name}|{r.Location?.city}|{r.Location?.regionName}")
+            .Select(g =>
+            {
+                return g.FirstOrDefault(r => liveGuids.Contains(r.Guid))
+                    ?? g.FirstOrDefault(r => r.IsPredicted)
+                    ?? g.First();
+            })
+            .ToList();
+
+        const int minimumVisibleCount = 3;
+        const double distanceThresholdKm = 3000;
+
+        var nearbyRecords = new List<MusicianRecord>();
+        var distantRecords = new List<MusicianRecord>();
+
+        foreach (var record in orderedRecords)
+        {
+            if (record.DistanceKm < distanceThresholdKm || nearbyRecords.Count < minimumVisibleCount)
+            {
+                nearbyRecords.Add(record);
+            }
+            else
+            {
+                distantRecords.Add(record);
+            }
+        }
+
+        if (distantRecords.Count <= 2)
+        {
+            nearbyRecords.AddRange(distantRecords);
+            distantRecords.Clear();
+        }
+
+        foreach (var record in nearbyRecords)
+        {
+            sb.Append(BuildMusicianRowHtml(record, liveGuids));
+        }
+        
         if (distantRecords.Any())
         {
             sb.AppendLine("    <tr>");
@@ -233,36 +290,7 @@ public class MusicianFinder
 
             foreach (var record in distantRecords)
             {
-                bool isLive = liveGuids.Contains(record.Guid);
-                string rowClass = isLive ? "" : " class='not-here'";
-                string bulbClass = isLive ? "green" : "gray";
-
-                string ipDerivedRegion = record.Location?.regionName ?? "";
-                string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
-                string locationDisplay;
-
-                bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
-                bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
-
-                if (hasValidCity && cityIsDifferentFromRegion)
-                {
-                    locationDisplay = $"{record.UserCity},<br/>{regionHtml}";
-                }
-                else
-                {
-                    locationDisplay = regionHtml;
-                }
-
-                string instrumentHtml = "";
-                if (record.Instrument != null && record.Instrument.Trim() != "-")
-                {
-                    instrumentHtml = $"<div class='sub-line'>{record.Instrument}</div>";
-                }
-
-                sb.AppendLine($"              <tr{rowClass}>");
-                sb.AppendLine($"                <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div>{record.Name}{instrumentHtml}</div></div></td>");
-                sb.AppendLine($"                <td class='col-location'>{locationDisplay}</td>");
-                sb.AppendLine("              </tr>");
+                sb.Append(BuildMusicianRowHtml(record, liveGuids));
             }
 
             sb.AppendLine("            </tbody>");
@@ -271,7 +299,7 @@ public class MusicianFinder
             sb.AppendLine("      </td>");
             sb.AppendLine("    </tr>");
         }
-
+        
         sb.AppendLine("  </tbody>");
         sb.AppendLine("</table>");
 
@@ -281,34 +309,45 @@ public class MusicianFinder
                 ? $"{record.Name} ({record.Instrument})"
                 : record.Name;
 
-            string ipDerivedRegion = record.Location?.regionName ?? "";
-            string locationPart;
+            string status;
+            string detailsPart;
 
-            bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
-            bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
-
-            if (hasValidCity && cityIsDifferentFromRegion)
+            if (record.IsPredicted)
             {
-                locationPart = $"{record.UserCity}, {ipDerivedRegion}";
+                status = "PREDICTED";
+                string arrivalString = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
+                detailsPart = $"Displays \"{arrivalString}\"";
             }
             else
             {
-                locationPart = ipDerivedRegion;
-            }
+                status = liveGuids.Contains(record.Guid) ? "NOW" : "GONE";
+                
+                string ipDerivedRegion = record.Location?.regionName ?? "Unknown Region";
+                string locationPart;
 
-            // MODIFIED: Added the GUID to the beginning of the diagnostic line.
-            Console.WriteLine($"{record.Guid} APPEARS AS {musicianPart} -> {locationPart}");
+                bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
+                bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
+
+                if (hasValidCity && cityIsDifferentFromRegion)
+                {
+                    locationPart = $"{record.UserCity}, {ipDerivedRegion}";
+                }
+                else
+                {
+                    locationPart = ipDerivedRegion;
+                }
+                detailsPart = locationPart;
+            }
+            
+            Console.WriteLine($"{record.Guid} {status,-9} {musicianPart,-35} -> {detailsPart}");
         }
 
         return sb.ToString();
     }
 
-
     private async Task<HashSet<string>> GetLiveGuidsFromApiAsync()
     {
         var liveGuids = new HashSet<string>();
-        // This logic assumes that JamFan22.Pages.IndexModel and its static members exist and are accessible.
-        // It also assumes 'JamulusServers' is a typo for the internal 'JamulusServer' class.
         foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
         {
             try
@@ -319,16 +358,12 @@ public class MusicianFinder
 
                     if (serversOnList != null)
                     {
-                        // Loop through each server object in the deserialized list.
                         foreach (var server in serversOnList)
                         {
-                            // Safety check: ensure the server object itself isn't null and its clients list exists.
                             if (server != null && server.clients != null)
                             {
-                                // Now, loop through the clients on this specific server.
                                 foreach (var client in server.clients)
                                 {
-                                    // Safety check for the client object.
                                     if (client != null)
                                     {
                                         liveGuids.Add(GetGuid(client.name, client.country, client.instrument));
@@ -341,15 +376,56 @@ public class MusicianFinder
             }
             catch (Exception ex)
             {
-                // Provide context in the error message for better debugging.
                 Console.WriteLine($"[GetLiveGuidsFromApiAsync] Error processing data for key '{key}'. Exception: {ex.Message}");
             }
         }
-
-        // This method no longer performs any truly async operations based on your new code,
-        // but we keep the signature to match where it's called.
         await Task.CompletedTask;
         return liveGuids;
+    }
+
+    private List<PredictedRecord> GetPredictedUsers()
+    {
+        var predictedUsers = new List<PredictedRecord>();
+        const string fileName = "predicted.csv";
+        if (!File.Exists(fileName))
+        {
+            return predictedUsers;
+        }
+
+        var now = DateTime.UtcNow;
+        var tenMinutesAgo = now.AddMinutes(-10);
+        var threeHoursFromNow = now.AddHours(3);
+        var epoch = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        try
+        {
+            var lines = File.ReadAllLines(fileName);
+            foreach (var line in lines)
+            {
+                var fields = line.Split(new[] { ',' }, 3);
+                if (fields.Length != 3) continue;
+
+                if (long.TryParse(fields[0].Trim(), out long minutesSinceEpoch))
+                {
+                    var arrivalTime = epoch.AddMinutes(minutesSinceEpoch);
+                    if (arrivalTime > tenMinutesAgo && arrivalTime <= threeHoursFromNow)
+                    {
+                        predictedUsers.Add(new PredictedRecord
+                        {
+                            PredictedArrivalTime = arrivalTime,
+                            Guid = fields[1].Trim(),
+                            Name = WebUtility.UrlDecode(fields[2].Trim())
+                        });
+                    }
+                }
+            }
+            Console.WriteLine($"[GetPredictedUsers] Found {predictedUsers.Count} users predicted to arrive in the next 3 hours (or are up to 10 mins late).");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[GetPredictedUsers] Error reading or parsing {fileName}: {ex.Message}");
+        }
+        return predictedUsers;
     }
 
     private Dictionary<string, DateTime> GetLastSeenMap()
@@ -359,39 +435,22 @@ public class MusicianFinder
         try
         {
             var json = File.ReadAllText(fileName);
-            // Read into a raw format first to avoid strict date parsing errors
             var records = JsonSerializer.Deserialize<List<LastUpdateRecordRaw>>(json);
-            if (records == null)
-            {
-                Console.WriteLine($"[GetLastSeenMap] Parsed {fileName} but it resulted in a null object.");
-                return lastSeenMap;
-            }
+            if (records == null) return lastSeenMap;
 
             var allUpdates = new List<(string Guid, DateTime LastSeen)>();
-            int failedParses = 0;
             foreach (var record in records)
             {
                 if (record.Key.Length != 64) continue;
-
-                // Try to parse the date string manually for flexibility
                 if (DateTime.TryParse(record.Value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var parsedDate))
                 {
                     allUpdates.Add((record.Key.Substring(0, 32), parsedDate));
                     allUpdates.Add((record.Key.Substring(32, 32), parsedDate));
                 }
-                else
-                {
-                    failedParses++;
-                }
             }
-            if (failedParses > 0) Console.WriteLine($"[GetLastSeenMap] Failed to parse the date for {failedParses} records.");
-
-            var resultingMap = allUpdates
+            return allUpdates
                 .GroupBy(u => u.Guid)
                 .ToDictionary(g => g.Key, g => g.Max(item => item.LastSeen));
-
-            Console.WriteLine($"[GetLastSeenMap] Successfully processed {records.Count - failedParses} valid records from {fileName}, resulting in {resultingMap.Count} unique users with last seen times.");
-            return resultingMap;
         }
         catch (Exception ex)
         {
@@ -408,11 +467,7 @@ public class MusicianFinder
         {
             var json = File.ReadAllText(fileName);
             var records = JsonSerializer.Deserialize<List<TimeRecord>>(json);
-            if (records == null)
-            {
-                Console.WriteLine($"[GetLongSessionGuids] Parsed {fileName} but it resulted in a null object.");
-                return guids;
-            }
+            if (records == null) return guids;
 
             foreach (var record in records)
             {
@@ -420,7 +475,6 @@ public class MusicianFinder
                 guids.Add(record.Key.Substring(0, 32));
                 guids.Add(record.Key.Substring(32, 32));
             }
-            Console.WriteLine($"[GetLongSessionGuids] Successfully processed {records.Count} records from {fileName}, resulting in {guids.Count} unique users with session data.");
         }
         catch (Exception ex)
         {
@@ -429,35 +483,46 @@ public class MusicianFinder
         return guids;
     }
 
-    private List<MusicianRecord> GetMusicianRecords(HashSet<string> finalGuids, double userLat, double userLon)
+    private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
     {
-        Console.WriteLine($"[GetMusicianRecords] Starting with {finalGuids.Count} final GUIDs.");
         var records = new List<MusicianRecord>();
         try
         {
             var lines = File.ReadAllLines("join-events.csv");
-            Console.WriteLine($"[GetMusicianRecords] Read {lines.Length} lines from join-events.csv.");
             foreach (var line in lines)
             {
                 var fields = line.Split(new[] { ',' }, 13);
                 if (fields.Length != 13) continue;
 
                 var guid = fields[2].Trim();
-                if (!finalGuids.Contains(guid)) continue;
+                if (!guidsToFind.Contains(guid)) continue;
 
                 if (long.TryParse(fields[0].Trim(), out long minutesSinceEpoch) &&
                     double.TryParse(fields[9].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lat) &&
                     double.TryParse(fields[10].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lon) &&
                     !string.IsNullOrWhiteSpace(fields[11].Trim()) && fields[11].Trim() != "-")
                 {
+                    string userLocationString = WebUtility.UrlDecode(fields[5].Trim()).Split(',')[0].Trim();
+                    string finalUserCity = userLocationString; 
+                    
+                    var locationParts = userLocationString.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                    if (locationParts.Length > 1)
+                    {
+                        var lastPart = locationParts.Last();
+                        if (UsStateAbbreviations.Contains(lastPart))
+                        {
+                            finalUserCity = string.Join(" ", locationParts.Take(locationParts.Length - 1));
+                        }
+                    }
+
                     records.Add(new MusicianRecord
                     {
                         MinutesSinceEpoch = minutesSinceEpoch,
                         Guid = guid,
                         Name = WebUtility.UrlDecode(fields[3].Trim()),
                         Instrument = fields[4].Trim(),
-                        // MODIFIED: Split the city string at the comma and take the first part.
-                        UserCity = WebUtility.UrlDecode(fields[5].Trim()).Split(',')[0].Trim(),
+                        UserCity = finalUserCity,
                         Lat = lat,
                         Lon = lon,
                         IpAddress = fields[11].Trim()
@@ -470,41 +535,21 @@ public class MusicianFinder
             Console.WriteLine($"[GetMusicianRecords] Error reading join-events.csv: {ex.Message}");
         }
 
-        Console.WriteLine($"[GetMusicianRecords] Found {records.Count} total valid, matching records in join-events.csv.");
-
-        var groupedRecords = records
+        return records
             .GroupBy(r => r.Guid)
             .Select(g => g.OrderByDescending(r => r.MinutesSinceEpoch).First())
-            .ToList();
-        Console.WriteLine($"[GetMusicianRecords] {groupedRecords.Count} unique musicians after selecting the most recent entry for each.");
-
-        var distancedRecords = groupedRecords.Select(r =>
-        {
-            r.DistanceKm = CalculateDistance(userLat, userLon, r.Lat, r.Lon);
-            return r;
-        }).ToList();
-        Console.WriteLine($"[GetMusicianRecords] Calculated distance for {distancedRecords.Count} musicians.");
-
-        var finalRecords = distancedRecords
+            .Select(r =>
+            {
+                r.DistanceKm = CalculateDistance(userLat, userLon, r.Lat, r.Lon);
+                return r;
+            })
             .Where(r => r.DistanceKm < 5000)
             .ToList();
-        Console.WriteLine($"[GetMusicianRecords] {finalRecords.Count} musicians remaining after distance filter (< 5000km).");
-
-        return finalRecords;
     }
 
     private async Task<IpApiDetails> GetIpDetailsAsync(string ip)
     {
-        string ipAddress;
-        // Handle IPv4-mapped IPv6 addresses (e.g., ::ffff:123.123.123.123)
-        if (ip.Contains("::ffff:"))
-        {
-            ipAddress = ip.Substring(ip.LastIndexOf(':') + 1);
-        }
-        else
-        {
-            ipAddress = ip.Split(':')[0];
-        }
+        string ipAddress = ip.Contains("::ffff:") ? ip.Substring(ip.LastIndexOf(':') + 1) : ip.Split(':')[0];
 
         if (IpCache.TryGetValue(ipAddress, out var cachedItem) && !cachedItem.IsExpired)
         {
@@ -512,14 +557,13 @@ public class MusicianFinder
         }
 
         int maxRetries = 4;
-        int delay = 2000; // Initial delay of 2 seconds
+        int delay = 2000;
 
         for (int i = 0; i < maxRetries; i++)
         {
             try
             {
-                await Task.Delay(delay); // Wait before making the call
-
+                await Task.Delay(delay);
                 var response = await HttpClient.GetStringAsync($"http://ip-api.com/json/{ipAddress}");
                 var details = JsonSerializer.Deserialize<IpApiDetails>(response);
 
@@ -529,25 +573,17 @@ public class MusicianFinder
                     IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
                     return details;
                 }
-                else
-                {
-                    Console.WriteLine($"[GetIpDetailsAsync] API FAILED for {ipAddress}: Status was '{details?.status}'. Retrying...");
-                }
             }
-            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            catch (HttpRequestException ex)
             {
-                Console.WriteLine($"[GetIpDetailsAsync] Rate limit hit (429) on attempt {i + 1} for IP {ipAddress}. Increasing delay and retrying.");
+                 Console.WriteLine($"[GetIpDetailsAsync] Error on attempt {i + 1} for IP {ipAddress}. Exception: {ex.Message}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[GetIpDetailsAsync] Error on attempt {i + 1} for IP {ipAddress}. Exception: {ex.Message}");
+                Console.WriteLine($"[GetIpDetailsAsync] General error on attempt {i + 1} for IP {ipAddress}. Exception: {ex.Message}");
             }
-
-            delay *= 2; // Double the delay for the next retry (exponential backoff)
+            delay *= 2;
         }
-
-        Console.WriteLine($"[GetIpDetailsAsync] All retry attempts failed for IP {ipAddress}.");
-        // MODIFIED: Do not cache failures.
         return new IpApiDetails();
     }
 
@@ -573,10 +609,4 @@ public class MusicianFinder
     }
 
     private static double ToRadians(double angle) => Math.PI * angle / 180.0;
-
-    private static string FormatTimeSpan(TimeSpan ts)
-    {
-        if (ts.TotalMinutes < 1) return "now";
-        return $"{(int)ts.TotalMinutes} mins";
-    }
 }

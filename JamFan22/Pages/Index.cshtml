@@ -131,21 +131,24 @@
         // If visible, then use this.
         if (explicitHash) {
             if (document.getElementsByClassName(explicitHash).length > 0) {
-                    console.log("returning explicitHash");
+         //           console.log("returning explicitHash");
                 return explicitHash;
             }
         }
 
         // 2. Fallback to the IP-Derived Hash, if any
         if (ipDerivedLoginHash) {
-                if (document.getElementsByClassName(ipDerivedLoginHash).length > 0) {
-                        console.log("returning ipDerivedLoginHash");
+           // don't insist that the IP-Derived Hash is only valid when the musician is found online.
+           // i want hotties all the time.
+           // any downsides?
+           //     if (document.getElementsByClassName(ipDerivedLoginHash).length > 0) {
+           //             console.log("returning ipDerivedLoginHash");
                     return ipDerivedLoginHash;
-            }
+            // }
         }
 
         // 3. Return null if no valid element was found for either hash.
-        console.log("returning null");
+        // console.log("returning null");
         return null;
     }
 
@@ -680,7 +683,7 @@
     <button type="button" class="collapsible active">Nearby</button>
     <div class="content" style="display: block;">
         <p>
-            These musicians near you have been online in the last hour.
+            Musicians near you.
         </p>
         <p>@Html.Raw(@Model.UniqueServerCountOfEveryActiveUser)</p>
     </div>
@@ -725,7 +728,7 @@
     </p>
     <p>
         <b>Q: Does this site collect data? What happens to the data?</b><br />
-        A: This site collects details about users on public Jamulus servers, including IP addresses. This site associates a geographic region name with each IP address. All these details are erased after 15 days. The IP addresses are never shared.
+        A: This site collects details about users on public Jamulus servers, including IP addresses. As a public service, this site associates a geographic region name with each IP address. All these details are erased after 15 days. The IP addresses are never shared.
     </p>
 </div>
 

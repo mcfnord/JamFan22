@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -3670,10 +3670,13 @@ namespace JamFan22.Pages
 
         static int m_conditionsDelta = 0;
 
-        public string RefreshDuration
+        public string 	RefreshDuration
         {
             get
             {
+var rand = new Random();
+return (120 + rand.Next(-9,9)).ToString();
+/*
                 // never refresh more frequently than 90 seconds
                 if (m_conditionsDelta < -30)
                     m_conditionsDelta = -30;
@@ -3692,6 +3695,7 @@ namespace JamFan22.Pages
                 //                    iRefreshDelay /= 2;
 
                 return iRefreshDelay.ToString();
+*/
             }
         }
 
