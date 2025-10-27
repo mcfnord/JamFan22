@@ -680,11 +680,8 @@
 <br />
 
 <div id="censusSection">
-    <button type="button" class="collapsible active">Nearby</button>
+    <button type="button" class="collapsible active">Nearby Musicians</button>
     <div class="content" style="display: block;">
-        <p>
-            Musicians near you.
-        </p>
         <p>@Html.Raw(@Model.UniqueServerCountOfEveryActiveUser)</p>
     </div>
 </div>
@@ -712,11 +709,6 @@
     </p>
 
     <p>
-        <b>Q: Who uses this?</b><br />
-        A: @Html.Raw(@Model.HowManyUsers)
-    </p>
-
-    <p>
         <b>Q: How often does this list update?</b><br />
         A: See an update every 2 minutes.
     </p>
@@ -728,7 +720,7 @@
     </p>
     <p>
         <b>Q: Does this site collect data? What happens to the data?</b><br />
-        A: This site collects details about users on public Jamulus servers, including IP addresses. As a public service, this site associates a geographic region name with each IP address. All these details are erased after 15 days. The IP addresses are never shared.
+        A: This site collects details about users on public Jamulus servers, including IP addresses. As a public service, this site associates a geographic region with each IP address. All these details are erased after 15 days. The IP addresses are never shared.
     </p>
 </div>
 
