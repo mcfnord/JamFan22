@@ -15,7 +15,31 @@ public class MusicianFinder
 {
     private static readonly HttpClient HttpClient = new HttpClient();
     private static readonly ConcurrentDictionary<string, CacheItem<IpApiDetails>> IpCache = new ConcurrentDictionary<string, CacheItem<IpApiDetails>>();
-    private static readonly object _apiLock = new object();
+    
+    // --- Caching Fields ---
+    private static CacheItem<Dictionary<string, double>> _accruedTimeCache;
+    private static CacheItem<Dictionary<string, DateTime>> _lastSeenMapCache;
+    private static CacheItem<List<PredictedRecord>> _predictedUsersCache;
+    private static CacheItem<MusicianDataCache> _musicianDataCache;
+    private static readonly object _cacheLock = new object();
+    
+    // --- 24-Hour Blocklist Fields ---
+    // Tracks when a user *first* appeared in a continuous live session
+    private static readonly ConcurrentDictionary<string, DateTime> _liveUserFirstSeen = new ConcurrentDictionary<string, DateTime>();
+    // Users who have been live > 24h are added here for the app's lifetime
+    private static readonly ConcurrentDictionary<string, byte> _sessionBlocklist = new ConcurrentDictionary<string, byte>();
+    
+    // --- NEW FIELD FOR PROMOTION HACK ---
+    // Maps a new, untrusted GUID (Key) to an old, trusted GUID (Value)
+    private static readonly ConcurrentDictionary<string, string> _promotedGuidMap = new ConcurrentDictionary<string, string>();
+    // ------------------------------------
+
+    private static readonly TextInfo TextCaseInfo = new CultureInfo("en-US", false).TextInfo;
+
+    private static readonly HashSet<string> Acronyms = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "CDMX", "NRW"
+    };
 
     private static readonly HashSet<string> UsStateAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -26,13 +50,14 @@ public class MusicianFinder
         "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
         "DC"
     };
-
-    /// <summary>
-    /// Initializes a new instance of the MusicianFinder.
-    /// </summary>
-    public MusicianFinder()
+    
+    private static readonly HashSet<string> CanadianProvinceAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-    }
+        "AB", "BC", "MB", "NB", "NL", "NS", "ON", "PE", "QC", "SK",
+        "NT", "NU", "YT"
+    };
+
+    public MusicianFinder() {}
 
     // --- DATA MODELS ---
     private class JamulusServer { public List<ApiClient> clients { get; set; } = new List<ApiClient>(); }
@@ -40,15 +65,30 @@ public class MusicianFinder
     private class TimeRecord { public string Key { get; set; } public string Value { get; set; } }
     private class LastUpdateRecordRaw { public string Key { get; set; } public string Value { get; set; } }
     private class IpApiDetails { public string status { get; set; } public string city { get; set; } public string regionName { get; set; } public string countryCode { get; set; } public double lat { get; set; } public double lon { get; set; } }
-    private class CacheItem<T> { public T Data { get; } public DateTime Expiration { get; } public CacheItem(T data) { Data = data; Expiration = DateTime.UtcNow.AddHours(1); } public bool IsExpired => DateTime.UtcNow > Expiration; }
     
-    private class PredictedRecord
-    {
-        public DateTime PredictedArrivalTime { get; set; }
-        public string Guid { get; set; }
-        public string Name { get; set; }
+    private class CacheItem<T> 
+    { 
+        public T Data { get; } 
+        public DateTime Expiration { get; }
+        
+        // Constructor for variable durations (e.g., seconds)
+        public CacheItem(T data, TimeSpan duration) 
+        { 
+            Data = data; 
+            Expiration = DateTime.UtcNow.Add(duration); 
+        }
+        
+        // Original constructor, defaults to 1 hour (used by IpCache)
+        public CacheItem(T data, int hours = 1) 
+        { 
+            Data = data; 
+            Expiration = DateTime.UtcNow.AddHours(hours); 
+        } 
+        public bool IsExpired => DateTime.UtcNow > Expiration; 
     }
 
+    private class PredictedRecord { public DateTime PredictedArrivalTime { get; set; } public string Guid { get; set; } public string Name { get; set; } }
+    
     private class MusicianRecord
     {
         public long MinutesSinceEpoch { get; set; }
@@ -65,112 +105,250 @@ public class MusicianFinder
         public bool IsPredicted { get; set; } = false;
         public DateTime PredictedArrivalTime { get; set; }
     }
+    
+    private class UserStats
+    {
+        public int TotalEntries { get; set; } = 0;
+        public int EntriesWithInferredIp { get; set; } = 0;
+        public MusicianRecord MostRecentRecord { get; set; } = null;
+    }
+    
+    private class MusicianDataCache
+    {
+        public HashSet<string> AllGoldenGuids { get; set; }
+        public Dictionary<string, UserStats> FullStatsMap { get; set; }
+    }
 
-    /// <summary>
-    /// Finds nearby musicians based on an IP address and returns an HTML table.
-    /// </summary>
     public async Task<string> FindMusiciansHtmlAsync(string userIp)
     {
         if (string.IsNullOrWhiteSpace(userIp))
-        {
             return "<table><tr><td>Error: IP address cannot be empty.</td></tr></table>";
-        }
 
         var userLocation = await GetIpDetailsAsync(userIp);
-
         if (userLocation?.status != "success")
-        {
             return $"<table><tr><td>Error: Could not determine your location from IP address {userIp}.</td></tr></table>";
-        }
 
-        Console.WriteLine($"[Diagnostic] Client City: {userLocation.city}");
-
+        Console.WriteLine($"Client City: {userLocation.city}");
         return await FindMusiciansHtmlAsync(userLocation.lat, userLocation.lon);
     }
 
-    /// <summary>
-    /// Finds nearby musicians based on coordinates and returns an HTML table.
-    /// </summary>
     private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
     {
-        const string joinEventsFile = "join-events.csv";
-        const string timeTogetherFile = "timeTogether.json";
-        const string lastUpdatesFile = "timeTogetherLastUpdates.json";
+        // Get all data (from cache or file)
+        var rawLiveGuids = await GetLiveGuidsFromApiAsync(); // This is the unfiltered "live" list
+        var lastSeenMap = await GetLastSeenMap(); 
+        var accruedTimeMap = await GetAccruedTimeMap(); 
+        var predictedUsers = GetPredictedUsers();
 
-        if (!File.Exists(joinEventsFile) || !File.Exists(timeTogetherFile) || !File.Exists(lastUpdatesFile))
+        // Get stats map early for logging names
+        var fullStatsMap = GetMusicianDataFromCsv().FullStatsMap;
+
+        // --- NEW: 1. CLEANUP ---
+        // Clean up promotions for users who have left
+        var usersWhoLeft = _promotedGuidMap.Keys.Except(rawLiveGuids).ToList();
+        foreach (var leftGuid in usersWhoLeft)
         {
-            var missingFiles = new List<string>();
-            if (!File.Exists(joinEventsFile)) missingFiles.Add(joinEventsFile);
-            if (!File.Exists(timeTogetherFile)) missingFiles.Add(timeTogetherFile);
-            if (!File.Exists(lastUpdatesFile)) missingFiles.Add(lastUpdatesFile);
-            return $"<table><tr><td>Error: Required data file(s) not found: {string.Join(", ", missingFiles)}</td></tr></table>";
+            _promotedGuidMap.TryRemove(leftGuid, out _);
+        }
+        // -------------------------
+
+        // --- NEW 24-HOUR BLOCKLIST LOGIC (No Grace Period) ---
+        var now = DateTime.UtcNow;
+
+        // 1. Update first-seen timestamps and check for 24-hour violations
+        foreach (var guid in rawLiveGuids)
+        {
+            if (_sessionBlocklist.ContainsKey(guid))
+            {
+                // Use formatted log message
+                string name = "Unknown";
+                if (fullStatsMap.TryGetValue(guid, out var stats) && stats?.MostRecentRecord != null)
+                {
+                    name = stats.MostRecentRecord.Name;
+                }
+                string userInfo = $"{guid} ({name})";
+                Console.WriteLine($"{userInfo,-60} is PERMANENTLY HIDDEN (live > 24h).");
+                continue; // Already blocklisted, nothing to do.
+            }
+
+            // If this is the first time we've seen them in this session, add them.
+            _liveUserFirstSeen.TryAdd(guid, now);
+            
+            // Check if their first-seen time is older than 24 hours
+            if (_liveUserFirstSeen.TryGetValue(guid, out var firstSeenTime))
+            {
+                if (now - firstSeenTime > TimeSpan.FromHours(24))
+                {
+                    Console.WriteLine($"{guid} has been live for over 24 hours. Adding to session blocklist.");
+                    _sessionBlocklist.TryAdd(guid, 1);
+                    _liveUserFirstSeen.TryRemove(guid, out _); // Remove from tracking
+                }
+            }
         }
 
-        var liveGuids = await GetLiveGuidsFromApiAsync();
-        var lastSeenMap = GetLastSeenMap();
-        var recentGuids = lastSeenMap
-            .Where(kvp => kvp.Value > DateTime.UtcNow.AddMinutes(-60))
+        // 2. Clean up _liveUserFirstSeen: remove users who are no longer live
+        var usersWhoLoggedOff = _liveUserFirstSeen.Keys.Except(rawLiveGuids).ToList();
+        foreach (var guid in usersWhoLoggedOff)
+        {
+            _liveUserFirstSeen.TryRemove(guid, out _); // Reset their 24h timer
+        }
+
+        // 3. Create the *filtered* liveGuids list, excluding blocklisted users
+        var liveGuids = rawLiveGuids.Where(g => !_sessionBlocklist.ContainsKey(g)).ToHashSet();
+        // --- END NEW LOGIC ---
+
+
+        // Get users seen in the last 60 minutes.
+        var recentGuids = lastSeenMap.Where(kvp => kvp.Value > DateTime.UtcNow.AddMinutes(-60))
             .Select(kvp => kvp.Key)
+            .Where(g => !_sessionBlocklist.ContainsKey(g)) // Filter here
             .ToHashSet();
-        var allRelevantGuids = liveGuids.Union(recentGuids).ToHashSet();
-        var longSessionGuids = GetLongSessionGuids();
-        var finalGuids = allRelevantGuids.Intersect(longSessionGuids).ToHashSet();
-        var predictedUsers = GetPredictedUsers();
+        
+        const double minLiveTime = 10.0;
+        const double minRecentTime = 30.0;
+
+        // Filter live users: must have >= 10 minutes accrued.
+        var eligibleLiveGuids = liveGuids
+            .Where(g => accruedTimeMap.GetValueOrDefault(g, 0) >= minLiveTime)
+            .ToHashSet();
+
+        // Filter recent users: must have >= 30 minutes accrued.
+        var eligibleRecentGuids = recentGuids
+            .Where(g => accruedTimeMap.GetValueOrDefault(g, 0) >= minRecentTime)
+            .ToHashSet();
+        
+        // The final list of GUIDs to show (before predictions) is the union of these two filtered lists.
+        var finalGuids = eligibleLiveGuids.Union(eligibleRecentGuids).ToHashSet();
+        
+        // --- NEW: 2. INJECT ---
+        // Force the system to load the old, trusted GUIDs for any live, promoted users
+        foreach (var oldTrustedGuid in _promotedGuidMap.Values)
+        {
+            finalGuids.Add(oldTrustedGuid);
+        }
+        // ------------------------
+
+        // Filter predictions against the blocklist too.
         var finalPredictedUsers = predictedUsers
             .Where(p => !finalGuids.Contains(p.Guid))
+            .Where(p => !_sessionBlocklist.ContainsKey(p.Guid)) // Filter here
             .ToList();
+
         var predictedGuids = finalPredictedUsers.Select(p => p.Guid).ToHashSet();
         var combinedGuidsForLookup = finalGuids.Union(predictedGuids).ToHashSet();
 
         if (!combinedGuidsForLookup.Any())
-        {
-            return "<table><tr><td>No musicians found matching all criteria in this cycle.</td></tr></table>";
-        }
+            return "<table><tr><td>No musicians found matching all criteria.</td></tr></table>";
 
+        // This now gets all data from cache and filters it fast
         var musicianRecords = GetMusicianRecords(combinedGuidsForLookup, userLat, userLon);
+        
         var predictedUserDataMap = finalPredictedUsers.ToDictionary(p => p.Guid);
 
-        // --- MODIFICATION: Replaced Task.WhenAll with a serial foreach loop ---
         var completedMusicianRecords = new List<MusicianRecord>();
+        
+        // --- This is the ORIGINAL loop that fetches IP data for trusted users ---
         foreach (var record in musicianRecords)
         {
-            // This 'await' pauses the loop, ensuring requests happen one at a time.
             record.Location = await GetIpDetailsAsync(record.IpAddress);
+            record.UserCity = CleanAndFormatUserCity(record.UserCity, record.Location?.regionName);
 
             if (predictedUserDataMap.TryGetValue(record.Guid, out var predictedData))
             {
                 record.IsPredicted = true;
                 record.PredictedArrivalTime = predictedData.PredictedArrivalTime;
-                Console.WriteLine($"[Diagnostic] {record.Guid} ({record.Name}) is a PREDICTED user, expected at {record.PredictedArrivalTime:HH:mm:ss} UTC.");
             }
             else
             {
                 record.IsPredicted = false;
-                record.LastSeen = DateTime.UtcNow;
-                if (lastSeenMap.TryGetValue(record.Guid, out var seenDate))
-                {
-                    record.LastSeen = seenDate;
-                }
+                record.LastSeen = lastSeenMap.TryGetValue(record.Guid, out var seenDate) ? seenDate : DateTime.UtcNow;
             }
             completedMusicianRecords.Add(record);
         }
 
-        return BuildHtmlTable(completedMusicianRecords, liveGuids);
+        // --- NEW "GHOST PROMOTION" HACK (Stateful) ---
+        // Build a map of ALL live users (even untrusted ones) from their historical data
+        var liveUserRecords = new Dictionary<string, MusicianRecord>();
+        foreach (var liveGuid in rawLiveGuids) 
+        {
+            if (fullStatsMap.TryGetValue(liveGuid, out var stats) && stats.MostRecentRecord != null) 
+            {
+                liveUserRecords[liveGuid] = stats.MostRecentRecord;
+            }
+        }
+
+        // We create a new list for the final output
+        var finalProcessedRecords = new List<MusicianRecord>(); 
+        
+        foreach (var record in completedMusicianRecords)
+        {
+            bool isLive = rawLiveGuids.Contains(record.Guid);
+            
+            // Skip if it's already live or predicted
+            if (record.IsPredicted || isLive)
+            {
+                finalProcessedRecords.Add(record);
+                continue; 
+            }
+
+            // --- We have a gray record. See if it's a "ghost" ---
+            bool wasRevived = false;
+            foreach (var liveUser in liveUserRecords.Values)
+            {
+                // Check for Name + UserCity match
+                if (liveUser.Name == record.Name && liveUser.UserCity == record.UserCity)
+                {
+                    // Found a live user with the same name AND city.
+                    Console.WriteLine($"HACK: Reviving gray {record.Name} ({record.Guid}) via City match to live user {liveUser.Guid}.");
+                    
+                    // --- NEW: 3. SAVE ---
+                    // Save this promotion for future runs
+                    _promotedGuidMap.TryAdd(liveUser.Guid, record.Guid);
+                    // --------------------
+                    
+                    // Mutate the 'record' to become the 'liveUser'
+                    record.Instrument = liveUser.Instrument; // Overwrite instrument
+                    record.Guid = liveUser.Guid; // This is the key: makes BuildMusicianRowHtml see it as "live"
+                    
+                    wasRevived = true;
+                    finalProcessedRecords.Add(record); // Add the *revived* record
+                    break; // Stop searching for live matches
+                }
+            } // end inner loop (live users)
+
+            if (!wasRevived)
+            {
+                // This was a "real" gray record, not a ghost. Add it normally.
+                finalProcessedRecords.Add(record);
+            }
+        }
+        // --- END OF HACK ---
+
+
+        // We pass the new, "hacked" list and the original 'rawLiveGuids' to correctly set the green bulb
+        return BuildHtmlTable(finalProcessedRecords, rawLiveGuids);
     }
 
     private static string GetArrivalTimeDisplayString(DateTime arrivalTime)
     {
         double totalMinutes = (arrivalTime - DateTime.UtcNow).TotalMinutes;
-
         if (totalMinutes <= 0) return "DUE";
-        if (totalMinutes <= 20) return "soon";
-        if (totalMinutes <= 45) return "½ hour";
+        if (totalMinutes <= 15) return "soon";
+        if (totalMinutes <= 40) return "½ hour";
         if (totalMinutes <= 75) return "1 hour";
         return "2 hours";
     }
 
     private string BuildMusicianRowHtml(MusicianRecord record, HashSet<string> liveGuids)
     {
+        // The 'liveGuids' set is the definitive "who is online right now" list
+        bool isLive = liveGuids.Contains(record.Guid);
+        
+        if (isLive)
+        {
+            record.IsPredicted = false; // Cannot be predicted if already live
+        }
+
         var sb = new StringBuilder();
         string bulbClass;
         string rowClass = "";
@@ -179,36 +357,26 @@ public class MusicianFinder
         if (record.IsPredicted)
         {
             bulbClass = "orange";
-            string arrivalString = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
-            locationDisplay = $"<span class='sub-line'>{arrivalString}</span>";
+            locationDisplay = $"<span class='sub-line'>{GetArrivalTimeDisplayString(record.PredictedArrivalTime)}</span>";
         }
         else
         {
-            bool isLive = liveGuids.Contains(record.Guid);
             rowClass = isLive ? "" : " class='not-here'";
             bulbClass = isLive ? "green" : "gray";
-
             string ipDerivedRegion = record.Location?.regionName ?? "";
             string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
-
             bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
             bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
 
             if (hasValidCity && cityIsDifferentFromRegion)
-            {
                 locationDisplay = $"{record.UserCity},<br/>{regionHtml}";
-            }
             else
-            {
                 locationDisplay = regionHtml;
-            }
         }
 
-        string instrumentHtml = "";
-        if (record.Instrument != null && record.Instrument.Trim() != "-")
-        {
-            instrumentHtml = $"<div class='sub-line'>{record.Instrument}</div>";
-        }
+        string instrumentHtml = !string.IsNullOrWhiteSpace(record.Instrument) && record.Instrument.Trim() != "-"
+            ? $"<div class='sub-line'>{record.Instrument}</div>"
+            : "";
 
         sb.AppendLine($"        <tr{rowClass}>");
         sb.AppendLine($"          <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div>{record.Name}{instrumentHtml}</div></div></td>");
@@ -236,36 +404,25 @@ public class MusicianFinder
         sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; }");
         sb.AppendLine("</style>");
 
-        sb.AppendLine("<table style='width: 100%;' class='musician-table'>");
-        sb.AppendLine("  <tbody>");
+        sb.AppendLine("<table style='width: 100%;' class='musician-table'><tbody>");
 
         var orderedRecords = records
             .OrderBy(r => r.DistanceKm)
             .GroupBy(r => $"{r.Name}|{r.Location?.city}|{r.Location?.regionName}")
-            .Select(g =>
-            {
-                return g.FirstOrDefault(r => liveGuids.Contains(r.Guid))
-                    ?? g.FirstOrDefault(r => r.IsPredicted)
-                    ?? g.First();
-            })
+            .Select(g => g.FirstOrDefault(r => liveGuids.Contains(r.Guid)) ?? g.FirstOrDefault(r => r.IsPredicted) ?? g.First())
             .ToList();
 
         const int minimumVisibleCount = 3;
         const double distanceThresholdKm = 3000;
-
         var nearbyRecords = new List<MusicianRecord>();
         var distantRecords = new List<MusicianRecord>();
 
         foreach (var record in orderedRecords)
         {
             if (record.DistanceKm < distanceThresholdKm || nearbyRecords.Count < minimumVisibleCount)
-            {
                 nearbyRecords.Add(record);
-            }
             else
-            {
                 distantRecords.Add(record);
-            }
         }
 
         if (distantRecords.Count <= 2)
@@ -275,78 +432,253 @@ public class MusicianFinder
         }
 
         foreach (var record in nearbyRecords)
-        {
             sb.Append(BuildMusicianRowHtml(record, liveGuids));
-        }
         
         if (distantRecords.Any())
         {
-            sb.AppendLine("    <tr>");
-            sb.AppendLine("      <td colspan='2' style='padding: 0; border: none;'>");
-            sb.AppendLine("        <details>");
-            sb.AppendLine($"          <summary>{distantRecords.Count} more</summary>");
-            sb.AppendLine("          <table style='width: 100%; border-collapse: collapse;' class='musician-table'>");
-            sb.AppendLine("            <tbody>");
-
+            sb.AppendLine("<tr><td colspan='2' style='padding: 0; border: none;'><details>");
+            sb.AppendLine($"<summary>{distantRecords.Count} more</summary>");
+            sb.AppendLine("<table style='width: 100%; border-collapse: collapse;' class='musician-table'><tbody>");
             foreach (var record in distantRecords)
-            {
                 sb.Append(BuildMusicianRowHtml(record, liveGuids));
-            }
-
-            sb.AppendLine("            </tbody>");
-            sb.AppendLine("          </table>");
-            sb.AppendLine("        </details>");
-            sb.AppendLine("      </td>");
-            sb.AppendLine("    </tr>");
+            sb.AppendLine("</tbody></table></details></td></tr>");
         }
         
-        sb.AppendLine("  </tbody>");
-        sb.AppendLine("</table>");
+        sb.AppendLine("</tbody></table>");
 
         foreach (var record in orderedRecords)
         {
-            string musicianPart = (record.Instrument != null && record.Instrument.Trim() != "-")
-                ? $"{record.Name} ({record.Instrument})"
-                : record.Name;
-
-            string status;
+            if (liveGuids.Contains(record.Guid)) record.IsPredicted = false;
+            
+            string musicianPart = !string.IsNullOrWhiteSpace(record.Instrument) && record.Instrument.Trim() != "-"
+                ? $"{record.Name} ({record.Instrument})" : record.Name;
+            string status = record.IsPredicted ? "PREDICTED" : (liveGuids.Contains(record.Guid) ? "NOW" : "GONE");
             string detailsPart;
-
-            if (record.IsPredicted)
+            if(record.IsPredicted)
             {
-                status = "PREDICTED";
-                string arrivalString = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
-                detailsPart = $"Displays \"{arrivalString}\"";
+                detailsPart = $"Displays \"{GetArrivalTimeDisplayString(record.PredictedArrivalTime)}\"";
             }
             else
             {
-                status = liveGuids.Contains(record.Guid) ? "NOW" : "GONE";
-                
                 string ipDerivedRegion = record.Location?.regionName ?? "Unknown Region";
-                string locationPart;
-
-                bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
-                bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
-
-                if (hasValidCity && cityIsDifferentFromRegion)
-                {
-                    locationPart = $"{record.UserCity}, {ipDerivedRegion}";
-                }
-                else
-                {
-                    locationPart = ipDerivedRegion;
-                }
-                detailsPart = locationPart;
+                detailsPart = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-" && 
+                                !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase)
+                    ? $"{record.UserCity}, {ipDerivedRegion}"
+                    : ipDerivedRegion;
             }
-            
             Console.WriteLine($"{record.Guid} {status,-9} {musicianPart,-35} -> {detailsPart}");
         }
-
         return sb.ToString();
     }
 
+    private string CleanAndFormatUserCity(string userCity, string? ipRegion)
+    {
+        if (string.IsNullOrWhiteSpace(userCity)) return userCity;
+        
+        string cleanedCity = userCity;
+        var parts = cleanedCity.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length > 1)
+        {
+            var lastPart = parts.Last();
+            if (UsStateAbbreviations.Contains(lastPart) || CanadianProvinceAbbreviations.Contains(lastPart))
+            {
+                cleanedCity = string.Join(" ", parts.Take(parts.Length - 1));
+            }
+        }
+        
+        if (!string.IsNullOrWhiteSpace(ipRegion) && cleanedCity.EndsWith(ipRegion, StringComparison.OrdinalIgnoreCase))
+        {
+             cleanedCity = cleanedCity.Substring(0, cleanedCity.Length - ipRegion.Length).Trim();
+        }
+
+        return SmartCapitalize(cleanedCity);
+    }
+    
+    private string SmartCapitalize(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || Acronyms.Contains(text))
+            return text;
+
+        bool isAllUpper = text.Equals(text.ToUpperInvariant());
+        bool isAllLower = text.Equals(text.ToLowerInvariant());
+        bool isInverted = text.Length > 1 && char.IsLower(text[0]) && text.Substring(1).Equals(text.Substring(1).ToUpperInvariant());
+
+        string baseCapitalizedText;
+        if (isAllUpper || isAllLower || isInverted)
+        {
+            baseCapitalizedText = TextCaseInfo.ToTitleCase(text.ToLowerInvariant());
+        }
+        else
+        {
+            baseCapitalizedText = text;
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < baseCapitalizedText.Length; i++)
+        {
+            sb.Append(baseCapitalizedText[i]);
+            if (baseCapitalizedText[i] == '.' && (i + 1) < baseCapitalizedText.Length && char.IsLetter(baseCapitalizedText[i + 1]))
+            {
+                sb.Append(' ');
+            }
+        }
+        return sb.ToString();
+    }
+
+    private MusicianDataCache GetMusicianDataFromCsv()
+    {
+        // --- CACHE CHECK ---
+        if (_musicianDataCache != null && !_musicianDataCache.IsExpired)
+        {
+            return _musicianDataCache.Data;
+        }
+        // -----------------
+        
+        var allGoldenGuids = new HashSet<string>();
+        var fullStatsMap = new Dictionary<string, UserStats>();
+        const int cacheDurationSeconds = 30; // Cache for 30 seconds
+
+        try
+        {
+            var lines = File.ReadAllLines("join-events.csv");
+            foreach (var line in lines)
+            {
+                var fields = line.Split(',');
+                if (fields.Length < 13) continue; 
+
+                var guid = fields[2].Trim();
+                
+                // Check fields[12] (13th column), not fields[13]
+                bool isGolden = fields.Length > 12 && fields[12].Trim() != "0";
+                if (isGolden)
+                {
+                    allGoldenGuids.Add(guid);
+                }
+
+                // Get or create stats for *every* GUID in the file
+                if (!fullStatsMap.TryGetValue(guid, out UserStats stats))
+                {
+                    stats = new UserStats();
+                    fullStatsMap[guid] = stats;
+                }
+                
+                stats.TotalEntries++;
+                
+                if (!string.IsNullOrWhiteSpace(fields[11]) && fields[11].Trim() != "-")
+                {
+                    stats.EntriesWithInferredIp++;
+                }
+
+                if (long.TryParse(fields[0].Trim(), out long minutes) &&
+                    double.TryParse(fields[9].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lat) &&
+                    double.TryParse(fields[10].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lon) &&
+                    !string.IsNullOrWhiteSpace(fields[11].Trim()) && fields[11].Trim() != "-")
+                {
+                    if (stats.MostRecentRecord == null || minutes > stats.MostRecentRecord.MinutesSinceEpoch)
+                    {
+                        stats.MostRecentRecord = new MusicianRecord
+                        {
+                            MinutesSinceEpoch = minutes,
+                            Guid = guid,
+                            Name = WebUtility.UrlDecode(fields[3].Trim()),
+                            Instrument = fields[4].Trim(),
+                            UserCity = WebUtility.UrlDecode(fields[5].Trim()).Split(',')[0].Trim(),
+                            Lat = lat,
+                            Lon = lon,
+                            IpAddress = fields[11].Trim()
+                        };
+                    }
+                }
+            }
+        }
+        catch (Exception ex) 
+        { 
+            Console.WriteLine($"[GetMusicianDataFromCsv] Error reading join-events.csv: {ex.Message}");
+        }
+
+        var cacheData = new MusicianDataCache { AllGoldenGuids = allGoldenGuids, FullStatsMap = fullStatsMap };
+        
+        // --- CACHE UPDATE ---
+        lock (_cacheLock) { _musicianDataCache = new CacheItem<MusicianDataCache>(cacheData, TimeSpan.FromSeconds(cacheDurationSeconds)); }
+        return cacheData;
+    }
+
+    private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
+    {
+        const double inferredIpRatioThreshold = 0.34;
+
+        // Get all stats from the cache
+        var cachedData = GetMusicianDataFromCsv();
+        var allGoldenGuids = cachedData.AllGoldenGuids;
+        var fullStatsMap = cachedData.FullStatsMap;
+
+        var finalRecords = new List<MusicianRecord>();
+        foreach (var guid in guidsToFind)
+        {
+            // Get the pre-computed stats for this specific GUID
+            if (!fullStatsMap.TryGetValue(guid, out var stats) || stats.MostRecentRecord == null)
+            {
+                continue;
+            }
+            
+            bool hasGoldenMatchEver = allGoldenGuids.Contains(guid);
+            bool passesInferredIpTest = false;
+
+            if (!hasGoldenMatchEver)
+            {
+                // Create a left-aligned, padded string for the user info
+                string userInfo = $"{guid} ({stats.MostRecentRecord.Name})";
+
+                // NEW RULE: Must have more than 1 entry to even be considered
+                if (stats.TotalEntries > 1) 
+                {
+                    // Original Rule: Must pass ratio test
+                    double ratio = (double)stats.EntriesWithInferredIp / stats.TotalEntries;
+                    
+                    if (ratio >= inferredIpRatioThreshold) 
+                    {
+                        passesInferredIpTest = true;
+                        // PASSED: Met both backup criteria
+                        // --- MODIFICATION: "Ratio" changed to "IP Log Rate" ---
+                        Console.WriteLine($"{userInfo,-60} PASSED. No 'golden match'. (Entries: {stats.TotalEntries} > 1, IP Log Rate: {ratio:P0} >= {inferredIpRatioThreshold:P0})");
+                    }
+                    else
+                    {
+                        // FAILED: Failed on ratio
+                        // --- MODIFICATION: "Ratio" changed to "IP Log Rate" ---
+                        Console.WriteLine($"{userInfo,-60} FAILED. No 'golden match'. (Entries: {stats.TotalEntries} > 1, but IP Log Rate: {ratio:P0} < {inferredIpRatioThreshold:P0})");
+                    }
+                }
+                else
+                {
+                    // FAILED: Failed on new entry count rule
+                    Console.WriteLine($"{userInfo,-60} FAILED. No 'golden match'. (Entries: {stats.TotalEntries} <= 1)");
+                }
+            }
+            
+            if (hasGoldenMatchEver || passesInferredIpTest)
+            {
+                finalRecords.Add(stats.MostRecentRecord);
+            }
+        }
+
+        return finalRecords
+            .Select(r => 
+            { 
+                r.DistanceKm = CalculateDistance(userLat, userLon, r.Lat, r.Lon); 
+                return r; 
+            })
+            .Where(r => r.DistanceKm < 5000)
+            .ToList();
+    }
+    
     private async Task<HashSet<string>> GetLiveGuidsFromApiAsync()
     {
+        // Note: This data comes from 'JamFan22.Pages.IndexModel.LastReportedList'
+        // which is assumed to be its own in-memory cache managed by another part
+        // of the application. No additional file I/O caching is added here.
+        
         var liveGuids = new HashSet<string>();
         foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
         {
@@ -355,7 +687,6 @@ public class MusicianFinder
                 if (JamFan22.Pages.IndexModel.LastReportedList.TryGetValue(key, out var jsonString) && !string.IsNullOrEmpty(jsonString))
                 {
                     var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServer>>(jsonString);
-
                     if (serversOnList != null)
                     {
                         foreach (var server in serversOnList)
@@ -385,10 +716,20 @@ public class MusicianFinder
 
     private List<PredictedRecord> GetPredictedUsers()
     {
+        // --- CACHE CHECK ---
+        if (_predictedUsersCache != null && !_predictedUsersCache.IsExpired)
+        {
+            return _predictedUsersCache.Data;
+        }
+        // -----------------
+
         var predictedUsers = new List<PredictedRecord>();
         const string fileName = "predicted.csv";
+        const int cacheDurationSeconds = 30; // Cache for 30 seconds
+
         if (!File.Exists(fileName))
         {
+            lock (_cacheLock) { _predictedUsersCache = new CacheItem<List<PredictedRecord>>(predictedUsers, TimeSpan.FromSeconds(cacheDurationSeconds)); }
             return predictedUsers;
         }
 
@@ -425,126 +766,157 @@ public class MusicianFinder
         {
             Console.WriteLine($"[GetPredictedUsers] Error reading or parsing {fileName}: {ex.Message}");
         }
+        
+        lock (_cacheLock) { _predictedUsersCache = new CacheItem<List<PredictedRecord>>(predictedUsers, TimeSpan.FromSeconds(cacheDurationSeconds)); }
         return predictedUsers;
     }
 
-    private Dictionary<string, DateTime> GetLastSeenMap()
+    private async Task<Dictionary<string, DateTime>> GetLastSeenMap()
     {
+        // --- CACHE CHECK ---
+        if (_lastSeenMapCache != null && !_lastSeenMapCache.IsExpired)
+        {
+            return _lastSeenMapCache.Data;
+        }
+        // -----------------
+
         var lastSeenMap = new Dictionary<string, DateTime>();
         const string fileName = "timeTogetherLastUpdates.json";
-        try
-        {
-            var json = File.ReadAllText(fileName);
-            var records = JsonSerializer.Deserialize<List<LastUpdateRecordRaw>>(json);
-            if (records == null) return lastSeenMap;
+        const int cacheDurationSeconds = 30; // Cache for 30 seconds
+        
+        int maxRetries = 2; 
+        int delayMs = 250; 
 
-            var allUpdates = new List<(string Guid, DateTime LastSeen)>();
-            foreach (var record in records)
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
             {
-                if (record.Key.Length != 64) continue;
-                if (DateTime.TryParse(record.Value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var parsedDate))
+                var json = File.ReadAllText(fileName); 
+                var records = JsonSerializer.Deserialize<List<LastUpdateRecordRaw>>(json);
+                
+                if (records == null)
                 {
-                    allUpdates.Add((record.Key.Substring(0, 32), parsedDate));
-                    allUpdates.Add((record.Key.Substring(32, 32), parsedDate));
+                    lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); }
+                    return lastSeenMap;
                 }
-            }
-            return allUpdates
-                .GroupBy(u => u.Guid)
-                .ToDictionary(g => g.Key, g => g.Max(item => item.LastSeen));
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-            return lastSeenMap;
-        }
-    }
 
-    private HashSet<string> GetLongSessionGuids()
-    {
-        var guids = new HashSet<string>();
-        const string fileName = "timeTogether.json";
-        try
-        {
-            var json = File.ReadAllText(fileName);
-            var records = JsonSerializer.Deserialize<List<TimeRecord>>(json);
-            if (records == null) return guids;
-
-            foreach (var record in records)
-            {
-                if (record.Key.Length != 64) continue;
-                guids.Add(record.Key.Substring(0, 32));
-                guids.Add(record.Key.Substring(32, 32));
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[GetLongSessionGuids] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-        }
-        return guids;
-    }
-
-    private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
-    {
-        var records = new List<MusicianRecord>();
-        try
-        {
-            var lines = File.ReadAllLines("join-events.csv");
-            foreach (var line in lines)
-            {
-                var fields = line.Split(new[] { ',' }, 13);
-                if (fields.Length != 13) continue;
-
-                var guid = fields[2].Trim();
-                if (!guidsToFind.Contains(guid)) continue;
-
-                if (long.TryParse(fields[0].Trim(), out long minutesSinceEpoch) &&
-                    double.TryParse(fields[9].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lat) &&
-                    double.TryParse(fields[10].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lon) &&
-                    !string.IsNullOrWhiteSpace(fields[11].Trim()) && fields[11].Trim() != "-")
+                var allUpdates = new List<(string Guid, DateTime LastSeen)>();
+                foreach (var record in records)
                 {
-                    string userLocationString = WebUtility.UrlDecode(fields[5].Trim()).Split(',')[0].Trim();
-                    string finalUserCity = userLocationString; 
-                    
-                    var locationParts = userLocationString.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-                    if (locationParts.Length > 1)
+                    if (record.Key.Length != 64) continue;
+                    if (DateTime.TryParse(record.Value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var parsedDate))
                     {
-                        var lastPart = locationParts.Last();
-                        if (UsStateAbbreviations.Contains(lastPart))
-                        {
-                            finalUserCity = string.Join(" ", locationParts.Take(locationParts.Length - 1));
-                        }
+                        allUpdates.Add((record.Key.Substring(0, 32), parsedDate));
+                        allUpdates.Add((record.Key.Substring(32, 32), parsedDate));
                     }
-
-                    records.Add(new MusicianRecord
-                    {
-                        MinutesSinceEpoch = minutesSinceEpoch,
-                        Guid = guid,
-                        Name = WebUtility.UrlDecode(fields[3].Trim()),
-                        Instrument = fields[4].Trim(),
-                        UserCity = finalUserCity,
-                        Lat = lat,
-                        Lon = lon,
-                        IpAddress = fields[11].Trim()
-                    });
                 }
+                
+                var finalMap = allUpdates
+                    .GroupBy(u => u.Guid)
+                    .ToDictionary(g => g.Key, g => g.Max(item => item.LastSeen));
+                
+                lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(finalMap, TimeSpan.FromSeconds(cacheDurationSeconds)); }
+                return finalMap;
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"[GetLastSeenMap] Warning: Failed to parse {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
+                if (i < maxRetries - 1) await Task.Delay(delayMs); 
+            }
+            catch (IOException ex)
+            {
+                Console.WriteLine($"[GetLastSeenMap] Warning: Failed to read {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
+                if (i < maxRetries - 1) await Task.Delay(delayMs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
+                lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+                return lastSeenMap;
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[GetMusicianRecords] Error reading join-events.csv: {ex.Message}");
-        }
 
-        return records
-            .GroupBy(r => r.Guid)
-            .Select(g => g.OrderByDescending(r => r.MinutesSinceEpoch).First())
-            .Select(r =>
+        Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR: All {maxRetries} retry attempts failed for {fileName}.");
+        lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+        return lastSeenMap;
+    }
+
+    private async Task<Dictionary<string, double>> GetAccruedTimeMap()
+    {
+        // --- CACHE CHECK ---
+        if (_accruedTimeCache != null && !_accruedTimeCache.IsExpired)
+        {
+            return _accruedTimeCache.Data;
+        }
+        // -----------------
+
+        var accruedTime = new Dictionary<string, double>();
+        const string fileName = "timeTogether.json";
+        const int cacheDurationSeconds = 30; // Cache for 30 seconds
+
+        int maxRetries = 2;
+        int delayMs = 250;
+
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
             {
-                r.DistanceKm = CalculateDistance(userLat, userLon, r.Lat, r.Lon);
-                return r;
-            })
-            .Where(r => r.DistanceKm < 5000)
-            .ToList();
+                var json = File.ReadAllText(fileName);
+                var records = JsonSerializer.Deserialize<List<TimeRecord>>(json);
+                
+                if (records == null)
+                {
+                    lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); }
+                    return accruedTime;
+                }
+
+                foreach (var record in records)
+                {
+                    if (record.Key.Length != 64) continue;
+                    
+                    // The value is a TimeSpan string (e.g., "161.17:25:18.7955569"), not a simple double.
+                    if (TimeSpan.TryParse(record.Value, CultureInfo.InvariantCulture, out TimeSpan duration))
+                    {
+                        string guidA = record.Key.Substring(0, 32);
+                        string guidB = record.Key.Substring(32, 32);
+                        
+                        // Use the TotalMinutes from the parsed TimeSpan
+                        double minutes = duration.TotalMinutes;
+                        
+                        accruedTime[guidA] = accruedTime.GetValueOrDefault(guidA, 0) + minutes;
+                        accruedTime[guidB] = accruedTime.GetValueOrDefault(guidB, 0) + minutes;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[GetAccruedTimeMap] Warning: Could not parse TimeSpan value: {record.Value}");
+                    }
+                }
+                
+                lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); }
+                Console.WriteLine($"[GetAccruedTimeMap] Successfully loaded {accruedTime.Count} unique GUIDs from {fileName}.");
+                return accruedTime; // Success!
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"[GetAccruedTimeMap] Warning: Failed to parse {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
+                if (i < maxRetries - 1) await Task.Delay(delayMs);
+            }
+            catch (IOException ex)
+            {
+                Console.WriteLine($"[GetAccruedTimeMap] Warning: Failed to read {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
+                if (i < maxRetries - 1) await Task.Delay(delayMs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetAccruedTimeMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
+                lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+                return accruedTime; // Fail fast
+            }
+        }
+        
+        Console.WriteLine($"[GetAccruedTimeMap] CRITICAL ERROR: All {maxRetries} retry attempts failed for {fileName}.");
+        lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+        return accruedTime;
     }
 
     private async Task<IpApiDetails> GetIpDetailsAsync(string ip)
@@ -556,38 +928,38 @@ public class MusicianFinder
             return cachedItem.Data;
         }
 
-        int maxRetries = 4;
-        int delay = 2000;
+        const int politeDelayMs = 1500; 
 
-        for (int i = 0; i < maxRetries; i++)
+        try
         {
-            try
-            {
-                await Task.Delay(delay);
-                var response = await HttpClient.GetStringAsync($"http://ip-api.com/json/{ipAddress}");
-                var details = JsonSerializer.Deserialize<IpApiDetails>(response);
+            await Task.Delay(politeDelayMs); 
+            var response = await HttpClient.GetStringAsync($"http://ip-api.com/json/{ipAddress}");
+            var details = JsonSerializer.Deserialize<IpApiDetails>(response);
 
-                if (details?.status == "success")
-                {
-                    Console.WriteLine($"[GetIpDetailsAsync] API SUCCESS for {ipAddress}: City={details.city}, Lat={details.lat}, Lon={details.lon}");
-                    IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
-                    return details;
-                }
-            }
-            catch (HttpRequestException ex)
+            if (details?.status == "success")
             {
-                 Console.WriteLine($"[GetIpDetailsAsync] Error on attempt {i + 1} for IP {ipAddress}. Exception: {ex.Message}");
+                Console.WriteLine($"[GetIpDetailsAsync] API SUCCESS for {ipAddress}: City={details.city}, Lat={details.lat}, Lon={details.lon}");
+                // This call correctly uses the (T data, int hours) constructor
+                IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
+                return details;
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"[GetIpDetailsAsync] General error on attempt {i + 1} for IP {ipAddress}. Exception: {ex.Message}");
+                Console.WriteLine($"[GetIpDetailsAsync] API returned failure status for {ipAddress}: {details?.status}");
             }
-            delay *= 2;
         }
+        catch (HttpRequestException ex)
+        {
+             Console.WriteLine($"[GetIpDetailsAsync] HTTP Error for IP {ipAddress}. Exception: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[GetIpDetailsAsync] General error for IP {ipAddress}. Exception: {ex.Message}");
+        }
+
         return new IpApiDetails();
     }
 
-    // --- UTILITY METHODS ---
     private static string GetGuid(string name, string country, string instrument)
     {
         using var md5 = MD5.Create();
@@ -608,5 +980,5 @@ public class MusicianFinder
         return R * c;
     }
 
-    private static double ToRadians(double angle) => Math.PI * angle / 180.0;
+    private static double ToRadians(double angle) => (Math.PI / 180.0) * angle;
 }
