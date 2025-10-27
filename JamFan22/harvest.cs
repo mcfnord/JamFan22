@@ -138,6 +138,7 @@ namespace JamFan22
 
             while (true)
             {
+                /*
                 foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
                 {
                     var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
@@ -171,6 +172,7 @@ namespace JamFan22
                         }
                     }
                 }
+                */
                 Thread.Sleep(5000);
                 // Console.WriteLine("HarvestLoop2025 slept five seconds, harvesting again.");
             }
