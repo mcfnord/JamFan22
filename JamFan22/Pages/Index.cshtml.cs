@@ -1,4 +1,4 @@
-// #define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -3056,62 +3056,91 @@ namespace JamFan22.Pages
                 }
                 else
                 {
-                    myCopyOfWho.Clear();
-                    // Copy to a list I can screw up:
-                    foreach (var cat in s.whoObjectFromSourceData)
                     {
-                        if (NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
-                            continue;
-                        myCopyOfWho.Add(cat);
-                    }
+                        // 1. Get the set of "good" GUIDs from our new cache.
+                        // This will be instant if cached, or load from file if expired.
+                        var goodGuids = GetGoodGuidsSet();
 
-                    if (myCopyOfWho.Count > 0)
-                    {
-                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(myCopyOfWho[0].name, myCopyOfWho[0].country, myCopyOfWho[0].instrument)) > 6 * 60)
-                            continue; // if they have sat there for 6 hours, don't show them.
-                                      //                    string smartcityforone = SmartCity(s.city, s.whoObjectFromSourceData);
+                        // 2. Use LINQ for clearer, more efficient filtering.
+                        bool isCbvbServer = s.name.ToLower().Contains("cbvb");
 
-                        if (s.name == "JamPad")
-                            continue;
-                        if (s.name == "portable")
-                            continue;
+                        // 3. Apply all filters:
+                        //    - Don't nuke the user
+                        //    - AND the user's calculated hash (GUID) MUST be in the "good" list.
+                        //
+                        // **** THIS IS THE CORRECTED LINE ****
+                        // We now call GetHash() using the user's properties to get the key for the cache.
+                        var filteredUsers = s.whoObjectFromSourceData
+                            .Where(user => !NukeThisUsername(user.name, user.instrument, isCbvbServer) &&
+                                           goodGuids.Contains(GetHash(user.name, user.country, user.instrument)))
+                            .ToList();
 
-                        string smartcity = SmartCity(evenSmarterCity, myCopyOfWho.ToArray());
-
-                        string noBRName = s.who;
-                        noBRName = noBRName.Replace("<br/>", " ");
-
-                        // var newline = "<div><center>";
-
-
-                        var newline = "<div ";
-                        newline += BackgroundByZone(s.zone);
-                        newline += "><center>";
-
-
-                        if (s.name.Length > 0)
+                        // 4. Use an early 'continue' (guard clause) if no users are left.
+                        // This is the core of your request: if no users pass the GUID check,
+                        // this will be 0 and we will skip making the server card.
+                        if (filteredUsers.Count == 0)
                         {
-                            string name = s.name;
-                            /* distance between Chicago and virginia ~1000m or km or something
-                            if (name.Contains("CBVB"))
-                                name += " (UNSTABLE)";
-                            */
-
-                            newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
+                            continue;
                         }
 
-                        if (smartcity.Length > 0)
-                            newline += "<b>" + smartcity + "</b><br>";
+                        // 5. Cache values that are used multiple times.
+                        var firstUser = filteredUsers[0];
+                        string serverAddress = $"{s.serverIpAddress}:{s.serverPort}";
 
-                        newline +=
-                            "<font size='-1'>" +
-                            s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
-                            (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? "(New server.)<br>" : "") + // um, is this line active? It's not localized.
-                            "</center><hr>" +
-                            noBRName +
-                            DurationHere(s.serverIpAddress + ":" + s.serverPort, GetHash(myCopyOfWho[0].name, myCopyOfWho[0].country, myCopyOfWho[0].instrument)) + "</div>";  // we know there's just one! i hope!
+                        // **** OPTIMIZATION ****
+                        // Since we already calculated the hash for the first user in the LINQ query,
+                        // let's just re-use it instead of calculating it again.
+                        string userHash = GetHash(firstUser.name, firstUser.country, firstUser.instrument);
 
-                        output += newline;
+                        // 6. Use a 'const' for "magic numbers".
+                        const int maxDurationMinutes = 6 * 60; // 6 hours
+                        if (DurationHereInMins(serverAddress, userHash) > maxDurationMinutes)
+                        {
+                            continue; // if they have sat there for 6 hours, don't show them.
+                        }
+
+                        // 7. Use a HashSet for cleaner "block list" checks.
+                        var excludedServerNames = new HashSet<string> { "JamPad", "portable" };
+                        if (excludedServerNames.Contains(s.name))
+                        {
+                            continue;
+                        }
+
+                        // 8. Use StringBuilder for efficient string building.
+                        var htmlBuilder = new System.Text.StringBuilder();
+
+                        // Pre-calculate display strings
+                        string smartCity = SmartCity(evenSmarterCity, filteredUsers.ToArray());
+                        string whoStringNoBreaks = s.who.Replace("<br/>", " ");
+                        string categoryDisplay = s.category.Replace("Genre ", "").Replace(" ", "&nbsp;");
+
+                        htmlBuilder.Append($"<div {BackgroundByZone(s.zone)}><center>");
+
+                        if (!string.IsNullOrEmpty(s.name))
+                        {
+                            htmlBuilder.Append($"{System.Web.HttpUtility.HtmlEncode(s.name)}<br>");
+                        }
+
+                        if (!string.IsNullOrEmpty(smartCity))
+                        {
+                            htmlBuilder.Append($"<b>{smartCity}</b><br>");
+                        }
+
+                        htmlBuilder.Append($"<font size='-1'>{categoryDisplay}</font><br>");
+
+                        if (NoticeNewbs(serverAddress))
+                        {
+                            htmlBuilder.Append("(New server.)<br>");
+                        }
+
+                        htmlBuilder.Append("</center><hr>");
+                        htmlBuilder.Append(whoStringNoBreaks);
+
+                        // Re-use the hash we calculated and stored in 'userHash'
+                        htmlBuilder.Append(DurationHere(serverAddress, userHash));
+                        htmlBuilder.Append("</div>");
+
+                        output += htmlBuilder.ToString();
                     }
                 }
             }
@@ -3131,6 +3160,101 @@ namespace JamFan22.Pages
             //            output += "</table></center>";
             return output;
         }
+
+
+
+        // --- Start: Caching logic for Join-Events ---
+
+        // Static cache fields to hold the GUIDs and manage expiry
+        private static HashSet<string> _goodGuidsCache = null;
+        private static DateTime _cacheExpiry = DateTime.MinValue;
+
+        // 5-minute cache duration
+        private static readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(5);
+
+        // Thread-safe lock object for updating the cache
+        private static readonly object _cacheLock = new object();
+
+        /// <summary>
+        /// Reads join-events.csv and builds a HashSet of all GUIDs
+        /// that have a non-zero value in the 13th column.
+        /// </summary>
+        private static HashSet<string> LoadGoodGuidsFromFile()
+        {
+            var goodGuids = new HashSet<string>();
+            string filePath = "join-events.csv"; // Assumes this file is in the application's root/bin directory.
+                                                 // You may need to change this to a full path.
+            try
+            {
+                // Use File.ReadLines for memory-efficient reading.
+                foreach (string line in System.IO.File.ReadLines(filePath))
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    // Split the line, trimming whitespace from each part.
+                    string[] parts = line.Split(',')
+                                         .Select(part => part.Trim())
+                                         .ToArray();
+
+                    // Check if we have enough columns (13th column is index 12)
+                    if (parts.Length > 12)
+                    {
+                        string guid = parts[2]; // GUID is 3rd column (index 2)
+                        string flag = parts[12]; // Flag is 13th column (index 12)
+
+                        // If the flag is not "0" and we have a GUID, add it.
+                        if (flag != "0" && !string.IsNullOrEmpty(guid))
+                        {
+                            goodGuids.Add(guid);
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                // Log the error so you know if the file is missing or permissions are wrong.
+                System.Diagnostics.Debug.WriteLine($"Error loading join-events.csv: {ex.Message}");
+                // Return an empty set on failure so the site still works, but filters nothing.
+                return new HashSet<string>();
+            }
+
+            return goodGuids;
+        }
+
+        /// <summary>
+        /// Gets the set of "good" GUIDs, loading from file and
+        /// caching the result for 5 minutes.
+        /// </summary>
+        private static HashSet<string> GetGoodGuidsSet()
+        {
+            // 1. Check if the cache is valid.
+            if (_goodGuidsCache != null && DateTime.UtcNow < _cacheExpiry)
+            {
+                return _goodGuidsCache;
+            }
+
+            // 2. If cache is invalid, acquire a lock to update it.
+            // This prevents multiple threads from reading the file at the same time.
+            lock (_cacheLock)
+            {
+                // 3. Double-check if another thread updated the cache while we waited for the lock.
+                if (_goodGuidsCache != null && DateTime.UtcNow < _cacheExpiry)
+                {
+                    return _goodGuidsCache;
+                }
+
+                // 4. This thread will update the cache.
+                _goodGuidsCache = LoadGoodGuidsFromFile();
+                _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
+
+                return _goodGuidsCache;
+            }
+        }
+
+        // --- End: Caching logic for Join-Events ---
 
         public static Dictionary<string, DateTime> m_clientIPLastVisit = new Dictionary<string, DateTime>();
         public static Dictionary<string, DateTime> m_clientIPsDeemedLegit = new Dictionary<string, DateTime>();
