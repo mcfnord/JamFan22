@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -3169,8 +3169,8 @@ namespace JamFan22.Pages
         private static HashSet<string> _goodGuidsCache = null;
         private static DateTime _cacheExpiry = DateTime.MinValue;
 
-        // 5-minute cache duration
-        private static readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(5);
+        // 1-minute cache duration
+        private static readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(1);
 
         // Thread-safe lock object for updating the cache
         private static readonly object _cacheLock = new object();
