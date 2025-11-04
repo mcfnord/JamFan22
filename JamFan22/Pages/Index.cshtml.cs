@@ -1,4 +1,4 @@
-// #define WINDOWS
+#define WINDOWS
 
 // testing
 
@@ -2189,978 +2189,1004 @@ namespace JamFan22.Pages
         static int m_lastMinSampledPredictions = -1;
 
 
+        // --- Caching Fields for Preloaded Data ---
+        // These fields will store the file data and reload it every 65 seconds.
+        private static PreloadedData m_cachedPreloadedData;
+        private static DateTime m_lastDataLoadTime = DateTime.MinValue;
+        private const double CacheDurationSeconds = 65.0;
+        private static readonly object _dataLoadLock = new object();
+
+
         public async Task<string> GetGutsRightNow()
         {
-            m_allMyServers = new List<ServersForMe>();  // new list!
+            // 1. Initialize state
+            InitializeGutsRequest();
 
-            m_listenLinkDeployment.Clear();
-            m_snippetsDeployed = 0;
+            // 2. Fetch remote prediction data
+            await UpdatePredictionsIfNeededAsync();
 
-            if (m_lastMinSampledPredictions != DateTime.Now.Minute)
+            // 3. Get cached data, refreshing if older than 65 seconds
+            var preloadedData = GetCachedPreloadedData(); // <-- This line has changed
+
+            // 4. Process all servers and clients to build the internal list
+            await ProcessServerListsAsync(preloadedData);
+
+            // 5. Sort the processed servers by distance
+            IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
+
+            // 6. Generate the final HTML from the sorted list
+            string output = await GenerateServerListHtmlAsync(sortedByDistanceAway, preloadedData);
+
+            return output;
+        }
+
+        //################################################################################
+        // NEW CACHING HELPER METHOD
+        //################################################################################
+
+        /// <summary>
+        /// Gets the preloaded data, refreshing it from disk if the cache is older than 65 seconds.
+        /// </summary>
+        private PreloadedData GetCachedPreloadedData()
+        {
+            // First, check without a lock for the most common case: cache is valid.
+            if (DateTime.Now <= m_lastDataLoadTime.AddSeconds(CacheDurationSeconds))
             {
-                switch (DateTime.Now.Minute % 5)
+                return m_cachedPreloadedData;
+            }
+
+            // Cache is expired, so we must acquire a lock to reload.
+            lock (_dataLoadLock)
+            {
+                // Now that we have the lock, double-check if another thread
+                // finished reloading while we were waiting.
+                if (DateTime.Now > m_lastDataLoadTime.AddSeconds(CacheDurationSeconds))
                 {
-                    case 0:
-                        break;
-                    case 1:
-                        break;
-                    case 2:
-                        break;
-                    case 3:
-                        break;
-                    default:
-                        {
-                            m_lastMinSampledPredictions = DateTime.Now.Minute;
-                            using var http = new HttpClient();
-                            string json = await http.GetStringAsync("https://jamulus.live/soon.json");
-                            //  m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
-                        }
-                        break;
+                    Console.WriteLine($"Cache expired ({CacheDurationSeconds}s). Reloading all data files...");
+
+                    // Call the original method that reads all files
+                    m_cachedPreloadedData = LoadPreloadedData();
+
+                    m_lastDataLoadTime = DateTime.Now;
+                    Console.WriteLine("Data file reload complete.");
                 }
             }
 
-#if WINDOWS
-            // When debugging, have one simulated connected lounge at Hear
-            // UNLESS WE ARE IMPLEMENTING THE THAI LIST.
-            // JamFan22.Pages.IndexModel.m_connectedLounges[$"https://hear.jamulus.live/"] = "157.245.224.141:22124";
-#endif
+            return m_cachedPreloadedData;
+        }
 
 
+        //################################################################################
+        // PRIVATE HELPER METHODS (Unchanged from previous refactor)
+        //################################################################################
 
-            //            await MineLists();
+        /// <summary>
+        /// A private record to hold all the data we load from files at the start.
+        /// </summary>
+        private record PreloadedData(
+            HashSet<string> BlockedASNs,
+            string[] JoinEventsLines,
+            HashSet<string> ErasedServerNames,
+            HashSet<string> NoPingIpPartial,
+            HashSet<string> BlockedServerARNs,
+            HashSet<string> GoodGuids
+        );
 
+        /// <summary>
+        /// Resets the lists and counters for this request.
+        /// </summary>
+        private void InitializeGutsRequest()
+        {
+            m_allMyServers = new List<ServersForMe>(); // new list!
+            m_listenLinkDeployment.Clear();
+            m_snippetsDeployed = 0;
+        }
 
-            // Now for each last reported list, extract all the hmmm servers for now. all them servers by LIST, NAME, CITY, IP ADDRESS
-            // cuz I wanna add a new var: Every distance to this client!
-            // so eager, just get them distances!
+        /// <summary>
+        /// Fetches the 'soon.json' prediction file if the cache minute has expired.
+        /// </summary>
+        private async Task UpdatePredictionsIfNeededAsync()
+        {
+            if (m_lastMinSampledPredictions == DateTime.Now.Minute)
+            {
+                return;
+            }
 
+            if ((DateTime.Now.Minute % 5) == 4) // Simplified from the original switch
+            {
+                m_lastMinSampledPredictions = DateTime.Now.Minute;
+                try
+                {
+                    using var http = new HttpClient();
+                    string json = await http.GetStringAsync("https://jamulus.live/soon.json");
+                    // m_predicted = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(json);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to update predictions: {ex.Message}");
+                    // Don't reset the minute if we failed, so we can try again next time
+                    m_lastMinSampledPredictions = -1;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Loads all data from local files (block lists, etc.) into memory.
+        /// This method is now called by the caching manager.
+        /// </summary>
+        private PreloadedData LoadPreloadedData()
+        {
+            var blockedASNs = new HashSet<string>(
+                System.IO.File.ReadAllLines("wwwroot/asn-blocks.txt")
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .Select(line => line.Trim().Split(' ')[0])
+            );
+
+            // This is still inefficient, but matches the original logic of reading the whole file.
+            // A better solution would be to process this file into a persistent DB or cache.
+            var joinEventsLines = System.IO.File.Exists("join-events.csv")
+                ? System.IO.File.ReadAllLines("join-events.csv")
+                : new string[0];
+
+            var erasedServerNames = new HashSet<string>(
+                System.IO.File.Exists("erased.txt")
+                    ? System.IO.File.ReadAllLines("erased.txt").Select(l => l.Trim().ToLower())
+                    : new string[0]
+            );
+
+            var noPingIpPartial = new HashSet<string>(
+                System.IO.File.Exists("no-ping.txt")
+                    ? System.IO.File.ReadAllLines("no-ping.txt").Where(l => l.Trim().Length > 0)
+                    : new string[0]
+            );
+
+            var blockedServerARNs = new HashSet<string>(
+                System.IO.File.Exists("arn-servers-blocked.txt")
+                    ? System.IO.File.ReadAllLines("arn-servers-blocked.txt")
+                    : new string[0]
+            );
+
+            // This method was called inside the single-user card builder
+            var goodGuids = GetGoodGuidsSet();
+
+            return new PreloadedData(
+                blockedASNs,
+                joinEventsLines,
+                erasedServerNames,
+                noPingIpPartial,
+                blockedServerARNs,
+                goodGuids
+            );
+        }
+
+        /// <summary>
+        /// Iterates through the master server lists and processes each server.
+        /// Populates the 'm_allMyServers' list.
+        /// </summary>
+        private async Task ProcessServerListsAsync(PreloadedData data)
+        {
             foreach (var key in LastReportedList.Keys)
             {
                 var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+
                 foreach (var server in serversOnList)
                 {
-                    if (server.name.ToLower().Contains("script"))
-                        continue; // we don't let this happen! XSS attack
-                    if (server.city.ToLower().Contains("script"))
-                        continue; // we don't let this happen! XSS attack
-                    if (server.name.ToLower().Contains("jxw"))
-                        continue; // they wanna talk chinese, with no music
-                    if (server.city.ToLower().Contains("peterborough"))
-                        continue; // bye jimmy
-                    if (server.name.ToLower().Contains("peachjam3"))
-                        continue; // always a duplicate of peachjam2
+                    int people = server.clients?.GetLength(0) ?? 0;
 
-                    int people = 0;
-                    if (server.clients != null)
-                        people = server.clients.GetLength(0);
-                    if (people < 1)
-                        continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
-                    /// EMPTY SERVERS CAN KICK ROCKS
-                    /// SERVERS WITH ONE PERSON MIGHT BE THE PERSON I'M SEARCHING FOR
-                    /// 
-
-                    // Maybe here I ask if the IP of the browser is geolocated close to the server
-                    // and suppress ones far away.
-
-                    // I WOULD LIKE THE GEOLOCATION LIMITER FOR CBVB TO COVER ONE-CONNECTION AND MULTI-CONNECTION SERVERS EQUALLY
-                    // so i probably examine here.
-                    if (server.name.ToLower().Contains("cbvb"))
+                    if (ShouldSkipServer(server, people))
                     {
-                        /*
-                        // what is the distance from this server to the browser's ip
-                        // (same as where ip geolocation is overridden by logged-in user's self-described city geolocation)
-                        // and is chicago closer? if so, suppress.
-                        string latt = "";
-                        string lonn = "";
-                        PlaceToLatLon(server.city.ToUpper(),
-                            // "," + server.country,
-                            "", server.ip, ref latt, ref lonn);
-                        int iDist = DistanceFromClient(latt, lonn);
-                        Console.WriteLine("Distance from browser to server: " + iDist);
-                        if (iDist > 2000)
-                            continue;
-                        */
-                    }
-
-
-
-                    var blockedASNs = new HashSet<string>();
-                    string[] blockedLines = System.IO.File.ReadAllLines("wwwroot/asn-blocks.txt");
-                    foreach (string line in blockedLines)
-                    {
-                        if (!string.IsNullOrWhiteSpace(line))
-                        {
-                            string asnIdentifier = line.Trim().Split(' ')[0];
-                            blockedASNs.Add(asnIdentifier);
-                        }
-                    }
-
-
-                    List<string> userCountries = new List<string>();
-
-                    string who = "";
-                    foreach (var guy in server.clients)
-                    {
-                        if (guy.name.ToLower().Contains("script"))
-                            continue; // no XSS please
-
-
-
-                        string[] joinEvents = System.IO.File.ReadAllLines("join-events.csv");
-                        string musicianHash = GetHash(guy.name, guy.country, guy.instrument);
-                        string mostLikelyASN = null;
-
-                        const int asnColumnIndex = 12;
-
-                        for (int i = joinEvents.Length - 1; i >= 0; i--)
-                        {
-                            string candidateLine = joinEvents[i];
-
-                            // Step 1: Find a candidate line.
-                            // We are only interested in lines that match the client's hash.
-                            if (!candidateLine.Contains(musicianHash) || string.IsNullOrWhiteSpace(candidateLine))
-                            {
-                                continue; // Not a candidate, check the previous line.
-                            }
-
-                            // Step 2: Validate the candidate we just found.
-                            // Does it have a valid, unblocked ASN?
-                            string[] fields = candidateLine.Split(',');
-                            if (fields.Length > asnColumnIndex)
-                            {
-                                string fullAsnField = fields[asnColumnIndex].Trim();
-
-                                // A simple check to see if it even looks like an ASN field before parsing.
-                                // This confirms it "has an ASN value" before we check if it's blocked.
-                                if (fullAsnField.StartsWith("AS"))
-                                {
-                                    string asnIdentifier = fullAsnField.Split(' ')[0];
-                                    if (asnIdentifier.Length > 0)
-                                    {
-                                        mostLikelyASN = asnIdentifier;
-                                        break; // There's an ASN on the most recent line that matches this musician hash
-                                    }
-                                }
-                            }
-                        }
-
-                        if (mostLikelyASN != null)
-                        {
-                            if (blockedASNs.Contains(mostLikelyASN))
-                                continue;
-                        }
-
-
-
-                        // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
-                        NotateWhoHere(server.ip + ":" + server.port, GetHash(guy.name, guy.country, guy.instrument));
-
-                        if (NukeThisUsername(guy.name, guy.instrument, server.name.ToUpper().Contains("CBVB")))
-                            continue;
-
-                        string slimmerInstrument = guy.instrument;
-                        if (slimmerInstrument == "-")
-                            slimmerInstrument = "";
-
-                        if (slimmerInstrument.Length > 0) // if there's no length to instrument, don't add a space for it.
-                            slimmerInstrument = " " + slimmerInstrument;
-
-                        var nam = guy.name.Trim();
-                        nam = nam.Replace("  ", " "); // don't want crazy space names
-                        nam = nam.Replace("  ", " "); // don't want crazy space names
-                        nam = nam.Replace("  ", " "); // don't want crazy space names
-                        nam = nam.Replace("<", ""); // don't trigger HTML hijinx
-
-                        // Fuck these namelesses who have no proper instrument.
-                        if (nam.Length == 0)
-                        {
-                            if (slimmerInstrument == "")
-                                continue;
-                            if (slimmerInstrument == " Streamer")
-                                continue;
-                        }
-
-                        // If there are a gajillion in here, shrink the font
-                        string font = "<font size='+0'>"; // might be bogus sizing
-                        if (server.clients.GetLength(0) > 11)
-                            font = "<font size='-1'>";
-
-                        // this code is fishy but ok...
-                        // if anyone in here has a name with more than 15 characters, shrink the font for everyone
-                        foreach (var longguy in server.clients)
-                            if (longguy.name.Length > 14)
-                                if (slimmerInstrument.Length > 0) // stop tryin with No Name. let it be. || (longguy.name == "No Name"))
-                                    font = "<font size='-1'>";
-
-                        // Make a hash out of Name + Nation
-                        string hash = guy.name + guy.country;
-
-                        // give the musician a distinctive encoding class
-                        string encodedHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
-                        /*
-                        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
-                        var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-                        string encodedHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
-                        */
-
-                        var newpart = "<span class=\"musician " +
-                            server.ip + " "
-                            + encodedHashOfGuy + "\"" +
-                            " id =\"" + hash + "\"" +
-
-                            " onmouseover=\"this.style.cursor='pointer'\" onmouseout=\"this.style.cursor='default'\" onclick=\"toggle('" + hash + "')\";>" +
-                            font +
-                            "<b>" + nam + "</b>" +
-                            "<i>" + slimmerInstrument + "</i></font></span>\n";
-
-                        if (server.clients.GetLength(0) < 17)
-                            newpart += "<br>";
-                        else
-                            if (guy != server.clients[server.clients.GetLength(0) - 1])
-                            newpart += " · ";
-
-
-                        //                        if (newpart.Length > 67)
-                        //                            newpart = newpart.Replace("size='0'", "size='-1'");
-
-                        //                        newpart = newpart.Replace(" ", "&nbsp;"); // names and instruments have spaces too
-                        who = who + newpart; // l+ ", ";
-
-                        userCountries.Add(guy.country.ToUpper());
-                    }
-                    //  who = who.Substring(0, who.Length - 2); // chop that last comma!
-                    string lat = "";
-                    string lon = "";
-                    string place = "";
-                    string usersPlace = "Moon";
-                    string serverCountry = "";
-
-                    if (userCountries.Count > 0) // we snipped Streamers, sometimes leaving nobody.
-                    {
-                        if (server.city.Length > 1)
-                            place = server.city;
-                        if (server.country.Length > 1)
-                        {
-                            if (place.Length > 1)
-                                place += ", ";
-                            place += server.country;
-                            serverCountry = server.country;
-                        }
-
-                        // usersCountry is the most common country reported by active users.
-                        //var sorted = userCountries.GroupBy(v => v).OrderByDescending(g => g.Count());
-
-                        var nameGroup = userCountries.GroupBy(x => x);
-                        var maxCount = nameGroup.Max(g => g.Count());
-                        var mostCommons = nameGroup.Where(x => x.Count() == maxCount).Select(x => x.Key).ToArray();
-                        string usersCountry = mostCommons[0];
-
-
-                        List<string> cities = new List<string>();
-                        foreach (var guy in server.clients)
-                        {
-                            if (guy.country.ToUpper() == usersCountry)
-                                if (guy.city.Length > 0)
-                                    cities.Add(guy.city.ToUpper());
-                        }
-
-                        string usersCity = "";
-                        if (cities.Count > 0)
-                        {
-                            var citiGroup = cities.GroupBy(x => x);
-                            var maxCountr = citiGroup.Max(g => g.Count());
-                            var mostCommonCity = citiGroup.Where(x => x.Count() == maxCountr).Select(x => x.Key).ToArray();
-                            if (mostCommonCity.GetLength(0) > 0)
-                                usersCity = mostCommonCity[0];
-                        }
-
-                        //string
-                        usersPlace = usersCountry;
-                        if (usersCity.Length > 1)
-                            usersPlace = usersCity + ", " + usersCountry;
-                        usersCountry = null;
-                    }
-
-                    // Ideally, if the users also reveal a city most common among that country, we should add it.
-
-                    //                    IEnumerable<ServersForMe> sortedByDistanceAway = allMyServers.OrderBy(svr => svr.distanceAway);
-                    ///  
-
-                    if (place.Contains("208, "))
-                        place = place.Replace("208, ", "");
-
-                    PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), server.ip, ref lat, ref lon);
-
-                    //                    allMyServers.Add(new ServersForMe(key, server.ip, server.name, server.city, DistanceFromMe(server.ip), who, people));
-                    int dist = 0;
-                    char zone = ' ';
-                    //                    if(lat != null)
-                    //                    if(lon != null)
-                    if (lat.Length > 1 || lon.Length > 1) // maybe ipstack didn't bill me?
-                    {
-                        dist = DistanceFromClient(lat, lon);
-
-                        //                        Console.Write(place.ToUpper() + " / " + usersPlace.ToUpper() + " / " + server.ip + " / " + lat + ", " + lon);
-
-                        zone = ContinentOfLatLong(lat, lon);
-                    }
-
-                    if (dist < 250)
-                        dist = 250;
-
-                    // In ONE scenario, I cut this distance in half.
-                    if (server.clients.Length == 1)
-                    {
-                        double boost = DurationHereInMins(server.ip + ":" + server.port,
-                            GetHash(server.clients[0].name, server.clients[0].country, server.clients[0].instrument));
-
-                        if (boost < 3.0)
-                            boost = 3.0;
-                        dist = (int)((double)dist * (boost / 6)); // starts hella close, 
-                    }
-                    /*
-                        if (DurationHereInMins(server.name, server.clients[0].name) < 4) // 3 mins means at least 1 refresh where it's featured
-//                            if (DurationHereInMins(server.name, server.clients[0].name) > 1) // 3 mins means at least 1 refresh where it's featured
-                            {
-                                dist = dist / 2;
-                            }
-                            else
-                            {
-                                dist = dist * (int)(DurationHereInMins(server.name, server.clients[0].name));
-                            }
-                    */
-
-                    if (who.Length > 0)
-                        m_allMyServers.Add(new ServersForMe(key, server.ip, server.port, server.name, server.city, serverCountry, dist, zone, who, server.clients, people, (int)server.maxclients));
-                }
-            }
-
-            IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
-
-            //////////////////////////////////////////////////////////////
-            //////////////////////////////////////////////////////////////
-            // MY METHOD OF RELOCATING THE SERVER USER'S ON TO THE FRONT
-            // CAUSES VERT SCROLL BAR TO GET MESSED UP.
-            // BUT I CAN PREVENT THIS IF THE SERVER USER'S ON IS ALREADY FIRST POSITION.
-            /*
-            string ipaddr = HttpContext.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-            if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
-            {
-                ipaddr = HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-                if (null != ipaddr)
-                    if (false == ipaddr.Contains("::ffff"))
-                        ipaddr = "::ffff:" + ipaddr;
-            }
-            if (ipaddr != null)
-            {
-                if (m_ipToGuid.ContainsKey(ipaddr))
-                {
-                    string guidAssocWithIP = m_ipToGuid[ipaddr];
-                    foreach (var svr in sortedByDistanceAway)
-                    {
-                        if (svr.who.Contains(guidAssocWithIP))
-                        {
-                            sortedByDistanceAway.Prepend(svr); // we see it twice this way?
-                            break;
-                        }
-                    }
-                }
-            }
-            */
-            //////////////////////////////////////////////////////////////
-            //////////////////////////////////////////////////////////////
-
-
-            // caused a crash at zero active:
-            //            Console.WriteLine("First nearest server: " + sortedByDistanceAway.First().city + ", " + sortedByDistanceAway.First().country);
-
-            string output = "";
-
-            //            output += "<center><table class='table table-light table-hover table-striped'><tr><u><th>Genre<th>Name<th>City<th>Who</u></tr>";
-
-            // First all with more than one musician:
-            List<Client> myCopyOfWho = new List<Client>();
-            foreach (var s in sortedByDistanceAway)
-            {
-                myCopyOfWho.Clear();
-                // Copy to a list I can screw up:
-                foreach (var cat in s.whoObjectFromSourceData)
-                {
-                    if (NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
                         continue;
-                    myCopyOfWho.Add(cat);
-                }
-                var s_myUserCount = myCopyOfWho.Count;
-
-                try
-                {
-                    List<string> blocks = new List<string>();
-                    blocks = System.IO.File.ReadAllLines("erased.txt").ToList();
-                    bool bSkip = false;
-
-                    foreach (var line in blocks)
-                    {
-                        if (line.Trim().Length > 0)
-                            if (s.name.ToLower().Contains(line.Trim().ToLower()))
-                                bSkip = true;
                     }
 
-                    List<string> ipblocks = new List<string>();
-                    ipblocks = System.IO.File.ReadAllLines("no-ping.txt").ToList();
-                    foreach (var line in ipblocks)
+                    // Process all clients on this server
+                    var clientResult = ProcessServerClients(server, data);
+                    if (string.IsNullOrEmpty(clientResult.WhoHtml))
                     {
-                        if (line.Trim().Length > 0)
-                            if ((s.serverIpAddress + ":" + s.serverPort).Contains(line))
-                                bSkip = true;
+                        continue; // All clients were filtered out
                     }
 
+                    // Determine server and user locations
+                    var (place, usersPlace, serverCountry) = GetServerAndUserLocation(server, clientResult.UserCountries);
 
-                    if (bSkip)
-                        continue;
+                    // Get distance and zone
+                    CalculateServerDistanceAndZone(place, usersPlace, server.ip, out int dist, out char zone);
+
+                    // Apply distance boost for solo users
+                    dist = CalculateBoostedDistance(server, dist, clientResult.FirstUserHash);
+
+                    if (dist < 250) dist = 250;
+
+                    m_allMyServers.Add(new ServersForMe(
+                        key, server.ip, server.port, server.name, server.city, serverCountry,
+                        dist, zone, clientResult.WhoHtml, server.clients, people, (int)server.maxclients
+                    ));
                 }
-                catch (FileNotFoundException)
+            }
+        }
+
+        /// <summary>
+        /// Checks if a server should be skipped based on initial filter rules.
+        /// </summary>
+        private bool ShouldSkipServer(JamulusServers server, int people)
+        {
+            if (server.name.ToLower().Contains("script") ||
+                server.city.ToLower().Contains("script") ||
+                server.name.ToLower().Contains("jxw") ||
+                server.city.ToLower().Contains("peterborough") ||
+                server.name.ToLower().Contains("peachjam3"))
+            {
+                return true;
+            }
+
+            if (people < 1)
+            {
+                return true; // Don't care about empty servers
+            }
+
+            // CBVB logic from original was commented out, so not included here.
+            // if (server.name.ToLower().Contains("cbvb")) { ... }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Processes all clients on a server, filters them, and builds the 'Who' HTML string.
+        /// </summary>
+        private (string WhoHtml, List<string> UserCountries, string FirstUserHash) ProcessServerClients(JamulusServers server, PreloadedData data)
+        {
+            string who = "";
+            List<string> userCountries = new List<string>();
+            string firstUserHash = null;
+
+            foreach (var guy in server.clients)
+            {
+                if (guy.name.ToLower().Contains("script"))
                 {
-                    //                  Console.WriteLine("There's no erased.txt, so no suppression to do.");
+                    continue;
+                }
+
+                string musicianHash = GetHash(guy.name, guy.country, guy.instrument);
+
+                // Check if this client's most recent ASN is blocked
+                if (IsClientASNBlocked(musicianHash, data.JoinEventsLines, data.BlockedASNs))
+                {
+                    continue;
+                }
+
+                NotateWhoHere(server.ip + ":" + server.port, musicianHash);
+
+                if (NukeThisUsername(guy.name, guy.instrument, server.name.ToUpper().Contains("CBVB")))
+                {
+                    continue;
+                }
+
+                if (firstUserHash == null)
+                {
+                    firstUserHash = musicianHash;
+                }
+
+                // Build the HTML for this specific client
+                string clientHtml = BuildClientHtml(guy, server, musicianHash);
+                if (string.IsNullOrEmpty(clientHtml))
+                {
+                    continue;
+                }
+
+                who += clientHtml;
+                userCountries.Add(guy.country.ToUpper());
+            }
+
+            return (who, userCountries, firstUserHash);
+        }
+
+        /// <summary>
+        /// Builds the HTML snippet for a single client.
+        /// </summary>
+        private string BuildClientHtml(Client guy, JamulusServers server, string encodedHashOfGuy)
+        {
+            string slimmerInstrument = (guy.instrument == "-") ? "" : guy.instrument;
+            if (slimmerInstrument.Length > 0)
+            {
+                slimmerInstrument = " " + slimmerInstrument;
+            }
+
+            var nam = guy.name.Trim().Replace("  ", " ").Replace("  ", " ").Replace("  ", " ").Replace("<", "");
+
+            // Filter out nameless/streamer clients
+            if (nam.Length == 0 && (slimmerInstrument == "" || slimmerInstrument == " Streamer"))
+            {
+                return null;
+            }
+
+            // Determine font size
+            string font = "<font size='+0'>";
+            if (server.clients.GetLength(0) > 11)
+            {
+                font = "<font size='-1'>";
+            }
+            else
+            {
+                foreach (var longguy in server.clients)
+                {
+                    if (longguy.name.Length > 14 && slimmerInstrument.Length > 0)
+                    {
+                        font = "<font size='-1'>";
+                        break;
+                    }
+                }
+            }
+
+            string hash = guy.name + guy.country; // Used for JS toggle
+
+            var newpart = "<span class=\"musician " +
+                server.ip + " " + encodedHashOfGuy + "\"" +
+                " id =\"" + hash + "\"" +
+                " onmouseover=\"this.style.cursor='pointer'\" onmouseout=\"this.style.cursor='default'\" onclick=\"toggle('" + hash + "')\";>" +
+                font +
+                "<b>" + nam + "</b>" +
+                "<i>" + slimmerInstrument + "</i></font></span>\n";
+
+            if (server.clients.GetLength(0) < 17)
+            {
+                newpart += "<br>";
+            }
+            else if (guy != server.clients[server.clients.GetLength(0) - 1])
+            {
+                newpart += " · ";
+            }
+
+            return newpart;
+        }
+
+
+        /// <summary>
+        /// Efficiently checks if a client's ASN is on the block list.
+        /// </summary>
+        private bool IsClientASNBlocked(string musicianHash, string[] joinEvents, HashSet<string> blockedASNs)
+        {
+            string mostLikelyASN = null;
+            const int asnColumnIndex = 12;
+
+            for (int i = joinEvents.Length - 1; i >= 0; i--)
+            {
+                string candidateLine = joinEvents[i];
+
+                if (!candidateLine.Contains(musicianHash) || string.IsNullOrWhiteSpace(candidateLine))
+                {
+                    continue;
+                }
+
+                string[] fields = candidateLine.Split(',');
+                if (fields.Length > asnColumnIndex)
+                {
+                    string fullAsnField = fields[asnColumnIndex].Trim();
+                    if (fullAsnField.StartsWith("AS"))
+                    {
+                        string asnIdentifier = fullAsnField.Split(' ')[0];
+                        if (asnIdentifier.Length > 0)
+                        {
+                            mostLikelyASN = asnIdentifier;
+                            break; // Found the most recent ASN
+                        }
+                    }
+                }
+            }
+
+            return mostLikelyASN != null && blockedASNs.Contains(mostLikelyASN);
+        }
+
+        /// <summary>
+        /// Determines the server's location and the most common user location.
+        /// </summary>
+        private (string Place, string UsersPlace, string ServerCountry) GetServerAndUserLocation(JamulusServers server, List<string> userCountries)
+        {
+            string place = "";
+            string serverCountry = "";
+            string usersPlace = "Moon";
+
+            if (server.city.Length > 1)
+            {
+                place = server.city;
+            }
+            if (server.country.Length > 1)
+            {
+                if (place.Length > 1) place += ", ";
+                place += server.country;
+                serverCountry = server.country;
+            }
+
+            if (userCountries.Count > 0)
+            {
+                var mostCommons = userCountries.GroupBy(x => x)
+                                               .OrderByDescending(g => g.Count())
+                                               .Select(x => x.Key)
+                                               .ToArray();
+                string usersCountry = mostCommons[0];
+
+                List<string> cities = new List<string>();
+                foreach (var guy in server.clients)
+                {
+                    if (guy.country.ToUpper() == usersCountry && guy.city.Length > 0)
+                    {
+                        cities.Add(guy.city.ToUpper());
+                    }
+                }
+
+                string usersCity = "";
+                if (cities.Count > 0)
+                {
+                    usersCity = cities.GroupBy(x => x)
+                                      .OrderByDescending(g => g.Count())
+                                      .Select(x => x.Key)
+                                      .FirstOrDefault();
+                }
+
+                usersPlace = usersCountry;
+                if (usersCity.Length > 1)
+                {
+                    usersPlace = usersCity + ", " + usersCountry;
+                }
+            }
+
+            if (place.Contains("208, "))
+            {
+                place = place.Replace("208, ", "");
+            }
+
+            return (place, usersPlace, serverCountry);
+        }
+
+        /// <summary>
+        /// Calculates the distance and time zone for a server.
+        /// </summary>
+        private void CalculateServerDistanceAndZone(string place, string usersPlace, string serverIp, out int dist, out char zone)
+        {
+            string lat = "";
+            string lon = "";
+            PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), serverIp, ref lat, ref lon);
+
+            dist = 0;
+            zone = ' ';
+
+            if (lat.Length > 1 || lon.Length > 1)
+            {
+                dist = DistanceFromClient(lat, lon);
+                zone = ContinentOfLatLong(lat, lon);
+            }
+        }
+
+        /// <summary>
+        /// Applies a "boost" to the distance (making it seem closer) if a user is solo.
+        /// </summary>
+        private int CalculateBoostedDistance(JamulusServers server, int initialDistance, string firstUserHash)
+        {
+            if (server.clients.Length != 1 || firstUserHash == null)
+            {
+                return initialDistance;
+            }
+
+            double boost = DurationHereInMins(server.ip + ":" + server.port, firstUserHash);
+            if (boost < 3.0)
+            {
+                boost = 3.0;
+            }
+
+            // starts hella close
+            return (int)((double)initialDistance * (boost / 6));
+        }
+
+        /// <summary>
+        /// Loads the 'm_connectedLounges' map from the remote JSON.
+        /// </summary>
+        private async Task LoadConnectedLoungesAsync()
+        {
+            if (m_connectedLounges.Count > 0)
+            {
+                return; // Already loaded
+            }
+
+            try
+            {
+                HttpClient client = new HttpClient();
+                HttpResponseMessage response = await client.GetAsync("https://mjth.live/lounges.json");
+                response.EnsureSuccessStatusCode();
+                string responseBody = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<Dictionary<string, string>>(responseBody);
+                foreach (var kvp in data)
+                {
+                    m_connectedLounges[kvp.Value] = kvp.Key; // swap 'em
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to load lounges.json: {ex.Message}");
+            }
+
+            // Add hardcoded lounges
+            m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
+            m_connectedLounges["https://openjam.klinkanha.com/"] = "43.208.146.31:22124";
+            m_connectedLounges["https://icecast.voixtel.net.br:8000/stream"] = "189.126.207.3:22124";
+            m_connectedLounges["http://1.onj.me:32123/"] = "139.162.251.38:22124";
+            m_connectedLounges["http://3.onj.me:8000/jamulus4"] = "69.164.213.250:22124";
+        }
+
+
+        /// <summary>
+        /// Generates the final HTML output by iterating over the sorted server list.
+        /// </summary>
+        private async Task<string> GenerateServerListHtmlAsync(IEnumerable<ServersForMe> sortedServers, PreloadedData data)
+        {
+            var output = new System.Text.StringBuilder();
+
+            // Load lounge data once before looping
+            await LoadConnectedLoungesAsync();
+
+            foreach (var s in sortedServers)
+            {
+                // --- Server Block List Checks ---
+                string serverIpPort = s.serverIpAddress + ":" + s.serverPort;
+                if (data.ErasedServerNames.Any(erased => s.name.ToLower().Contains(erased)))
+                {
+                    continue;
+                }
+                if (data.NoPingIpPartial.Any(ip => serverIpPort.Contains(ip)))
+                {
+                    continue;
                 }
 
                 string asn = AsnOfThisIp(s.serverIpAddress);
-                var blockedArns = System.IO.File.ReadAllLines("arn-servers-blocked.txt").ToList();
-                if (blockedArns.Contains(asn))
+                if (data.BlockedServerARNs.Contains(asn))
                 {
                     Console.WriteLine(s.serverIpAddress + " blocked because in asn " + asn);
                     continue;
                 }
+                // --- End Block List Checks ---
 
-                string evenSmarterCity = s.city;
-                if (evenSmarterCity.Contains(" Vultr"))
-                    evenSmarterCity = evenSmarterCity.Replace(" Vultr", "");
+                // Get a cleaner city name
+                string evenSmarterCity = await GetSmarterCityAsync(s.city, s.serverIpAddress);
 
-                if (("AWS" == evenSmarterCity) || ("Linode Cloud" == evenSmarterCity))
-                {
-                    if (false == m_ipapiOutputs.ContainsKey(s.serverIpAddress))
-                    {
-                        var client = new HttpClient();
-                        System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + s.serverIpAddress);
-                        task.Wait();
-                        string st = task.Result;
-                        JObject json = JObject.Parse(st);
-                        m_ipapiOutputs[s.serverIpAddress] = json;
-                    }
+                // Re-filter users based on NukeThisUsername
+                var filteredUsers = s.whoObjectFromSourceData
+                    .Where(cat => !NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
+                    .ToList();
 
-                    evenSmarterCity = m_ipapiOutputs[s.serverIpAddress]["city"].ToString();
-                }
+                int s_myUserCount = filteredUsers.Count;
 
                 if (s_myUserCount > 1)
                 {
-                    //                  if (s.name == "JamPad") continue;
+                    output.Append(await BuildMultiUserServerCardAsync(s, filteredUsers, evenSmarterCity));
+                }
+                else
+                {
+                    output.Append(BuildSingleUserServerCard(s, filteredUsers, evenSmarterCity, data.GoodGuids));
+                }
+            }
+            return output.ToString();
+        }
 
-                    // once in a while, two people park on a single server. let's hide them after 8 hours.
-                    // BUT IF THE TITLE CONTAINS PRIV, hide them after only 4 hours.
-                    int iTimeoutPeriod = 8 * 60;
-                    if (s.name.ToLower().Contains("priv"))
-                        iTimeoutPeriod = 4 * 60;
+        /// <summary>
+        /// Gets a cleaner city name, querying ip-api.com if necessary.
+        /// </summary>
+        private async Task<string> GetSmarterCityAsync(string city, string ipAddress)
+        {
+            string evenSmarterCity = city.Replace(" Vultr", "");
 
-                    bool fSuppress = true;
-                    foreach (var user in myCopyOfWho)
+            if (("AWS" == evenSmarterCity) || ("Linode Cloud" == evenSmarterCity))
+            {
+                if (!m_ipapiOutputs.ContainsKey(ipAddress))
+                {
+                    try
                     {
-                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < iTimeoutPeriod)
+                        var client = new HttpClient();
+                        string st = await client.GetStringAsync("http://ip-api.com/json/" + ipAddress);
+                        m_ipapiOutputs[ipAddress] = JObject.Parse(st);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"ip-api.com failed: {ex.Message}");
+                        return evenSmarterCity; // return original on failure
+                    }
+                }
+
+                if (m_ipapiOutputs.TryGetValue(ipAddress, out JObject json) && json["city"] != null)
+                {
+                    return json["city"].ToString();
+                }
+            }
+
+            return evenSmarterCity;
+        }
+
+        /// <summary>
+        /// Builds the HTML card for a server with multiple users.
+        /// </summary>
+        private async Task<string> BuildMultiUserServerCardAsync(ServersForMe s, List<Client> filteredUsers, string evenSmarterCity)
+        {
+            // --- Timeout/Suppression Check ---
+            int iTimeoutPeriod = s.name.ToLower().Contains("priv") ? (4 * 60) : (8 * 60);
+            bool fSuppress = true;
+            foreach (var user in filteredUsers)
+            {
+                if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < iTimeoutPeriod)
+                {
+                    fSuppress = false;
+                    break;
+                }
+            }
+            if (fSuppress) return ""; // Skip it
+            // --- End Suppression Check ---
+
+            var newline = new System.Text.StringBuilder();
+            string serverAddress = s.serverIpAddress + ":" + s.serverPort;
+
+            string newJamFlag = GetNewJamFlag(s, filteredUsers);
+            string smartcity = SmartCity(evenSmarterCity, filteredUsers.ToArray());
+            string smartNations = SmartNations(filteredUsers.ToArray(), s.country);
+            string listenNow = await GetListenHtmlAsync(s);
+            string liveSnippet = (listenNow.Length == 0) ? await GetSnippetHtmlAsync(serverAddress) : "";
+            string htmlForVideoUrl = GetVideoHtml(serverAddress);
+            string titleToShow = GetSongTitleHtml(s.serverIpAddress + "-" + s.serverPort);
+            string leaversHtml = GetLeaversHtml(s);
+            string soonHtml = GetSoonHtml(serverAddress);
+            string activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
+
+            newline.Append($"<div id=\"{serverAddress}\" {BackgroundByZone(s.zone)}><center>");
+
+            if (s.name.Length > 0)
+            {
+                string name = s.name.Contains("CBVB") ? s.name + " (Regional)" : s.name;
+                newline.Append(System.Web.HttpUtility.HtmlEncode(name) + "<br>");
+            }
+
+            if (smartcity.Length > 0) newline.Append("<b>" + smartcity + "</b><br>");
+
+            newline.Append($"<font size='-1'>{s.category.Replace("Genre ", "").Replace(" ", "&nbsp;")}</font><br>");
+            if (newJamFlag.Length > 0) newline.Append(newJamFlag + "<br>");
+            if (activeJitsi.Length > 0) newline.Append($"<b><a target='_blank' href='{activeJitsi}'>Jitsi Video</a></b>");
+            if (NoticeNewbs(serverAddress)) newline.Append(LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)", "(Nuovo server.)") + "<br>");
+
+            newline.Append(liveSnippet);
+            newline.Append(listenNow);
+            newline.Append(htmlForVideoUrl);
+            newline.Append(titleToShow);
+            newline.Append("</center><hr>");
+            newline.Append(s.who); // The 'who' string built during server processing
+            newline.Append(leaversHtml);
+
+            if (smartcity != smartNations)
+            {
+                newline.Append($"<center><font size='-2'>{smartNations.Trim()}</font></center>");
+            }
+
+            if (soonHtml.Length > 0) newline.Append($"<center>{soonHtml}</center>");
+
+            newline.Append("</div>");
+
+            return newline.ToString();
+        }
+
+        /// <summary>
+        /// Builds the HTML card for a server with only one (filtered) user.
+        /// </summary>
+        private string BuildSingleUserServerCard(ServersForMe s, List<Client> filteredUsers, string evenSmarterCity, HashSet<string> goodGuids)
+        {
+            var firstUser = filteredUsers.FirstOrDefault();
+            if (firstUser == null) return ""; // Should not happen if s_myUserCount=1, but safe
+
+            string userHash = GetHash(firstUser.name, firstUser.country, firstUser.instrument);
+
+            // --- GUID and Timeout Check ---
+            if (!goodGuids.Contains(userHash))
+            {
+                return "";
+            }
+
+            const int maxDurationMinutes = 6 * 60; // 6 hours
+            string serverAddress = $"{s.serverIpAddress}:{s.serverPort}";
+            if (DurationHereInMins(serverAddress, userHash) > maxDurationMinutes)
+            {
+                return ""; // Sat there for 6 hours
+            }
+            // --- End Check ---
+
+            var excludedServerNames = new HashSet<string> { "JamPad", "portable" };
+            if (excludedServerNames.Contains(s.name))
+            {
+                return "";
+            }
+
+            var htmlBuilder = new System.Text.StringBuilder();
+            string smartCity = SmartCity(evenSmarterCity, filteredUsers.ToArray());
+            string whoStringNoBreaks = s.who.Replace("<br/>", " "); // Original logic
+            string categoryDisplay = s.category.Replace("Genre ", "").Replace(" ", "&nbsp;");
+
+            htmlBuilder.Append($"<div {BackgroundByZone(s.zone)}><center>");
+
+            if (!string.IsNullOrEmpty(s.name))
+            {
+                htmlBuilder.Append($"{System.Web.HttpUtility.HtmlEncode(s.name)}<br>");
+            }
+            if (!string.IsNullOrEmpty(smartCity))
+            {
+                htmlBuilder.Append($"<b>{smartCity}</b><br>");
+            }
+
+            htmlBuilder.Append($"<font size='-1'>{categoryDisplay}</font><br>");
+
+            if (NoticeNewbs(serverAddress))
+            {
+                htmlBuilder.Append("(New server.)<br>");
+            }
+
+            htmlBuilder.Append("</center><hr>");
+            htmlBuilder.Append(whoStringNoBreaks); // The 'who' string
+            htmlBuilder.Append(DurationHere(serverAddress, userHash));
+            htmlBuilder.Append("</div>");
+
+            return htmlBuilder.ToString();
+        }
+
+        // --- Multi-User CardBuilder Sub-Helpers ---
+
+        private string GetNewJamFlag(ServersForMe s, List<Client> users)
+        {
+            string newJamFlag = "";
+            bool allNew = true;
+            foreach (var user in users)
+            {
+                if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) >= 14)
+                {
+                    allNew = false;
+                    break;
+                }
+            }
+
+            if (allNew)
+            {
+                string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;connessi.");
+                newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Pieno. ") : "") + translatedPhrase + ")";
+            }
+            else if (s.usercount == s.maxusercount)
+            {
+                newJamFlag = "<b>(" + LocalizedText("Full", "滿房", "เต็ม", "Voll", "piena") + ")</b>";
+            }
+            else if (s.usercount + 1 == s.maxusercount)
+            {
+                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)");
+            }
+            return newJamFlag;
+        }
+
+        private async Task<string> GetListenHtmlAsync(ServersForMe s)
+        {
+            string ipport = s.serverIpAddress + ":" + s.serverPort;
+
+            // Check m_connectedLounges (loaded once)
+            foreach (var url in m_connectedLounges.Keys)
+            {
+                if (m_connectedLounges[url].Contains(ipport))
+                {
+                    foreach (var user in s.whoObjectFromSourceData)
+                    {
+                        if (user.name.Contains("obby") || user.name == "")
                         {
-                            fSuppress = false;
-                            break; // someone was here less than 4/8 hours.
-                        }
-                    }
-                    if (fSuppress)
-                        continue; // skip it!
-
-                    // if everyone here got here less than 14 minutes ago, then this is just assembled
-                    string newJamFlag = "";
-                    foreach (var user in myCopyOfWho)
-                    {
-                        string translatedPhrase = LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;connessi.");
-                        newJamFlag = "(" + ((s.usercount == s.maxusercount) ? LocalizedText("Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Pieno. ") : "") + translatedPhrase + ")";
-                        if (DurationHereInMins(s.serverIpAddress + ":" + s.serverPort, GetHash(user.name, user.country, user.instrument)) < 14)
-                            continue;
-
-                        // I guess Just Gatghered can only appear after the gathering period has elapsed. Maybe that's ok.
-                        newJamFlag = "";
-                        if (s.usercount == s.maxusercount)
-                            newJamFlag = "<b>(" + LocalizedText("Full", "滿房", "เต็ม", "Voll", "piena") + ")</b>";
-                        else
-                        {
-                            if (s.usercount + 1 == s.maxusercount)
-                                newJamFlag = LocalizedText("(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)");
-                        }
-                        break;
-                    }
-
-                    string smartcity = SmartCity(evenSmarterCity, myCopyOfWho.ToArray());
-
-                    var serverAddress = s.serverIpAddress + ":" + s.serverPort;
-
-                    var newline = "<div id=\"" + serverAddress + "\"";
-
-                    newline += BackgroundByZone(s.zone);
-
-                    newline += "><center>";
-                    //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
-                    //                        serverAddress +
-                    if (s.name.Length > 0)
-                    {
-                        string name = s.name;
-
-                        if (name.Contains("CBVB"))
-                            name += " (Regional)";
-
-                        newline += System.Web.HttpUtility.HtmlEncode(name) + "<br>";
-                    }
-
-                    // smart nation returns nations that aren't (probably) obvious by server city.
-                    string smartNations = SmartNations(myCopyOfWho.ToArray(), s.country);
-
-                    if (smartcity.Length > 0)
-                        newline += "<b>" + smartcity + "</b><br>";
-
-                    // if we find this server address in the activity report, show its url
-                    var activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
-
-                    // For every entry in the map of connected docks, add Listen link if ip:port matches.
-                    if (m_connectedLounges.Count == 0)
-                    {
-                        // parse thai list once
-                        HttpClient client = new HttpClient();
-                        HttpResponseMessage response = await client.GetAsync("https://mjth.live/lounges.json");
-                        response.EnsureSuccessStatusCode();
-                        string responseBody = await response.Content.ReadAsStringAsync();
-                        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(responseBody);
-                        foreach (var kvp in data)
-                            m_connectedLounges[kvp.Value] = kvp.Key; // swap 'em
-
-                        m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
-                        m_connectedLounges["https://openjam.klinkanha.com/"] = "43.208.146.31:22124";
-                        m_connectedLounges["https://icecast.voixtel.net.br:8000/stream"] = "189.126.207.3:22124";
-                        m_connectedLounges["http://1.onj.me:32123/"] = "139.162.251.38:22124";
-                        m_connectedLounges["http://3.onj.me:8000/jamulus4"] = "69.164.213.250:22124";
-                    }
-
-                    string listenNow = "";
-                    string ipport = s.serverIpAddress + ":" + s.serverPort;
-                    //                    Console.WriteLine(s.who);
-                    //                    if (s.who.Contains("obby"))
-                    //                        Console.WriteLine("obby");
-                    foreach (var url in m_connectedLounges.Keys)
-                    {
-                        if (m_connectedLounges[url].Contains(ipport))
-                        {
-                            while (true)
+                            string num = "";
+                            var iPos = user.name.IndexOf("[");
+                            if (iPos > 0 && '0' != user.name[iPos + 1])
                             {
-                                foreach (var user in s.whoObjectFromSourceData)
-                                {
-                                    if (user.name.Contains("obby") || user.name == "")
-                                    {
-                                        string num = "";
-                                        // snag that user count if non-zero
-                                        var iPos = user.name.IndexOf("[");
-                                        if (iPos > 0)
-                                        {
-                                            if ('0' != user.name[iPos + 1])
-                                                num = "<sub> " + user.name[iPos + 1] + "</sub>";
-                                        }
-                                        listenNow = "<b><a class='listenlink listenalready' target='_blank' href='" + url + "'>Listen</a></b>"
-                                            + num
-                                            + "</br>";
-                                        m_listenLinkDeployment.Add(ipport);
-                                        break;
-                                    }
-                                }
+                                num = "<sub> " + user.name[iPos + 1] + "</sub>";
+                            }
+                            m_listenLinkDeployment.Add(ipport);
+                            return $"<b><a class='listenlink listenalready' target='_blank' href='{url}'>Listen</a></b>{num}</br>";
+                        }
+                    }
+                }
+            }
+
+            // --- Fallback: Check for dockable instance ---
+            string currentHear = m_connectedLounges.ContainsKey("https://hear.jamulus.live/") ? m_connectedLounges["https://hear.jamulus.live/"] : null;
+            bool a = false; // InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear); // Original was false
+            bool b = false; // InstanceIsFree("http://radio.jamulus.live/free.txt"); // Original was false
+
+            if (!a && !b) return ""; // No free instances
+            if (s.name.ToLower().Contains("priv") || s.usercount >= s.maxusercount) return ""; // Can't dock
+
+            try
+            {
+                using var httpClient2 = new HttpClient();
+                var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
+                if (contents2.Contains(ipport) && !AnyoneBlockStreaming(ipport))
+                {
+                    var lobby = System.IO.File.ReadAllLines("lobby.txt").ToList();
+                    if (lobby.Count <= 1)
+                    {
+                        string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
+                        JObject json = GetClientIPDetails(clientIP); // Assumes this helper exists
+                        if (json != null && !forbidder.m_forbiddenIsp.Contains(json["as"].ToString()))
+                        {
+                            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(ipport + DateTime.UtcNow.Hour);
+                            var interimStep = System.Security.Cryptography.MD5.HashData(bytes);
+                            var saltedHashOfDestination = ToHex(interimStep, false).Substring(0, 4); // Assumes ToHex helper
+
+                            m_listenLinkDeployment.Add(ipport);
+                            return $"<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/{saltedHashOfDestination}'>Listen</a></br>";
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error checking can-dock.txt: {ex.Message}");
+            }
+
+            return "";
+        }
+
+        private async Task<string> GetSnippetHtmlAsync(string serverAddress)
+        {
+            string DIR = "";
+#if WINDOWS
+            DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+#else
+            DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+#endif
+
+            // Check for remote .sil file
+            string url = $"https://jamulus.live/mp3s/{serverAddress}.sil";
+            using (var httpClient = new HttpClient())
+            {
+                try
+                {
+                    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return "(Silent)";
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    Console.WriteLine($"Error checking file at URL: {ex.Message}");
+                }
+            }
+
+            // Check for local .mp3 file
+            try
+            {
+                var files = Directory.GetFiles(DIR, serverAddress + ".mp3");
+                if (files.Length > 0)
+                {
+                    string myFile = Path.GetFileName(files[0]);
+                    m_snippetsDeployed++;
+                    return $"<audio class='playa' controls style='width: 150px;' src='mp3s/{myFile}' />";
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error checking local mp3s: {ex.Message}");
+            }
+
+            return "";
+        }
+
+        private string GetVideoHtml(string serverAddress)
+        {
+            if (harvest.m_discreetLinks.TryGetValue(serverAddress, out string videoUrl))
+            {
+                if (videoUrl.ToLower().Contains("zoom"))
+                    return $"<a class='vid' href='{videoUrl}'><b>Zoom Video</b></a><br>";
+                if (videoUrl.ToLower().Contains("https://meet."))
+                    return $"<a class='vid' href='{videoUrl}'><b>Meet Video</b></a><br>";
+                if (videoUrl.ToLower().Contains("jit.si"))
+                    return "<b>Jitsi Video</b><br>";
+                if (videoUrl.ToLower().Contains("vdo.ninja"))
+                    return $"<a class='vid' href='{videoUrl}'><b>VDO.Ninja Video</b></a><br>";
+            }
+            return "";
+        }
+
+        private string GetSongTitleHtml(string serverAddressWithDash)
+        {
+            if (harvest.m_songTitleAtAddr.TryGetValue(serverAddressWithDash, out string title) &&
+                MinutesSince2023AsInt() < harvest.m_timeToLive &&
+                title.Length > 0)
+            {
+                Console.WriteLine("Song title found at that address:" + title);
+
+                if (title.Length > 25)
+                {
+                    if (title.Contains(" by "))
+                    {
+                        title = title.Replace("  ", " ").Replace(" ", "&nbsp;").Replace("&nbsp;by&nbsp;", " by&nbsp;");
+                    }
+                    else if (title.Contains(" BY "))
+                    {
+                        title = title.Replace("  ", " ").Replace(" ", "&nbsp;").Replace("&nbsp;BY&nbsp;", " BY&nbsp;");
+                    }
+                }
+                return $"<font size='-2'><i>{title}</i></font><br>";
+            }
+            return "";
+        }
+
+        private string GetLeaversHtml(ServersForMe s)
+        {
+            string leavers = "";
+            foreach (var entry in m_connectionLatestSighting)
+            {
+                if (!entry.Key.Contains(s.serverIpAddress + ":" + s.serverPort))
+                {
+                    continue;
+                }
+
+                if (entry.Value.AddMinutes(4) > DateTime.Now && entry.Value.AddMinutes(1) < DateTime.Now)
+                {
+                    string guid = entry.Key.Substring(0, "f2c26681da4d0013563cfd8c0619cfc7".Length);
+                    if (m_guidNamePairs.TryGetValue(guid, out string name) &&
+                        name != "No Name" && name != "Ear" && !name.Contains("obby") &&
+                        !leavers.Replace("&nbsp;", " ").Contains(name))
+                    {
+                        // see if this name is someone on this server now (changed instrument maybe)
+                        bool fFound = false;
+                        foreach (var user in s.whoObjectFromSourceData)
+                        {
+                            if (user.name == name ||
+                               (user.name.Length > 3 && name.Length > 3 && user.name.ToLower().Substring(0, 3) == name.ToLower().Substring(0, 3)))
+                            {
+                                fFound = true;
+                                break;
+                            }
+                        }
+                        if (!fFound)
+                        {
+                            leavers += name.Replace(" ", "&nbsp;") + WholeMiddotString;
+                        }
+                    }
+                }
+            }
+
+            if (leavers.Length > 0)
+            {
+                leavers = leavers.Substring(0, leavers.Length - WholeMiddotString.Length);
+                return $"<center><font color='gray' size='-2'><i>{LocalizedText("Bye", "再見", "บ๊ายบาย", "Tschüss", "Ciao")} {leavers}</i></font></center>";
+            }
+            return "";
+        }
+
+        private string GetSoonHtml(string serverAddress)
+        {
+            if (m_predicted.ContainsKey(serverAddress))
+            {
+                string soonNames = "";
+                foreach (var dude in m_predicted[serverAddress])
+                {
+                    if (m_guidNamePairs.ContainsKey(dude))
+                    {
+                        soonNames += m_guidNamePairs[dude] + " &#8226; ";
+                    }
+                    else
+                    {
+                        Console.WriteLine("GUID not mapped to a name. Only long runtimes see everyone.");
+                        // ... (logic to get from censusgeo.csv) ...
+                        foreach (var line in System.IO.File.ReadLines("data/censusgeo.csv"))
+                        {
+                            var fields = line.Split(',');
+                            if (fields.Length >= 2 && fields[0] == dude)
+                            {
+                                soonNames += fields[1] + " &#8226; ";
                                 break;
                             }
                         }
                     }
-
-                    // if listenNow wasn't assigned by the map, maybe assign it because there's a free instance and this IP:port is allowed
-                    if (listenNow.Length == 0)
-                    {
-                        string currentHear = null;
-                        if (m_connectedLounges.ContainsKey("https://hear.jamulus.live/"))
-                            currentHear = m_connectedLounges["https://hear.jamulus.live/"];
-
-                        bool a = false; // just stop this crashing here: InstanceIsFree("http://hear.jamulus.live/free.txt", currentHear);
-                        bool b = false; // offline InstanceIsFree("http://radio.jamulus.live/free.txt");
-                        if (a || b)
-                        {
-                            // If it's tagge private, we won't dock
-                            if (false == s.name.ToLower().Contains("priv"))
-                            {
-                                // If it's full, we can't dock.
-                                if (s.usercount < s.maxusercount)
-                                {
-                                    // is this ipport on https://jamulus.live/can-dock.txt?
-                                    using (var httpClient2 = new HttpClient())
-                                    {
-                                        var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
-                                        if (contents2.Contains(ipport))
-                                        {
-                                            if (false == AnyoneBlockStreaming(ipport))
-                                            {
-                                                var lobby = System.IO.File.ReadAllLines("lobby.txt").ToList();
-                                                if (lobby.Count <= 1)
-                                                {
-                                                    string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
-                                                    using var client = new HttpClient();
-                                                    JObject json = GetClientIPDetails(clientIP);
-                                                    //                                                    System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
-                                                    //                                                  task.Wait();
-                                                    //                                                string st = task.Result;
-                                                    //                                              JObject json = JObject.Parse(st);
-                                                    if (false == forbidder.m_forbiddenIsp.Contains(json["as"].ToString()))
-                                                    {
-                                                        // i show the first four of an md5 of the ipport plus the hour for salt
-                                                        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(ipport + DateTime.UtcNow.Hour);
-                                                        // var saltedHashOfDestination = System.Security.Cryptography.MD5.HashData(bytes).ToString().Substring(0, 4);
-                                                        var interimStep = System.Security.Cryptography.MD5.HashData(bytes);
-                                                        var saltedHashOfDestination = ToHex(interimStep, false).Substring(0, 4);
-
-                                                        // ok, it's free and can dock, so add a link.
-                                                        listenNow = "<a class='listenlink listen' target='_blank' href='https://jamulus.live/dock/"
-                                                            + saltedHashOfDestination
-                                                            + "'>Listen</a></br>";
-                                                        m_listenLinkDeployment.Add(ipport);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // if there's no listen link, can there be a snippet?
-
-                    string liveSnippet = "";
-
-                    string DIR = "";
-#if WINDOWS
-                    DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
-#else
-                    DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
-#endif
-
-                    if (listenNow.Length == 0) // if there's a listen link
-                    {
-                        {
-                            // This code would go in an async method
-                            string url = $"https://jamulus.live/mp3s/{serverAddress}.sil";
-
-                            using (var httpClient = new HttpClient())
-                            {
-                                try
-                                {
-                                    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, url));
-
-                                    if (response.IsSuccessStatusCode)
-                                    {
-                                        // File exists at the URL
-                                        liveSnippet = "(Silent)";
-                                        // m_snippetsDeployed++;
-                                    }
-                                }
-                                catch (HttpRequestException ex)
-                                {
-                                    // Handle unreachable server, DNS errors, etc.
-                                    Console.WriteLine($"Error checking file at URL: {ex.Message}");
-                                }
-                            }
-                        }
-                        {
-                            string wildcard = serverAddress + ".mp3";
-
-                            var files = Directory.GetFiles(DIR, wildcard);
-                            string myFile = null;
-
-                            if (files.GetLength(0) > 0)
-                            {
-                                myFile = Path.GetFileName(files[0]);
-                            }
-
-                            if (myFile != null)
-                            {
-                                liveSnippet =
-                                    (myFile != null
-                                        ? "<audio class='playa' controls style='width: 150px;' src='mp3s/" + myFile + "' />"
-                                        : "");
-                                m_snippetsDeployed++;
-                            }
-                        }
-                    }
-
-                    string videoUrl = "";
-                    string htmlForVideoUrl = "";
-                    if (harvest.m_discreetLinks.TryGetValue(s.serverIpAddress + ":" + s.serverPort, out videoUrl))
-                    {
-                        if (videoUrl.ToLower().Contains("zoom"))
-                            htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>Zoom Video</b></a><br>";
-                        if (videoUrl.ToLower().Contains("https://meet."))
-                            htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>Meet Video</b></a><br>";
-                        if (videoUrl.ToLower().Contains("jit.si"))
-                            htmlForVideoUrl = "<b>Jitsi Video</b><br>";
-                        if (videoUrl.ToLower().Contains("vdo.ninja"))
-                            htmlForVideoUrl = $"<a class='vid' href='{videoUrl}'><b>VDO.Ninja Video</b></a><br>";
-                    }
-
-                    string title = "";
-                    string titleToShow = "";
-                    //                  Console.WriteLine("Attempting to read: " + s.serverIpAddress + "-" + s.serverPort);
-                    if (harvest.m_songTitleAtAddr.TryGetValue(s.serverIpAddress + "-" + s.serverPort, out title))
-                    {
-                        if (MinutesSince2023AsInt() < harvest.m_timeToLive)
-                        {
-                            Console.WriteLine("Song title found at that address:" + title);
-                            if (title.Length > 0)
-                            {
-                                if (title.Length > 25)
-                                {
-                                    if (title.Contains(" by "))
-                                    {
-                                        title = title.Replace("  ", " ");
-                                        title = title.Replace("  ", " ");
-                                        title = title.Replace(" ", "&nbsp;");
-                                        title = title.Replace("&nbsp;by&nbsp;", " by&nbsp;");
-                                    }
-                                    else
-                                    {
-                                        if (title.Contains(" BY "))
-                                        {
-                                            title = title.Replace("  ", " ");
-                                            title = title.Replace("  ", " ");
-                                            title = title.Replace(" ", "&nbsp;");
-                                            title = title.Replace("&nbsp;BY&nbsp;", " BY&nbsp;");
-                                        }
-                                    }
-                                    // if (title.Contains(" — ")) title = title.Replace(" — ", "<br>");
-                                }
-
-
-                                titleToShow = "<font size='-2'><i>" +
-                                    title +
-                                    "</i></font><br>";
-                            }
-                        }
-                    }
-
-                    newline +=
-                    "<font size='-1'>" +
-                    s.category.Replace("Genre ", "").Replace(" ", "&nbsp;") + "</font><br>" +
-                    newJamFlag +
-                    ((newJamFlag.Length > 0) ? "<br>" : "") +
-                    ((activeJitsi.Length > 0) ?
-                        "<b><a target='_blank' href='" + activeJitsi + "'>Jitsi Video</a></b>" : "") +
-                    (NoticeNewbs(s.serverIpAddress + ":" + s.serverPort) ? (LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)", "(Nuovo server.)") + "<br>") : "") +
-                    liveSnippet +
-                    listenNow +
-                    htmlForVideoUrl +
-                    titleToShow +
-                    "</center><hr>" +
-                    s.who;
-
-                    // show those who have left
-                    // If my m_connectionLatestSighting is more than a minute, but less than 5 minutes, then I'm a leaver.
-                    string leavers = "";
-                    foreach (var entry in m_connectionLatestSighting)
-                    {
-                        if (entry.Key.Contains(s.serverIpAddress + ":" + s.serverPort))
-                        {
-                            // someone left htis server. between 1-4 minutes ago?
-                            if (entry.Value.AddMinutes(4) > DateTime.Now)
-                                if (entry.Value.AddMinutes(1) < DateTime.Now)
-                                {
-                                    // Get the name of this guid from our lookup (cuz they very well might not be online now)
-                                    string guid = entry.Key.Substring(0, "f2c26681da4d0013563cfd8c0619cfc7".Length);
-                                    string name = m_guidNamePairs[guid];
-                                    if (name != "No Name")
-                                        if (name != "Ear")
-                                            if (false == name.Contains("obby"))
-                                                if (false == leavers.Replace("&nbsp;", " ").Contains(name))
-                                                {
-                                                    // see if this name is someone on this server now (changed instrument maybe)
-                                                    bool fFound = false;
-                                                    foreach (var user in s.whoObjectFromSourceData)
-                                                    {
-                                                        if (user.name == name)
-                                                            fFound = true;
-
-                                                        if (user.name.Length > 3)
-                                                            if (name.Length > 3)
-                                                                if (user.name.ToLower().Substring(0, 3) == name.ToLower().Substring(0, 3))
-                                                                {
-                                                                    fFound = true;
-                                                                    break;
-                                                                }
-                                                    }
-                                                    if (false == fFound)
-                                                        leavers += name.Replace(" ", "&nbsp;") + WholeMiddotString;
-                                                }
-                                }
-                        }
-                    }
-                    // LocalizedText("Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben angekommen.");
-                    if (leavers.Length > 0)
-                        newline += "<center><font color='gray' size='-2'><i>"
-                            + LocalizedText("Bye", "再見", "บ๊ายบาย", "Tschüss", "Ciao")
-                            + " "
-                            + leavers.Substring(0, leavers.Length - WholeMiddotString.Length) + "</i></font></center>";
-
-                    if (smartcity != smartNations) // it happens
-                    {
-                        newline +=
-                            "<center><font size='-2'>" + smartNations.Trim() + "</font></center>";
-                    }
-
-                    string soonNames = "";
-
-                    string serv = s.serverIpAddress + ":" + s.serverPort;
-                    if (m_predicted.ContainsKey(serv))
-                    {
-                        foreach (var dude in m_predicted[serv])
-                        {
-                            if (m_guidNamePairs.ContainsKey(dude))
-                                soonNames += m_guidNamePairs[dude] + " &#8226; ";
-                            else
-                            {
-                                Console.WriteLine("GUID not mapped to a name. Only long runtimes see everyone.");
-                                // get it from censusgeo.csv
-
-                                foreach (var line in System.IO.File.ReadLines("data/censusgeo.csv"))
-                                {
-                                    var fields = line.Split(',');
-
-                                    if (fields.Length >= 2 && fields[0] == dude)
-                                    {
-                                        string name = fields[1];
-                                        soonNames += name + " &#8226; ";
-                                        break; // stop after finding the first match
-                                    }
-                                }
-                            }
-                        }
-                        if (false) // not in prod yet // if(soonNames.Length > 0)
-                            soonNames = "<hr>Soon: " + soonNames.Substring(0, soonNames.Length - " &#8226; ".Length);
-                    }
-
-                    if (false) // if (soonNames.Length > 0)
-                        newline += "<center>" + soonNames + "</center>";
-
-                    newline += "</div>";
-
-                    output += newline;
                 }
-                else
+
+                if (false && soonNames.Length > 0) // 'false' was in original
                 {
-                    {
-                        // 1. Get the set of "good" GUIDs from our new cache.
-                        // This will be instant if cached, or load from file if expired.
-                        var goodGuids = GetGoodGuidsSet();
-
-                        // 2. Use LINQ for clearer, more efficient filtering.
-                        bool isCbvbServer = s.name.ToLower().Contains("cbvb");
-
-                        // 3. Apply all filters:
-                        //    - Don't nuke the user
-                        //    - AND the user's calculated hash (GUID) MUST be in the "good" list.
-                        //
-                        // **** THIS IS THE CORRECTED LINE ****
-                        // We now call GetHash() using the user's properties to get the key for the cache.
-                        var filteredUsers = s.whoObjectFromSourceData
-                            .Where(user => !NukeThisUsername(user.name, user.instrument, isCbvbServer) &&
-                                           goodGuids.Contains(GetHash(user.name, user.country, user.instrument)))
-                            .ToList();
-
-                        // 4. Use an early 'continue' (guard clause) if no users are left.
-                        // This is the core of your request: if no users pass the GUID check,
-                        // this will be 0 and we will skip making the server card.
-                        if (filteredUsers.Count == 0)
-                        {
-                            continue;
-                        }
-
-                        // 5. Cache values that are used multiple times.
-                        var firstUser = filteredUsers[0];
-                        string serverAddress = $"{s.serverIpAddress}:{s.serverPort}";
-
-                        // **** OPTIMIZATION ****
-                        // Since we already calculated the hash for the first user in the LINQ query,
-                        // let's just re-use it instead of calculating it again.
-                        string userHash = GetHash(firstUser.name, firstUser.country, firstUser.instrument);
-
-                        // 6. Use a 'const' for "magic numbers".
-                        const int maxDurationMinutes = 6 * 60; // 6 hours
-                        if (DurationHereInMins(serverAddress, userHash) > maxDurationMinutes)
-                        {
-                            continue; // if they have sat there for 6 hours, don't show them.
-                        }
-
-                        // 7. Use a HashSet for cleaner "block list" checks.
-                        var excludedServerNames = new HashSet<string> { "JamPad", "portable" };
-                        if (excludedServerNames.Contains(s.name))
-                        {
-                            continue;
-                        }
-
-                        // 8. Use StringBuilder for efficient string building.
-                        var htmlBuilder = new System.Text.StringBuilder();
-
-                        // Pre-calculate display strings
-                        string smartCity = SmartCity(evenSmarterCity, filteredUsers.ToArray());
-                        string whoStringNoBreaks = s.who.Replace("<br/>", " ");
-                        string categoryDisplay = s.category.Replace("Genre ", "").Replace(" ", "&nbsp;");
-
-                        htmlBuilder.Append($"<div {BackgroundByZone(s.zone)}><center>");
-
-                        if (!string.IsNullOrEmpty(s.name))
-                        {
-                            htmlBuilder.Append($"{System.Web.HttpUtility.HtmlEncode(s.name)}<br>");
-                        }
-
-                        if (!string.IsNullOrEmpty(smartCity))
-                        {
-                            htmlBuilder.Append($"<b>{smartCity}</b><br>");
-                        }
-
-                        htmlBuilder.Append($"<font size='-1'>{categoryDisplay}</font><br>");
-
-                        if (NoticeNewbs(serverAddress))
-                        {
-                            htmlBuilder.Append("(New server.)<br>");
-                        }
-
-                        htmlBuilder.Append("</center><hr>");
-                        htmlBuilder.Append(whoStringNoBreaks);
-
-                        // Re-use the hash we calculated and stored in 'userHash'
-                        htmlBuilder.Append(DurationHere(serverAddress, userHash));
-                        htmlBuilder.Append("</div>");
-
-                        output += htmlBuilder.ToString();
-                    }
+                    soonNames = "<hr>Soon: " + soonNames.Substring(0, soonNames.Length - " &#8226; ".Length);
+                    return soonNames;
                 }
             }
-
-            /*
-            int iActiveJamFans = 0;
-            foreach (var timeski in clientIPsDeemedLegit.Values)
-            {
-                if (DateTime.Now < timeski.AddMinutes(30))
-                    iActiveJamFans++;
-            }
-            if (iActiveJamFans > 1)
-                output += "<br><center>" + iActiveJamFans.ToString() + " JamFans</center><br>";
-            */
-
-
-            //            output += "</table></center>";
-            return output;
+            return "";
         }
-
 
 
         // --- Start: Caching logic for Join-Events ---
@@ -4017,6 +4043,7 @@ return (120 + rand.Next(-9,9)).ToString();
                         m_TwoLetterNationCode = geoData.countryCode2;
                     }
 
+                 
                     // Call the synchronous version or block the async version
                     var task = GetGutsRightNow(); // Assuming GetGutsRightNow returns a Task<string>
                     task.Wait();
