@@ -1,4 +1,4 @@
-#define WINDOWS
+// #define WINDOWS
 
 // testing
 
@@ -2157,16 +2157,17 @@ namespace JamFan22.Pages
         }
 
 
-        public static string AsnOfThisIp(string ip)
+        public static async Task<string> AsnOfThisIpAsync(string ip)
         {
         RE_SAMPLE:
             if (false == m_ArnOfIpGoodUntil.ContainsKey(ip))
             {
                 string endpoint = "http://ip-api.com/json/" + ip;
                 using var client = new HttpClient();
-                System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
-                task.Wait();
-                string st = task.Result;
+
+                // --- FIX: Await the async call instead of blocking ---
+                string st = await client.GetStringAsync(endpoint);
+
                 JObject jsonGeo = JObject.Parse(st);
                 Random rnd = new Random();
                 m_ArnOfIp[ip] = jsonGeo["as"]?.ToString();
@@ -2734,7 +2735,9 @@ namespace JamFan22.Pages
                     continue;
                 }
 
-                string asn = AsnOfThisIp(s.serverIpAddress);
+                // --- FIX: Await the new async method ---
+                string asn = await AsnOfThisIpAsync(s.serverIpAddress);
+                
                 if (data.BlockedServerARNs.Contains(asn))
                 {
                     Console.WriteLine(s.serverIpAddress + " blocked because in asn " + asn);
@@ -2763,6 +2766,7 @@ namespace JamFan22.Pages
             }
             return output.ToString();
         }
+
 
         /// <summary>
         /// Gets a cleaner city name, querying ip-api.com if necessary.
