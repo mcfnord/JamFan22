@@ -50,41 +50,19 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
     try
     {
         string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
-        //string guid = encodedGuid;
 
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        // to fix bug, i match IP with guid
-        /*
-        string useripaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-        if (useripaddr.Contains("127.0.0.1") || useripaddr.Contains("::1"))
-        {
-            useripaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-            if (null != useripaddr)
-                if (false == useripaddr.Contains("::ffff"))
-                    useripaddr = "::ffff:" + useripaddr;
-        }
-        JamFan22.Pages.IndexModel.m_ipToGuid[useripaddr] = guid;
-        */
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-        /////////////////////////////////////////////////////////////////
-
+        // ... (your IP-GUID association comment block) ...
 
         // If the user is online...
         string theirName = "";
         string theirInstrument = "";
+        // This is still a synchronous call, which is fine if it's just a fast dictionary lookup
         bool result = JamFan22.Pages.IndexModel.DetailsFromHash(guid, ref theirName, ref theirInstrument);
+        
         if (result == true)
-            // if (guid != res)
             if (guid != "No Name")
             {
-                // find the user's city-nation. If they don't have one, then we don't do nothin.
+                // find the user's city-nation.
                 foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
                 {
                     var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Pages.JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
@@ -95,24 +73,23 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                             foreach (var guy in server.clients)
                             {
                                 string stringHashOfGuy = JamFan22.Pages.IndexModel.GetHash(guy.name, guy.country, guy.instrument);
-                                /*
-                                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
-                                var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-                                string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
-                                */
                                 if (guid == stringHashOfGuy)
                                 {
                                     if ((guy.city != "") && (guy.country != ""))
                                     {
                                         // try to get a lat-long from the city-country
-                                        string lat = "";
-                                        string lon = "";
-                                        if (true == JamFan22.Pages.IndexModel.CallOpenCageCached(guy.city + ", " + guy.country, ref lat, ref lon))
+                                        
+                                        // ***** THIS IS THE FIX *****
+                                        // We now 'await' the new async method and check the 'success' boolean
+                                        var (success, lat, lon) = await JamFan22.Pages.IndexModel.CallOpenCageCachedAsync(guy.city + ", " + guy.country);
+                                        
+                                        if (true == success)
+                                        // ***** END OF FIX *****
                                         {
                                             // assoc this lat-lon with this ip address
                                             string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
 
-                                            // ::1 appears in local debugging, but also possibly in reverse-proxy :o
+                                            // ... (your X-Forwarded-For logic is unchanged) ...
                                             if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
                                             {
                                                 ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
@@ -121,12 +98,12 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                                                     if (false == ipaddr.Contains("::ffff"))
                                                         ipaddr = "::ffff:" + ipaddr;
                                                 }
-
                                                 Console.WriteLine("Due to localhost IP, switched to XFF IP: " + ipaddr);
                                             }
 
                                             if (null != ipaddr)
                                             {
+                                                // We use the 'lat' and 'lon' variables returned from the async call
                                                 JamFan22.Pages.IndexModel.m_ipAddrToLatLong[ipaddr] = new JamFan22.Pages.IndexModel.LatLong(lat, lon);
 
                                                 Console.Write("From " + ipaddr + " ");
@@ -164,8 +141,9 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                     var otherGuysGuid = pair.Key.Replace(guid, "");
                     string friendlyName = "";
                     string friendlyInstrument = "";
+                    // This is still a synchronous call
                     bool online = JamFan22.Pages.IndexModel.DetailsFromHash(otherGuysGuid, ref friendlyName, ref friendlyInstrument);
-                    //if (otherGuysGuid != friendlyName) // if they have a name, they're online
+                    
                     if (online)
                         if ("Listener" != friendlyInstrument)
                             if ("No Name" != friendlyName)
@@ -177,12 +155,11 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                 }
             }
 
-            // now cut it in half.
-            if (hotties.Count < 2) // if we don't even have 2, forget it. cuz we div by 2 later.
+            // ... (rest of your JSON return logic is unchanged) ...
+            if (hotties.Count < 2) 
                 return "[]";
             const string QUOT = "\"";
             string ret = "[";
-            //foreach (var str in hotties)
             for (int i = 0; i < hotties.Count / 2; i++) // of the top half...
                 ret += QUOT + hotties[i] + QUOT + ", ";
             ret = ret.Substring(0, ret.Length - 2);
@@ -197,7 +174,6 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
         hottiesSemaphore.Release();
     }
 });
-
 
 app.MapGet("/halos/", async (HttpContext context) =>
 {
@@ -233,9 +209,8 @@ app.MapGet("/halos/", async (HttpContext context) =>
 
 // This task appears to be a long-running *synchronous* loop.
 // Running it on a dedicated Thread is correct to avoid ThreadPool starvation.
-Thread trd = new Thread(new ThreadStart(JamFan22.Pages.IndexModel.RefreshThreadTask));
-trd.IsBackground = true;
-trd.Start();
+// Thread trd = new Thread(new ThreadStart(JamFan22.Pages.IndexModel.RefreshThreadTask));
+Task.Run(() => JamFan22.Pages.IndexModel.RefreshThreadTask());
 
 // This task is async. Task.Run is the correct way to start it on the
 // ThreadPool. The original 'new Thread' wrapper was unnecessary.
