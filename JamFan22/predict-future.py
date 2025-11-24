@@ -2,286 +2,236 @@ import pandas as pd
 from datetime import timedelta
 import urllib.parse
 
-def find_imminent_hotspots(file_path='data/census.csv', context_file_path='data/censusgeo.csv'):
+def find_imminent_hotspots(file_path='data/census.csv', 
+                           context_file_path='data/censusgeo.csv', 
+                           server_file_path='data/server.csv'):
     """
-    Analyzes all GUIDs in a file to find those with predictable patterns
-    and outputs their next likely arrival time.
-    THIS VERSION OPERATES PURELY ON UTC TIMESTAMPS.
+    Analyzes GUIDs to find predictable patterns (Time AND Location).
+    Outputs: predicted.csv (minutes_since_epoch, guid, user_name, server_name)
     """
     # --- Configuration ---
-    CONFIDENCE_THRESHOLD = 35
+    CONFIDENCE_THRESHOLD = 30
     MINIMUM_APPEARANCES = 4
     MINIMUM_HOTSPOT_SESSIONS = 5
     MINIMUM_HOTSPOT_SAMPLES = 30
     ANALYSIS_WINDOW_DAYS = 89
-
-    # The start date for the timestamps in the data (MUST BE UTC).
     EPOCH_START_UTC = pd.to_datetime('2023-01-01', utc=True)
 
-    # --- 1. Load Context Data (Memory Efficiently) ---
-    context_data_loaded = False
-    last_context_info = {}
+    print(f"--- Next Arrival Prediction (UTC-Only) ---")
+
+    # --- 1. Load Auxiliary Data (Context & Servers) ---
+    context_info = {}
+    server_map = {}
+
+    # Load User Context (Geo/Name)
     try:
-        print(f"--- Next Arrival Prediction (UTC-Only) ---")
-        print(f"Loading context data from '{context_file_path}'...")
         with open(context_file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 try:
-                    guid, rest_of_line = line.strip().split(',', 1)
-                    if guid:
-                        last_context_info[guid] = rest_of_line
-                except ValueError:
-                    continue
-        context_data_loaded = True
-        print("Context data loaded successfully.")
+                    guid, rest = line.strip().split(',', 1)
+                    context_info[guid] = rest
+                except ValueError: continue
+        print("Context data loaded.")
     except FileNotFoundError:
-        print(f"Warning: Context data file not found at '{context_file_path}'. Predictions will not include context.")
+        print("Warning: Context data not found.")
 
-    # --- 2. Find Latest Timestamp and Load Recent Data (Two-Pass Approach) ---
+    # Load Server Map (Last entry wins for IP:PORT mapping)
     try:
-        print("\nFirst pass: Finding the latest timestamp in the data to define 'now'...")
-        max_minutes_in_data = 0
+        with open(server_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                parts = line.strip().split(',')
+                if len(parts) >= 2:
+                    # parts[0] is IP:PORT, parts[1] is Encoded Name
+                    # unquote_plus handles both %xx encoding and '+' as space
+                    server_map[parts[0]] = urllib.parse.unquote_plus(parts[1])
+        print("Server data loaded.")
+    except FileNotFoundError:
+        print("Warning: Server data not found.")
 
-        chunk_iterator_for_max = pd.read_csv(
-            file_path, header=None, names=['minutes_since_epoch', 'guid', 'ip_address'],
-            chunksize=100000, usecols=['minutes_since_epoch']
-        )
-        for chunk in chunk_iterator_for_max:
-            chunk['minutes_since_epoch'] = pd.to_numeric(chunk['minutes_since_epoch'], errors='coerce')
-            chunk.dropna(inplace=True)
-            if not chunk.empty:
-                max_minutes_in_data = max(max_minutes_in_data, chunk['minutes_since_epoch'].max())
+    # --- 2. Find Latest Timestamp (Reference 'Now') ---
+    try:
+        print("\nScanning for latest timestamp...")
+        max_minutes = 0
+        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip'], chunksize=100000, usecols=['mins']):
+            chunk['mins'] = pd.to_numeric(chunk['mins'], errors='coerce')
+            max_minutes = max(max_minutes, chunk['mins'].max())
 
-        if max_minutes_in_data == 0:
-            print("No valid timestamps found. Exiting.")
-            return
+        if pd.isna(max_minutes) or max_minutes == 0: return
 
-        # 'now_utc' is our single point of reference. No local timezones.
-        now_utc = EPOCH_START_UTC + timedelta(minutes=max_minutes_in_data)
+        now_utc = EPOCH_START_UTC + timedelta(minutes=max_minutes)
+        print(f"Now (UTC): {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        print(f"Latest timestamp in data corresponds to: {now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
-        min_minutes_since_epoch = max_minutes_in_data - (ANALYSIS_WINDOW_DAYS * 24 * 60)
-
-        print(f"\nSecond pass: Loading relevant data from the last {ANALYSIS_WINDOW_DAYS} days...")
-        chunk_iterator = pd.read_csv(
-            file_path, header=None, names=['minutes_since_epoch', 'guid', 'ip_address'],
-            chunksize=100000
-        )
-        recent_chunks = []
-        for chunk in chunk_iterator:
-            chunk['minutes_since_epoch'] = pd.to_numeric(chunk['minutes_since_epoch'], errors='coerce')
-            chunk.dropna(subset=['minutes_since_epoch'], inplace=True)
-            recent_chunk = chunk[chunk['minutes_since_epoch'] >= min_minutes_since_epoch]
-            if not recent_chunk.empty:
-                recent_chunks.append(recent_chunk)
-
-        if not recent_chunks:
-            print("No recent data found. Exiting.")
-            return
-
-        df = pd.concat(recent_chunks, ignore_index=True)
-
-        print("Dropping duplicate log entries...")
-        initial_rows = len(df)
+        # --- 3. Load Recent Data ---
+        min_minutes = max_minutes - (ANALYSIS_WINDOW_DAYS * 24 * 60)
+        print(f"Loading data from last {ANALYSIS_WINDOW_DAYS} days...")
+        
+        chunks = []
+        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip'], chunksize=100000):
+            chunk['mins'] = pd.to_numeric(chunk['mins'], errors='coerce')
+            chunk.dropna(subset=['mins'], inplace=True)
+            relevant = chunk[chunk['mins'] >= min_minutes]
+            if not relevant.empty:
+                chunks.append(relevant)
+        
+        if not chunks: return
+        df = pd.concat(chunks, ignore_index=True)
         df.drop_duplicates(inplace=True)
-        final_rows = len(df)
-        print(f"Dropped {initial_rows - final_rows} duplicate entries.")
-        print(f"Kept {final_rows} unique, recent entries for analysis.")
+        print(f"Analyzing {len(df)} unique entries.")
 
     except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
+        print(f"Error: '{file_path}' not found.")
         return
 
-    # --- 3. Create UTC-Based Features ---
-    # No .tz_convert() is used. All times remain in UTC.
-    df['timestamp_utc'] = EPOCH_START_UTC + pd.to_timedelta(df['minutes_since_epoch'], unit='m')
+    # --- 4. Precompute Features ---
+    df['timestamp_utc'] = EPOCH_START_UTC + pd.to_timedelta(df['mins'], unit='m')
     df['day_of_week_utc'] = df['timestamp_utc'].dt.dayofweek
     df['hour_utc'] = df['timestamp_utc'].dt.hour
     df['date_utc'] = df['timestamp_utc'].dt.date
 
-    # --- 4. Analyze Patterns Based on Unique Sessions (UTC) ---
-    print("\nAnalyzing all GUID patterns based on unique UTC sessions...")
-    df_sessions = df.drop_duplicates(subset=['guid', 'date_utc', 'hour_utc']).copy()
-    total_counts = df_sessions['guid'].value_counts().reset_index()
-    total_counts.columns = ['guid', 'total_sessions']
-    eligible_guids = total_counts[total_counts['total_sessions'] >= MINIMUM_APPEARANCES]
-    hotspot_counts = df_sessions.groupby(['guid', 'day_of_week_utc', 'hour_utc']).size().reset_index(name='hotspot_sessions')
-    top_hotspots = hotspot_counts.loc[hotspot_counts.groupby('guid')['hotspot_sessions'].idxmax()]
-    raw_sample_counts = df.groupby(['guid', 'day_of_week_utc', 'hour_utc']).size().reset_index(name='raw_hotspot_samples')
-    analysis_df = pd.merge(top_hotspots, eligible_guids, on='guid')
-    analysis_df = pd.merge(analysis_df, raw_sample_counts, on=['guid', 'day_of_week_utc', 'hour_utc'])
-    analysis_df['confidence'] = (analysis_df['hotspot_sessions'] / analysis_df['total_sessions']) * 100
-    predictable_guids = analysis_df[
-        (analysis_df['confidence'] >= CONFIDENCE_THRESHOLD) &
-        (analysis_df['hotspot_sessions'] >= MINIMUM_HOTSPOT_SESSIONS) &
-        (analysis_df['raw_hotspot_samples'] >= MINIMUM_HOTSPOT_SAMPLES)
+    # --- 5. Analyze Patterns ---
+    print("\nDetecting hotspots...")
+    # Count unique sessions per GUID
+    df_sessions = df.drop_duplicates(subset=['guid', 'date_utc', 'hour_utc'])
+    
+    # Filter GUIDs by minimum total appearances
+    guid_counts = df_sessions['guid'].value_counts()
+    eligible_guids = guid_counts[guid_counts >= MINIMUM_APPEARANCES].index
+
+    # Find best hotspot (Day/Hour) for eligible GUIDs
+    hotspots = df_sessions[df_sessions['guid'].isin(eligible_guids)] \
+        .groupby(['guid', 'day_of_week_utc', 'hour_utc']).size().reset_index(name='hotspot_sessions')
+    
+    # Keep only the best slot per GUID
+    best_hotspots = hotspots.loc[hotspots.groupby('guid')['hotspot_sessions'].idxmax()]
+
+    # Calculate confidence
+    stats = best_hotspots.merge(guid_counts.rename('total_sessions'), left_on='guid', right_index=True)
+    
+    # Get raw sample count (pings) for that slot to ensure density
+    raw_counts = df.groupby(['guid', 'day_of_week_utc', 'hour_utc']).size().reset_index(name='raw_samples')
+    stats = stats.merge(raw_counts, on=['guid', 'day_of_week_utc', 'hour_utc'])
+
+    stats['confidence'] = (stats['hotspot_sessions'] / stats['total_sessions']) * 100
+
+    # Apply Thresholds
+    predictable = stats[
+        (stats['confidence'] >= CONFIDENCE_THRESHOLD) &
+        (stats['hotspot_sessions'] >= MINIMUM_HOTSPOT_SESSIONS) &
+        (stats['raw_samples'] >= MINIMUM_HOTSPOT_SAMPLES)
     ].copy()
-    if context_data_loaded:
-        predictable_guids['context_info'] = predictable_guids['guid'].map(last_context_info)
-        predictable_guids['context_info'].fillna('Context info not found', inplace=True)
-    else:
-        predictable_guids['context_info'] = 'Context info unavailable'
 
-
-    # --- 5. Filter for Attendance During the Last TWO Weeks' Hotspot Windows (UTC) ---
-    print("\nFiltering for GUIDs that attended their specific UTC hotspot hour in BOTH of the last two weeks...")
-
-    # --- First Filter: Check for attendance LAST week ---
-    predictable_guids['last_week_hotspot_date'] = predictable_guids['day_of_week_utc'].apply(
-        lambda hotspot_day: (now_utc.date() - timedelta(days=now_utc.weekday()) +
-                             timedelta(days=hotspot_day) - timedelta(days=7))
-    )
+    # --- 6. Strict Recency Filter (Last 2 Weeks) ---
+    print("Verifying attendance in last 2 weeks...")
     
-    original_predictable_count = len(predictable_guids)
+    def get_past_date(target_weekday, weeks_ago):
+        days_diff = target_weekday - now_utc.weekday()
+        target_date = now_utc.date() + timedelta(days=days_diff) - timedelta(weeks=weeks_ago)
+        return target_date
 
-    attended_last_week = pd.merge(
-        predictable_guids,
-        df_sessions[['guid', 'date_utc', 'hour_utc']],
-        left_on=['guid', 'last_week_hotspot_date', 'hour_utc'],
-        right_on=['guid', 'date_utc', 'hour_utc'],
-        how='inner'
-    )
+    # Check Last Week (suffixes added to fix KeyError)
+    predictable['last_week_date'] = predictable['day_of_week_utc'].apply(lambda x: get_past_date(x, 1))
+    check_1 = predictable.merge(df_sessions, 
+                                left_on=['guid', 'last_week_date', 'hour_utc'], 
+                                right_on=['guid', 'date_utc', 'hour_utc'],
+                                suffixes=('', '_dup'))
+
+    # Check 2 Weeks Ago
+    check_1['two_weeks_ago_date'] = check_1['day_of_week_utc'].apply(lambda x: get_past_date(x, 2))
+    final_candidates = check_1.merge(df_sessions, 
+                                     left_on=['guid', 'two_weeks_ago_date', 'hour_utc'], 
+                                     right_on=['guid', 'date_utc', 'hour_utc'],
+                                     suffixes=('', '_dup2'))
     
-    count_after_first_filter = len(attended_last_week)
-    print(f"Filtered out {original_predictable_count - count_after_first_filter} GUIDs that missed last week's hotspot.")
+    print(f"Found {len(final_candidates)} GUIDs with consistent patterns.")
 
-    # --- Second Filter: From the remaining, check for attendance the week BEFORE last ---
-    attended_last_week['two_weeks_ago_hotspot_date'] = attended_last_week['day_of_week_utc'].apply(
-        lambda hotspot_day: (now_utc.date() - timedelta(days=now_utc.weekday()) +
-                             timedelta(days=hotspot_day) - timedelta(days=14))
-    )
-    
-    attended_both_weeks = pd.merge(
-        attended_last_week,
-        df_sessions[['guid', 'date_utc', 'hour_utc']],
-        left_on=['guid', 'two_weeks_ago_hotspot_date', 'hour_utc'],
-        right_on=['guid', 'date_utc', 'hour_utc'],
-        how='inner'
-    )
+    # --- 7. Generate Predictions & Server Lookups ---
+    results = []
+    day_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
 
-    # Clean up the final DataFrame (keeping last_week_hotspot_date for the hack)
-    predictable_guids = attended_both_weeks.copy()
-    predictable_guids.drop(columns=['date_utc_x', 'date_utc_y', 'two_weeks_ago_hotspot_date'], inplace=True)
-    
-    final_predictable_count = len(predictable_guids)
-    print(f"Filtered out another {count_after_first_filter - final_predictable_count} GUIDs that missed the hotspot two weeks ago.")
-    print(f"Keeping {final_predictable_count} GUIDs that attended in both recent weeks for prediction.")
+    for _, row in final_candidates.iterrows():
+        guid = row['guid']
+        h_day = row['day_of_week_utc']
+        h_hour = row['hour_utc']
 
-    # --- 6. Generate Heatmaps (UTC) ---
-    heatmaps = {}
-    day_map_utc = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
-    if not predictable_guids.empty:
-        df_for_heatmaps = df[df['guid'].isin(predictable_guids['guid'])]
-        for guid, group in df_for_heatmaps.groupby('guid'):
-            heatmap = pd.crosstab(group['day_of_week_utc'], group['hour_utc'])
-            heatmap = heatmap.reindex(index=range(7), columns=range(24), fill_value=0)
-            heatmap.index = heatmap.index.map(day_map_utc)
-            heatmap = heatmap.loc[:, (heatmap != 0).any(axis=0)]
-            heatmaps[guid] = heatmap
-
-    # --- 7. Predict and Report Results (UTC) ---
-    predictions = []
-    for _, guid_info in predictable_guids.iterrows():
-        hotspot_day = int(guid_info['day_of_week_utc'])
-        hotspot_hour = int(guid_info['hour_utc'])
-        guid_for_debug = guid_info['guid']
-
-        # --- START: Hack to get last week's exact minute/second ---
-        last_week_target_date = guid_info['last_week_hotspot_date']
-
-        last_week_sessions = df[
-            (df['guid'] == guid_for_debug) &
-            (df['date_utc'] == last_week_target_date) &
-            (df['hour_utc'] == hotspot_hour)
-        ]
-
-        if not last_week_sessions.empty:
-            first_session_time = last_week_sessions['timestamp_utc'].min()
-            prediction_minute = first_session_time.minute
-            prediction_second = first_session_time.second
-        else:
-            prediction_minute = 0
-            prediction_second = 0
-        # --- END: Hack ---
-
-        days_ahead = (hotspot_day - now_utc.dayofweek + 7) % 7
+        # --- PREDICT SERVER ---
+        mask = (df['guid'] == guid) & (df['day_of_week_utc'] == h_day) & (df['hour_utc'] == h_hour)
+        likely_ip_port = df.loc[mask, 'ip'].mode()
         
-        # All prediction logic is done on timezone-naive UTC timestamps
-        next_date_base = now_utc.replace(
-            hour=hotspot_hour, 
-            minute=prediction_minute,
-            second=prediction_second,
-            microsecond=0
-        )
+        server_name = "" # Default to empty for CSV
         
-        next_date_utc = next_date_base + timedelta(days=days_ahead)
+        if not likely_ip_port.empty:
+            server_ip = likely_ip_port.iloc[0]
+            # Look up name (returns decoded string), default to IP if missing
+            server_name = server_map.get(server_ip, server_ip)
 
-        if next_date_utc < now_utc:
-            next_date_utc += timedelta(days=7)
+        # --- PREDICT TIME ---
+        last_arrival = df[
+            (df['guid'] == guid) & 
+            (df['date_utc'] == row['last_week_date']) & 
+            (df['hour_utc'] == h_hour)
+        ]['timestamp_utc'].min()
+        
+        minute, second = (last_arrival.minute, last_arrival.second) if pd.notna(last_arrival) else (0,0)
 
-        # Convert final UTC timestamp back to minutes since epoch
-        predicted_minutes = int((next_date_utc - EPOCH_START_UTC).total_seconds() / 60)
+        days_ahead = (h_day - now_utc.dayofweek + 7) % 7
+        next_time = now_utc.replace(hour=h_hour, minute=minute, second=second, microsecond=0) + timedelta(days=days_ahead)
+        
+        if next_time < now_utc: next_time += timedelta(days=7)
+        
+        pred_mins = int((next_time - EPOCH_START_UTC).total_seconds() / 60)
 
-        # --- MODIFIED: This block is now complete ---
-        predictions.append({
-            'guid': guid_for_debug,
-            'predicted_minutes_since_epoch': predicted_minutes,
-            'predicted_timestamp_utc': next_date_utc, # Save for printing
-            'context_info': guid_info['context_info'],
-            'hotspot_count': guid_info['hotspot_sessions'],
-            'total_count': guid_info['total_sessions'],
-            'heatmap': heatmaps.get(guid_for_debug)
+        # Heatmap
+        user_data = df[df['guid'] == guid]
+        heatmap = pd.crosstab(user_data['day_of_week_utc'], user_data['hour_utc'])
+        heatmap.index = heatmap.index.map(day_map)
+
+        results.append({
+            'guid': guid,
+            'pred_mins': pred_mins,
+            'timestamp': next_time,
+            'context': context_info.get(guid, 'Context unavailable'),
+            'server_name': server_name,
+            'heatmap': heatmap,
+            'confidence': row['confidence'],
+            'hotspot_count': row['hotspot_sessions'],
+            'total_count': row['total_sessions']
         })
-        # --- End of modification ---
 
-    print("\n--- Predicted Next Appearances (Attended Hotspot Last Week) ---")
-    if not predictions:
-        print("No GUIDs met the criteria for prediction.")
-        return
+    # --- 8. Output ---
+    results_df = pd.DataFrame(results).sort_values('pred_mins')
+    
+    # Save CSV
+    # 1. Encode User Name
+    results_df['safe_username'] = results_df['context'].apply(
+        lambda x: urllib.parse.quote(x.split(',')[0]) if isinstance(x, str) else ''
+    )
+    
+    # 2. Encode Server Name (New column)
+    results_df['safe_servername'] = results_df['server_name'].apply(
+        lambda x: urllib.parse.quote(x) if x else ''
+    )
 
-    results_df = pd.DataFrame(predictions).sort_values('predicted_minutes_since_epoch')
+    # 3. Write 4 columns
+    output_cols = ['pred_mins', 'guid', 'safe_username', 'safe_servername']
+    results_df[output_cols].to_csv('predicted.csv', header=False, index=False)
+    print(f"Saved predictions to 'predicted.csv' (4 columns).")
 
-    # --- 8. Generate and Save CSV Output ---
-    def get_urlencoded_name(context_info):
-        if not isinstance(context_info, str) or 'not found' in context_info or 'unavailable' in context_info:
-            return ''
-        try:
-            name = context_info.split(',')[0].strip()
-            return urllib.parse.quote(name)
-        except:
-            return ''
-
-    results_df['urlencoded_name'] = results_df['context_info'].apply(get_urlencoded_name)
-    output_df = results_df[['predicted_minutes_since_epoch', 'guid', 'urlencoded_name']]
-    output_filename = 'predicted.csv'
-    output_df.to_csv(output_filename, header=False, index=False)
-    print(f"\n--- Predictions also saved to '{output_filename}' ---")
-
-
-    # --- 9. Print Detailed Console Output ---
+    # Console Output
     for _, row in results_df.iterrows():
-        print("\n" + "="*70)
-        print(f"GUID: {row['guid']}")
+        print("\n" + "="*60)
+        mins_from_now = row['pred_mins'] - max_minutes
+        print(f"GUID:       {row['guid']}")
+        print(f"Prediction: {row['pred_mins']} (+{mins_from_now}m)")
+        print(f"Time:       {row['timestamp'].strftime('%A, %Y-%m-%d at %H:%M:%S UTC')}")
         
-        # --- NEW: "Minutes from now" calculation ---
-        minutes_from_now = row['predicted_minutes_since_epoch'] - max_minutes_in_data
+        # Display decoded server name in console for readability
+        display_server = row['server_name'] if row['server_name'] else "Unknown"
+        print(f"Location:   {display_server}") 
         
-        time_comment = f"for {row['predicted_timestamp_utc'].strftime('%A around %m/%d/%Y at %H:%M:%S UTC')}"
-        confidence_comment = f"{int(row['hotspot_count'])} hotspot sessions out of {int(row['total_count'])} total."
-        
-        print(f"Prediction: {row['predicted_minutes_since_epoch']} # ({minutes_from_now} minutes from now)")
-        print(f"Timestamp: {time_comment}")
-        print(f"Confidence: {confidence_comment}")
-        print(f"Context: {row['context_info']}")
-        print("--- Appearance Heatmap (Raw counts per hour in UTC) ---")
-        if row['heatmap'] is not None and not row['heatmap'].empty:
-            print(row['heatmap'].to_string())
-        else:
-            print("No heatmap data available.")
-        print("="*70)
+        print(f"Confidence: {int(row['confidence'])}% ({row['hotspot_count']}/{row['total_count']} sessions)")
+        print(f"Context:    {row['context']}")
+        print("-" * 20 + " Hourly Activity " + "-" * 20)
+        print(row['heatmap'].to_string() if not row['heatmap'].empty else "No Data")
 
 if __name__ == '__main__':
-    DATA_FILE = 'data/census.csv'
-    CONTEXT_DATA_FILE = 'data/censusgeo.csv'
-    find_imminent_hotspots(file_path=DATA_FILE, context_file_path=CONTEXT_DATA_FILE)
+    find_imminent_hotspots()
