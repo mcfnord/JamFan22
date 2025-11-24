@@ -62,7 +62,7 @@
 
 <script>
 
-    const ipDerivedLoginHash = @Html.Raw(Model.IPDerivedHash)
+    const ipDerivedLoginHash = @Html.Raw(Model.IpHashForView)
 
     PeopleCollection = "trackedPeople";
 
@@ -648,7 +648,7 @@
 @Html.Raw(Model.SystemStatus)
 
 <div class="grid" style="font-family: Arial, Helvetica, sans-serif;">
-    @Html.Raw(@Model.RightNow)
+    @Html.Raw(@Model.RightNowForView)
 </div>
 
 <br />
@@ -695,7 +695,7 @@
             Sometimes when you can't find the server in Jamulus, you can paste the server's Server address into the <b>Server Address</b>
             field on the <b>Connection Setup</b> dialog box.
         </p>
-        <p>@Html.Raw(@Model.ShowServerByIPPort)</p>
+        <p>@Html.Raw(@Model.ShowServerByIPPortForView)</p>
     </div>
 </div>
 

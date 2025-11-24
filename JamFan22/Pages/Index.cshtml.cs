@@ -88,15 +88,27 @@ namespace JamFan22.Pages
             _logger = logger;
         }
 
-        public void OnGet()
+        //public void OnGet()         {         }
+        // ADD THIS NEW PROPERTY
+        public string IpHashForView { get; private set; }
+
+        // REPLACE your 'public void OnGet()' or 'public IActionResult OnGet()'
+        // with this 'public async Task<IActionResult> OnGetAsync()'
+        public async Task<IActionResult> OnGetAsync()
         {
+            IpHashForView = await GetIPDerivedHashAsync();
 
+            RightNowForView = await GetRightNowAsync();
+
+            ShowServerByIPPortForView = await GetShowServerByIPPortAsync();
+
+            return Page();
         }
-
 
         public static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
 
+/*
 {"Any Genre 1", "http://137.184.177.58/servers.php?central=anygenre1.jamulus.io:22124" }
 ,{"Any Genre 2", "http://137.184.177.58/servers.php?central=anygenre2.jamulus.io:22224" }
 ,{"Any Genre 3", "https://explorer.jamulus.io/servers.php?central=anygenre3.jamulus.io:22624" }
@@ -106,19 +118,21 @@ namespace JamFan22.Pages
 // ,{"Genre Classical/Folk",  "https://explorer.jamulus.io/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Classical/Folk",  "http://137.184.177.58/servers.php?central=classical.jamulus.io:22524" }
 ,{"Genre Choral/BBShop",  "https://explorer.jamulus.io/servers.php?central=choral.jamulus.io:22724" }
-
-/*
-// At least one operator relies on blocking this IP address as a master switch to opt out of everything
-{"Any Genre 1", "http://143.198.104.205/servers.php?central=anygenre1.jamulus.io:22124" }
-,{"Any Genre 2", "http://143.198.104.205/servers.php?central=anygenre2.jamulus.io:22224" }
-,{"Any Genre 3", "http://143.198.104.205/servers.php?central=anygenre3.jamulus.io:22624" }
-,{"Genre Rock",  "http://143.198.104.205/servers.php?central=rock.jamulus.io:22424" }
-,{"Genre Jazz",  "http://143.198.104.205/servers.php?central=jazz.jamulus.io:22324" }
-,{"Genre Classical/Folk",  "http://143.198.104.205/servers.php?central=classical.jamulus.io:22524" }
-,{"Genre Choral/BBShop",  "http://143.198.104.205/servers.php?central=choral.jamulus.io:22724" }
 */
 
+            {"Any Genre 1", "http://24.199.107.192:5001/servers_data/anygenre1.jamulus.io:22124/cached_data" },
+            {"Any Genre 2", "http://24.199.107.192:5001/servers_data/anygenre2.jamulus.io:22224/cached_data" },
+            {"Any Genre 3", "http://24.199.107.192:5001/servers_data/anygenre3.jamulus.io:22624/cached_data" },
+            {"Genre Rock",  "http://24.199.107.192:5001/servers_data/rock.jamulus.io:22424/cached_data" },
+            {"Genre Jazz",  "http://24.199.107.192:5001/servers_data/jazz.jamulus.io:22324/cached_data" },
+            {"Genre Classical/Folk",  "http://24.199.107.192:5001/servers_data/classical.jamulus.io:22524/cached_data" },
+            {"Genre Choral/BBShop",  "http://24.199.107.192:5001/servers_data/choral.jamulus.io:22724/cached_data" }
         };
+
+
+        // Cache to avoid re-deserializing the same JSON string repeatedly
+        static Dictionary<string, List<JamulusServers>> m_deserializedCache = new Dictionary<string, List<JamulusServers>>();
+        static Dictionary<string, string> m_jsonCacheSource = new Dictionary<string, string>();
 
         public static Dictionary<string, string> LastReportedList = new Dictionary<string, string>();
         static DateTime? LastReportedListGatheredAt = null;
@@ -183,6 +197,7 @@ namespace JamFan22.Pages
         }
 
         public static Dictionary<string, string> m_guidNamePairs = new Dictionary<string, string>();
+/*
         public static string GetHash(string name, string country, string instrument)
         {
             byte[] bytes = System.Text.Encoding.UTF8.GetBytes(name + country + instrument);
@@ -192,6 +207,54 @@ namespace JamFan22.Pages
             m_guidNamePairs[h] = System.Web.HttpUtility.HtmlEncode(name); // This is the name map for JammerMap
             return h;
         }
+        */
+
+public static string GetHash(string name, string country, string instrument)
+{
+    // 1. Calculate the total length needed
+    int totalLen = name.Length + country.Length + instrument.Length;
+
+    // 2. Allocate on the Stack (Very fast, 0 Memory Pressure)
+    // Note: If strings are massive (>1024 chars), this falls back to ArrayPool automatically 
+    // to prevent stack overflow, but for names/countries, it stays on stack.
+    Span<char> inputChars = totalLen < 1024 
+        ? stackalloc char[totalLen] 
+        : new char[totalLen];
+
+    // 3. Copy the parts into the stack buffer
+    var currentPos = inputChars;
+    name.AsSpan().CopyTo(currentPos);
+    currentPos = currentPos.Slice(name.Length);
+    
+    country.AsSpan().CopyTo(currentPos);
+    currentPos = currentPos.Slice(country.Length);
+    
+    instrument.AsSpan().CopyTo(currentPos);
+
+    // 4. Hash directly from Stack memory
+    int byteCount = System.Text.Encoding.UTF8.GetByteCount(inputChars);
+    Span<byte> inputBytes = byteCount < 1024 
+        ? stackalloc byte[byteCount] 
+        : new byte[byteCount];
+        
+    System.Text.Encoding.UTF8.GetBytes(inputChars, inputBytes);
+
+    Span<byte> hashBytes = stackalloc byte[System.Security.Cryptography.MD5.HashSizeInBytes];
+    System.Security.Cryptography.MD5.HashData(inputBytes, hashBytes);
+
+    // 5. Convert to Hex String
+    // We use ToLowerInvariant to match your original format (MD5 produces uppercase by default in .NET)
+    string hashString = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+    // 6. Populate the Dictionary (Protected by your Mutex)
+    if (!m_guidNamePairs.ContainsKey(hashString))
+    {
+        m_guidNamePairs[hashString] = System.Web.HttpUtility.HtmlEncode(name);
+    }
+
+    return hashString;
+}
+
 
         public static void NoteJoinerTargetServer(Client actor, Client target, string server, long port)
         {
@@ -484,25 +547,48 @@ namespace JamFan22.Pages
                     }
                     */
 
-                    // If 21 days of uptime HAVE PASSED, kill the data.
-                    {
-                        var newTimeTogether = new Dictionary<string, TimeSpan>();
-                        var newTimeTogetherUpdated = new Dictionary<string, DateTime>();
-
-                        foreach (var item in m_timeTogetherUpdated)
+// If 21 days of uptime HAVE PASSED, kill the data.
                         {
-                            if (item.Value.AddDays(21) > DateTime.Now)
-                            {
-                                newTimeTogether[item.Key] = m_timeTogether[item.Key];
-                                newTimeTogetherUpdated[item.Key] = item.Value;
-                            }
-                            else
-                                Console.WriteLine("Removing " + item.Key + " because it was last updated " + item.Value);
-                        }
-                        m_timeTogether = newTimeTogether;
-                        m_timeTogetherUpdated = newTimeTogetherUpdated;
-                    }
+                            var newTimeTogether = new Dictionary<string, TimeSpan>();
+                            var newTimeTogetherUpdated = new Dictionary<string, DateTime>();
 
+                            // --- ADD THIS 'try' BLOCK ---
+                            try
+                            {
+                                Console.WriteLine("DIAGNOSTIC: Starting 21-day cull logic...");
+
+                                foreach (var item in m_timeTogetherUpdated)
+                                {
+                                    if (item.Value.AddDays(21) > DateTime.Now)
+                                    {
+                                        // This is the line I suspect is crashing
+                                        newTimeTogether[item.Key] = m_timeTogether[item.Key]; 
+                                        newTimeTogetherUpdated[item.Key] = item.Value;
+                                    }
+                                    else
+                                        Console.WriteLine("Removing " + item.Key + " because it was last updated " + item.Value);
+                                }
+                                
+                                // If you see this log, my hypothesis is WRONG
+                                Console.WriteLine("DIAGNOSTIC: Cull logic completed successfully.");
+                                m_timeTogether = newTimeTogether;
+                                m_timeTogetherUpdated = newTimeTogetherUpdated;
+                            }
+                            // --- ADD THIS 'catch' BLOCK ---
+                            catch (KeyNotFoundException knfe)
+                            {
+                                // If you see this log, my hypothesis is CORRECT
+                                Console.WriteLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                                Console.WriteLine("DIAGNOSTIC CONFIRMED: KeyNotFoundException in culling logic.");
+                                Console.WriteLine($"Exception Details: {knfe.Message}"); 
+                                Console.WriteLine("This exception is preventing data from being saved.");
+                                Console.WriteLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                                
+                                // Re-throw the exception to mimic the current behavior (crashing up to the fatal handler)
+                                // This ensures we don't accidentally save a partially-built (or empty) list.
+                                throw; 
+                            }
+                        }
                     {
                         var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
                         string jsonString = JsonSerializer.Serialize(sortedByLongest);
@@ -592,289 +678,302 @@ namespace JamFan22.Pages
             var mins = MinutesSince2023AsInt();
             return mins.ToString("D7");
         }
-        public static void RefreshThreadTask()
+
+// 1. ADD THIS STATIC HTTPCLIENT at your class level (e.g., near m_serializerMutex)
+    // This client is created ONCE and re-used to prevent socket exhaustion.
+    // It includes your custom SSL validation bypass.
+    private static readonly HttpClient s_refreshClient = new HttpClient(
+        new HttpClientHandler 
+        { 
+            ServerCertificateCustomValidationCallback = (message, cert, chain, ssl) => true 
+        }
+    );
+
+        // DELETE your old RefreshThreadTask and REPLACE it with this entire method
+        public static async Task RefreshThreadTask()
         {
-        JUST_TRY_AGAIN:
-            while (true)
+            while (true) // This was your 'JUST_TRY_AGAIN' loop
             {
                 bool fMissingSamplePresent = false;
 
-                var httpClientHandler = new HttpClientHandler();
-                httpClientHandler.ServerCertificateCustomValidationCallback =
-                    (message, cert, chain, ssl) =>
-                    {
-                        return true;
-                    };
-
-                using var client = new HttpClient(httpClientHandler);
-
-            LOOPY_LOOP:
-
-                var serverStates = new Dictionary<string, Task<string>>();
-
-                foreach (var key in JamulusListURLs.Keys)
+                try
                 {
-                    serverStates.Add(key, client.GetStringAsync(JamulusListURLs[key]));
-                }
+                    var serverStates = new Dictionary<string, Task<string>>();
 
-                DateTime query_started = DateTime.Now;
-                foreach (var key in JamulusListURLs.Keys)
-                {
-                    string newReportedList = null;
-                    try
+                    foreach (var key in JamulusListURLs.Keys)
                     {
-                        newReportedList = serverStates[key].Result; // only proceeds when data arrives
-                        if (newReportedList[0] == 'C')
-                        {
-                            Console.WriteLine("Indication of data failure: " + newReportedList);
-                            Thread.Sleep(1000);
-                            goto LOOPY_LOOP;
-                        }
-                    }
-                    catch (System.AggregateException)
-                    {
-                        Console.WriteLine("System.AggregateException exception handling " + key);
-                        Thread.Sleep(1000);
-                        goto JUST_TRY_AGAIN;
+                        // Use the new shared static client
+                        serverStates.Add(key, s_refreshClient.GetStringAsync(JamulusListURLs[key]));
                     }
 
-                    //if (newReportedList != "CRC mismatch in received message")
-                    if (newReportedList[0] != 'C')
+                    DateTime query_started = DateTime.Now;
+                    foreach (var key in JamulusListURLs.Keys)
                     {
-                        m_serializerMutex.WaitOne(); // get the global mutex
+                        string newReportedList = null;
                         try
                         {
-                            if (newReportedList != "CRC mismatch in received message")
+                            newReportedList = await serverStates[key];
+
+                            // --- NEW FIX: Unwrap the Python API response ---
+                            // The new API returns { "servers_data": [ ... ] }, but we just want [ ... ]
+                            try 
                             {
-                                if (LastReportedList.ContainsKey(key))
+                                // Only attempt if it looks like a JSON object (starts with {)
+                                if (newReportedList.TrimStart().StartsWith("{"))
                                 {
-                                    // Console.WriteLine(key);
-                                    DetectJoiners(LastReportedList[key], newReportedList);
+                                    using (JsonDocument doc = JsonDocument.Parse(newReportedList))
+                                    {
+                                        if (doc.RootElement.TryGetProperty("servers_data", out var serversData))
+                                        {
+                                            // Overwrite the string with JUST the array part
+                                            newReportedList = serversData.GetRawText();
+                                        }
+                                    }
                                 }
-                                LastReportedList[key] = newReportedList;
+                            }
+                            catch (Exception) 
+                            { 
+                                // If parsing fails, ignore and treat as legacy/raw format
+                            }
+                            // --- END NEW FIX ---
+
+                            if (newReportedList[0] == 'C')
+                            {
+                                Console.WriteLine("Indication of data failure: " + newReportedList);
+                                await Task.Delay(1000); 
+                                continue; 
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Exception handling {key}: {ex.Message}");
+                            await Task.Delay(1000); // Non-blocking delay
+                            break; // Breaks to the outer 'while(true)' loop
+                        }
+
+                        if (newReportedList[0] != 'C')
+                        {
+                            // FIXED: Replaced 'WaitOne'
+                            await m_serializerMutex.WaitAsync();
+                            try
+                            {
+                                if (newReportedList != "CRC mismatch in received message")
+                                {
+                                    // OPTIMIZATION: If we have data and it hasn't changed, do nothing.
+                                    if (LastReportedList.ContainsKey(key) && LastReportedList[key] == newReportedList)
+                                    {
+                                        // Data is identical to cache; skip joiner detection and assignment
+                                    }
+                                    else
+                                    {
+                                        // Data is new or has changed
+                                        if (LastReportedList.ContainsKey(key))
+                                        {
+                                            DetectJoiners(LastReportedList[key], newReportedList);
+                                        }
+                                        LastReportedList[key] = newReportedList;
+                                    }
+                                }                                
+                                else
+                                {
+                                    Console.WriteLine("CRC mismatch in received message");
+                                    await Task.Delay(1000); // Non-blocking delay
+                                    break; // Breaks to the outer 'while(true)' loop
+                                }
+                            }
+                            finally
+                            {
+                                // FIXED: Replaced 'ReleaseMutex'
+                                m_serializerMutex.Release();
+                            }
+                        }
+                    } // end foreach (var key in JamulusListURLs.Keys)
+
+//                    Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
+
+                    // FIXED: Replaced 'WaitOne'
+                    await m_serializerMutex.WaitAsync();
+                    try
+                    {
+                        TimeSpan durationBetweenSamples = (null != LastReportedListGatheredAt)
+                            ? DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt)
+                            : new TimeSpan();
+
+                        LastReportedListGatheredAt = DateTime.Now;
+
+                        ListServicesOffline.Clear();
+                        foreach (var keyHere in JamulusListURLs.Keys)
+                        {
+                            var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
+                            if (serversOnList.Count == 0)
+                            {
+                                ListServicesOffline.Add(keyHere);
+                                fMissingSamplePresent = true;
+                            }
+                        }
+
+                        HashSet<string> alreadyPushed = new HashSet<string>();
+
+                        foreach (var key in JamulusListURLs.Keys)
+                        {
+                            string currentJson = LastReportedList[key];
+                            List<JamulusServers> serversOnList = null;
+
+                            // CPU SAVER: Only deserialize if the JSON string content has changed
+                            if (m_jsonCacheSource.TryGetValue(key, out var cachedJson) && cachedJson == currentJson)
+                            {
+                                // Use the cached object (Fast!)
+                                serversOnList = m_deserializedCache[key];
                             }
                             else
                             {
-                                Console.WriteLine("CRC mismatch in received message");
-                                Thread.Sleep(1000);
-                                goto JUST_TRY_AGAIN;
+                                // Data changed (or first run): Deserialize and update cache
+                                serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(currentJson);
+                                m_deserializedCache[key] = serversOnList;
+                                m_jsonCacheSource[key] = currentJson;
                             }
-                        }
-                        finally
-                        {
-                            m_serializerMutex.ReleaseMutex();
-                        }
-                    }
-                }
-
-                Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
-
-                // get the mutex again
-                m_serializerMutex.WaitOne(); // get the global mutex
-                try
-                {
-                    TimeSpan durationBetweenSamples = new TimeSpan();
-
-                    if (null != LastReportedListGatheredAt)
-                        durationBetweenSamples = DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt);
-
-                    LastReportedListGatheredAt = DateTime.Now;
-
-                    // I think I need to know what's broken.
-                    ListServicesOffline.Clear();
-                    foreach (var keyHere in JamulusListURLs.Keys)
-                    {
-                        //Console.WriteLine("keyHere: " + keyHere);
-                        //Console.WriteLine("LastReportedList[keyHere]: " + LastReportedList[keyHere]);
-                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
-                        if (serversOnList.Count == 0)
-                        {
-                            ListServicesOffline.Add(keyHere);
-                            fMissingSamplePresent = true;
-                        }
-                    }
-
-                    HashSet<string> alreadyPushed = new HashSet<string>();
-
-                    // Each time we mine the list, we construct a hash for every active user
-                    // and that hash is a key of a hash list that contains the ip:port servers
-                    // where i've seen them.
-                    foreach (var key in JamulusListURLs.Keys)
-                    {
-                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                        foreach (var server in serversOnList)
-                        {
-                            int people = 0;
-                            if (server.clients != null)
-                                people = server.clients.GetLength(0);
-                            if (people < 1)
-                                continue; // just fuckin don't care about 0 or even 1. MAYBE I DO WANNA NOTICE MY FRIEND ALL ALONE SOMEWHERE THO!!!!
-
-                            System.IO.File.AppendAllText("data/server.csv",
-                                                          server.ip + ":" + server.port + ","
-                                                        + System.Web.HttpUtility.UrlEncode(server.name) + ","
-                                                        + System.Web.HttpUtility.UrlEncode(server.city) + ","
-                                                        + System.Web.HttpUtility.UrlEncode(server.country)
-                                                        + Environment.NewLine);
-
-                            foreach (var guy in server.clients)
+                            foreach (var server in serversOnList)
                             {
-                                string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                int people = server.clients?.Length ?? 0;
+                                if (people < 1)
+                                    continue;
 
-                                System.IO.File.AppendAllText("data/census.csv", MinutesSince2023() + ","
-                                                            + stringHashOfGuy + ","
-                                                            + server.ip + ":" + server.port
-                                                            + Environment.NewLine);
+                                // FIXED: Replaced 'File.AppendAllText' with 'await File.AppendAllTextAsync'
+                                await System.IO.File.AppendAllTextAsync("data/server.csv",
+                                    server.ip + ":" + server.port + ","
+                                    + System.Web.HttpUtility.UrlEncode(server.name) + ","
+                                    + System.Web.HttpUtility.UrlEncode(server.city) + ","
+                                    + System.Web.HttpUtility.UrlEncode(server.country)
+                                    + Environment.NewLine);
 
-                                System.IO.File.AppendAllText("data/censusgeo.csv",
-                                                              stringHashOfGuy + ","
-                                                            + System.Web.HttpUtility.UrlEncode(guy.name) + ","
-                                                            + guy.instrument + ","
-                                                            + System.Web.HttpUtility.UrlEncode(guy.city) + ","
-                                                            + System.Web.HttpUtility.UrlEncode(guy.country)
-                                                            + Environment.NewLine);
-
-                                /*
-                                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
-                                var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);
-                                string stringHashOfGuy = System.Convert.ToBase64String(hashOfGuy);
-                                */
-                                //////////////////////////////////////////////////////////////////////////
-                                if (false == m_userServerViewTracker.ContainsKey(stringHashOfGuy))
-                                    m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
-                                m_userServerViewTracker[stringHashOfGuy].Add(server.ip + ":" + server.port);
-                                //////////////////////////////////////////////////////////////////////////
-                                if (false == m_userConnectDuration.ContainsKey(stringHashOfGuy))
-                                    m_userConnectDuration[stringHashOfGuy] = new TimeSpan();
-                                m_userConnectDuration[stringHashOfGuy] =
-                                    m_userConnectDuration[stringHashOfGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
-                                //////////////////////////////////////////////////////////////////////////
+                                foreach (var guy in server.clients)
                                 {
+                                    string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+
+                                    // FIXED: Replaced 'File.AppendAllText'
+                                    await System.IO.File.AppendAllTextAsync("data/census.csv", MinutesSince2023() + ","
+                                        + stringHashOfGuy + ","
+                                        + server.ip + ":" + server.port
+                                        + Environment.NewLine);
+
+                                    // FIXED: Replaced 'File.AppendAllText'
+                                    await System.IO.File.AppendAllTextAsync("data/censusgeo.csv",
+                                        stringHashOfGuy + ","
+                                        + System.Web.HttpUtility.UrlEncode(guy.name) + ","
+                                        + guy.instrument + ","
+                                        + System.Web.HttpUtility.UrlEncode(guy.city) + ","
+                                        + System.Web.HttpUtility.UrlEncode(guy.country)
+                                        + Environment.NewLine);
+
+                                    // ... (all your dictionary logic is synchronous and fine) ...
+                                    if (false == m_userServerViewTracker.ContainsKey(stringHashOfGuy))
+                                        m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
+                                    m_userServerViewTracker[stringHashOfGuy].Add(server.ip + ":" + server.port);
+
+                                    if (false == m_userConnectDuration.ContainsKey(stringHashOfGuy))
+                                        m_userConnectDuration[stringHashOfGuy] = new TimeSpan();
+                                    m_userConnectDuration[stringHashOfGuy] =
+                                        m_userConnectDuration[stringHashOfGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
+
                                     if (false == m_userConnectDurationPerServer.ContainsKey(stringHashOfGuy))
                                         m_userConnectDurationPerServer[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
                                     var fullIP = server.ip + ":" + server.port;
-                                    var theGuy = m_userConnectDurationPerServer[stringHashOfGuy];
-                                    if (false == theGuy.ContainsKey(fullIP))
-                                        theGuy.Add(fullIP, TimeSpan.Zero);
-                                    theGuy[fullIP] = theGuy[fullIP].Add(durationBetweenSamples.Divide(server.clients.Count()));
-                                }
-                                ////////////////////////////////////////////////////////////////////////////
-                                // The real scheme: for each guy, note the duration spend with EVERY OTHER GUY
-                                {
+                                    var theGuyServer = m_userConnectDurationPerServer[stringHashOfGuy];
+                                    if (false == theGuyServer.ContainsKey(fullIP))
+                                        theGuyServer.Add(fullIP, TimeSpan.Zero);
+                                    theGuyServer[fullIP] = theGuyServer[fullIP].Add(durationBetweenSamples.Divide(server.clients.Count()));
+
                                     foreach (var otherguy in server.clients)
                                     {
                                         if (false == m_userConnectDurationPerUser.ContainsKey(stringHashOfGuy))
                                             m_userConnectDurationPerUser[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
                                         if (otherguy == guy)
-                                            continue; // just don't track me with me. Let the entry exist but fuck it.
+                                            continue;
 
                                         string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
-                                        /*
-                                        byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
-                                        var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
-                                        string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
-                                        */
-                                        var theGuy = m_userConnectDurationPerUser[stringHashOfGuy];
-                                        if (false == theGuy.ContainsKey(stringHashOfOtherGuy))
-                                            theGuy.Add(stringHashOfOtherGuy, TimeSpan.Zero);
-                                        theGuy[stringHashOfOtherGuy] = theGuy[stringHashOfOtherGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
+                                        var theGuyUser = m_userConnectDurationPerUser[stringHashOfGuy];
+                                        if (false == theGuyUser.ContainsKey(stringHashOfOtherGuy))
+                                            theGuyUser.Add(stringHashOfOtherGuy, TimeSpan.Zero);
+                                        theGuyUser[stringHashOfOtherGuy] = theGuyUser[stringHashOfOtherGuy].Add(durationBetweenSamples.Divide(server.clients.Count()));
 
-                                        // ANOTHER SCHEME, WHERE key of canonical hashes contain all server:ports where we've met
                                         string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
                                         if (false == m_everywhereWeHaveMet.ContainsKey(us))
                                             m_everywhereWeHaveMet[us] = new HashSet<string>();
                                         m_everywhereWeHaveMet[us].Add(server.ip + ":" + server.port);
                                     }
-                                }
-                                ///////////////////////////////////////////////////////////////////////////////////////////////////////
-                                /// Now use an interface that abstracts and ultimately replaces all of these other ad hoc dictionaries
-                                {
+
                                     if (durationBetweenSamples.TotalSeconds > 0)
                                     {
                                         foreach (var otherguy in server.clients)
                                         {
-                                            string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
-                                            /*
-                                            byte[] otherguybytes = System.Text.Encoding.UTF8.GetBytes(otherguy.name + otherguy.country + otherguy.instrument);
-                                            var hashOfOtherGuy = System.Security.Cryptography.MD5.HashData(otherguybytes);
-                                            string stringHashOfOtherGuy = System.Convert.ToBase64String(hashOfOtherGuy);
-                                            */
 
+
+                                
+                                
+                                            string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
                                             if (stringHashOfGuy != stringHashOfOtherGuy)
                                             {
-                                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy);
-
+                                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy); 
+                                                
+                                                // --- DIAGNOSTIC INJECTION START ---
                                                 if (false == alreadyPushed.Contains(us))
                                                 {
+                                                    // Check if this key is known. 
+                                                    if (m_timeTogether != null && !m_timeTogether.ContainsKey(us))
+                                                    {
+                                                        Console.WriteLine($"★ NEW 2-GUID KEY CREATED: {guy.name} + {otherguy.name}");
+                                                        Console.WriteLine($"   On Server: {server.name} ({server.city})");
+                                                        Console.WriteLine($"   Key: {us}");
+                                                        Console.WriteLine("--------------------------------------------------");
+                                                    }
+
                                                     alreadyPushed.Add(us);
                                                     ReportPairTogether(us, durationBetweenSamples);
                                                 }
+                                                // --- DIAGNOSTIC INJECTION END ---
                                             }
+
+
+
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    //            TopNoob();
-
-                    // I'm gonna track server sightings in a separate loop.
-                    foreach (var key in JamulusListURLs.Keys)
-                    {
-                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                        foreach (var server in serversOnList)
+                        foreach (var key in JamulusListURLs.Keys)
                         {
-                            // I care when I FIRST saw this server.
-                            if (false == m_serverFirstSeen.ContainsKey(server.ip + ":" + server.port))
-                                m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
-                        }
-                    }
-
-                    // For a servive that's offline, change the value to the "other" datasource.
-                    /*
-                    if (ListServicesOffline.Count > 0)
-                    {
-                        foreach (var offline in ListServicesOffline)
-                        {
-                            Console.WriteLine("Moving away from " + JamulusListURLs[offline]);
-                            if (JamulusListURLs[offline].Contains("143.198.104.205"))
+                            var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                            foreach (var server in serversOnList)
                             {
-                                JamulusListURLs[offline] =
-                                    JamulusListURLs[offline].Replace("143.198.104.205", "jamulus.softins.co.uk");
-                            }
-                            else
-                            {
-                                JamulusListURLs[offline] =
-                                    JamulusListURLs[offline].Replace("jamulus.softins.co.uk", "143.198.104.205");
+                                if (false == m_serverFirstSeen.ContainsKey(server.ip + ":" + server.port))
+                                    m_serverFirstSeen.Add(server.ip + ":" + server.port, DateTime.Now);
                             }
                         }
                     }
-                    */
+                    finally
+                    {
+                        // FIXED: Replaced 'ReleaseMutex'
+                        m_serializerMutex.Release();
+                    }
+
+                    // Force a fixed 5 second delay
+                    int secs = 5; 
+                    
+                    // Optional: Keep the error retry logic if you want
+                    if (fMissingSamplePresent) secs = 2; 
+
+                    await Task.Delay(secs * 1000);
                 }
-                finally { m_serializerMutex.ReleaseMutex(); }
-
-                m_bUserWaiting = false; // I clear it to see if a user appears while I'm sleepin.
-                int secs = m_secondsPause;
-                if (fMissingSamplePresent)
-                    secs /= 2; // if we're missing a sample, let's rush to the re-sample.
-                if ((secs < 8) || (secs > 12))
-                    Console.WriteLine("Sleeping secs: " + secs);
-                Thread.Sleep(secs * 1000);
-                if (false == m_bUserWaiting)
-                    m_secondsPause *= 2; // if we just slept, and nobody showed up, double our sleep
-                else
-                    m_secondsPause /= 2; // people want data. let's get some!
-
-                if (m_secondsPause < 10)
-                    m_secondsPause = 10;
-                if (m_secondsPause > 30)
-                    m_secondsPause = 30; // if we don't get one sample per discreet minute, i think we'll get data gaps.
-            }
+                catch (Exception ex)
+                {
+                    // Catch any unexpected exceptions from the loop
+                    Console.WriteLine($"FATAL ERROR in RefreshThreadTask: {ex.Message}. Restarting loop in 30s.");
+                    await Task.Delay(30000); // Wait 30s before restarting the whole loop
+                }
+            } // end while(true)
         }
-
-
-
+  
         /*
         protected async Task MineLists()
         {
@@ -1041,147 +1140,150 @@ namespace JamFan22.Pages
 
 
 
-        static int m_lastRefreshSnippetingHalos = 0;
-        static List<string> m_halos_snippeting = new List<string>();
+        /* I'm not snippeting so who cares?
 
-        static bool AnyoneBlockSnippeting(string ipport)
-        {
-            if (m_lastRefreshSnippetingHalos != MinutesSince2023AsInt())
-            {
-                m_lastRefreshSnippetingHalos = MinutesSince2023AsInt();
+                static int m_lastRefreshSnippetingHalos = 0;
+                static List<string> m_halos_snippeting = new List<string>();
 
-                string url = "https://jamulus.live/halo-snippeting.txt";
-                System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
-                task.Wait();
-                m_halos_snippeting = task.Result;
-            }
 
-            // determine if any halos are on ipport
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                foreach (var server in serversOnList)
+                static bool AnyoneBlockSnippeting(string ipport)
                 {
-                    string fulladdress = server.ip + ":" + server.port;
-                    if (fulladdress == ipport)
+                    if (m_lastRefreshSnippetingHalos != MinutesSince2023AsInt())
                     {
-                        if (server.clients != null)
+                        m_lastRefreshSnippetingHalos = MinutesSince2023AsInt();
+
+                        string url = "https://jamulus.live/halo-snippeting.txt";
+                        System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
+                        task.Wait();
+                        m_halos_snippeting = task.Result;
+                    }
+
+                    // determine if any halos are on ipport
+                    foreach (var key in JamulusListURLs.Keys)
+                    {
+                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                        foreach (var server in serversOnList)
                         {
-                            foreach (var guy in server.clients)
+                            string fulladdress = server.ip + ":" + server.port;
+                            if (fulladdress == ipport)
                             {
-                                var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
-                                if (m_halos_snippeting.Contains(stringHashOfGuy))
+                                if (server.clients != null)
                                 {
-                                    Console.WriteLine("A halo has prevented the snippeting option at " + ipport);
-                                    return true;
+                                    foreach (var guy in server.clients)
+                                    {
+                                        var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                        if (m_halos_snippeting.Contains(stringHashOfGuy))
+                                        {
+                                            Console.WriteLine("A halo has prevented the snippeting option at " + ipport);
+                                            return true;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    return false;
                 }
-            }
-            return false;
-        }
+        */
 
 
-        static int m_lastRefreshStreamingHalos = 0;
-        static List<string> m_halos_streaming = new List<string>();
-        public static bool AnyoneBlockStreaming(string ipport)
-        {
-            if (m_lastRefreshStreamingHalos != MinutesSince2023AsInt())
-            {
-                m_lastRefreshStreamingHalos = MinutesSince2023AsInt();
-
-                string url = "https://jamulus.live/halo-streaming.txt";
-                System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
-                task.Wait();
-                m_halos_streaming = task.Result;
-            }
-
-            // determine if any halos are on ipport
-            foreach (var key in JamulusListURLs.Keys)
-            {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                foreach (var server in serversOnList)
+        /* For now, nobody's gonna block streaming
+                static int m_lastRefreshStreamingHalos = 0;
+                static List<string> m_halos_streaming = new List<string>();
+                public static bool AnyoneBlockStreaming(string ipport)
                 {
-                    string fulladdress = server.ip + ":" + server.port;
-                    if (fulladdress == ipport)
+                    if (m_lastRefreshStreamingHalos != MinutesSince2023AsInt())
                     {
-                        if (server.clients != null)
+                        m_lastRefreshStreamingHalos = MinutesSince2023AsInt();
+
+                        string url = "https://jamulus.live/halo-streaming.txt";
+                        System.Threading.Tasks.Task<List<string>> task = LoadLinesFromHttpTextFile(url);
+                        task.Wait();
+                        m_halos_streaming = task.Result;
+                    }
+
+                    // determine if any halos are on ipport
+                    foreach (var key in JamulusListURLs.Keys)
+                    {
+                        var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                        foreach (var server in serversOnList)
                         {
-                            foreach (var guy in server.clients)
+                            string fulladdress = server.ip + ":" + server.port;
+                            if (fulladdress == ipport)
                             {
-                                var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
-                                if (m_halos_streaming.Contains(stringHashOfGuy))
+                                if (server.clients != null)
                                 {
-                                    Console.WriteLine("A halo has prevented streaming as an option at " + ipport);
-                                    return true;
+                                    foreach (var guy in server.clients)
+                                    {
+                                        var stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
+                                        if (m_halos_streaming.Contains(stringHashOfGuy))
+                                        {
+                                            Console.WriteLine("A halo has prevented streaming as an option at " + ipport);
+                                            return true;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    return false;
                 }
-            }
-            return false;
-        }
-
-
-        protected void SmartGeoLocate(string ip, ref double latitude, ref double longitude)
-        {
-            // for any IP address, use a cached object if it's not too old.
-            if (m_ipAddrToLatLong.ContainsKey(ip))
-            {
-                var cached = m_ipAddrToLatLong[ip];
-                //                if (cached.queriedThisDay + 1 < DateTime.Now.DayOfYear)
-                {
-                    latitude = double.Parse(cached.lat);
-                    longitude = double.Parse(cached.lon);
-                    //                    Console.WriteLine(ip + ": " + latitude + ", " + longitude);
-                    return;
-                }
-            }
-
-            // don't have cached data, or it's too old.
-            // NOWEVER, THIS SHIT IF OFFLINE
-
-            try
-            {
-                /*
-                IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
-                GeolocationParams geoParams = new GeolocationParams();
-                geoParams.SetIp(ip);
-                geoParams.SetFields("geo,time_zone,currency");
-                Geolocation geolocation = api.GetGeolocation(geoParams);
                 */
 
+
+        // 1. Signature changed:
+        // - Added 'async'
+        // - Returns 'Task<LatLong>' (assuming the class is 'LatLong')
+        // - Removed 'ref' parameters (NOT allowed in async methods)
+        protected async Task<LatLong> SmartGeoLocateAsync(string ip)
+        {
+            // Check cache first (using TryGetValue is safer)
+            if (m_ipAddrToLatLong.TryGetValue(ip, out var cached))
+            {
+                // 2. Return the cached object directly
+                // The compiler will wrap this in a completed Task
+                return cached;
+            }
+
+            // Not in cache, fetch it.
+            try
+            {
                 string ip4 = ip.Replace("::ffff:", "");
                 string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4 + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
-                using var client = new HttpClient();
-                System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
-                task.Wait();
-                string s = task.Result;
-                JObject jsonGeo = JObject.Parse(s);
-                latitude = Convert.ToDouble(jsonGeo["location"]["latitude"]);
-                longitude = Convert.ToDouble(jsonGeo["location"]["longitude"]);
 
-                //                    latitude = Convert.ToDouble(geolocation.GetLatitude());
-                //                longitude = Convert.ToDouble(geolocation.GetLongitude());
-                m_ipAddrToLatLong[ip] = new LatLong(latitude.ToString(), longitude.ToString());
-                Console.WriteLine("A client IP has been cached: " + ip + " " + jsonGeo["city"]
-                    // geolocation.GetCity()
-                    + " " + latitude + " " + longitude);
+                // 3. Use 'await' and the SHARED 'httpClient'
+                // Do NOT use 'new HttpClient()' here!
+                string s = await httpClient.GetStringAsync(endpoint);
+
+                JObject jsonGeo = JObject.Parse(s);
+                double latitude = Convert.ToDouble(jsonGeo["location"]["latitude"]);
+                double longitude = Convert.ToDouble(jsonGeo["location"]["longitude"]);
+
+                // 4. Create, cache, and return the new object
+                var newLocation = new LatLong(latitude.ToString(), longitude.ToString());
+                m_ipAddrToLatLong[ip] = newLocation;
+
+                Console.WriteLine("A client IP has been cached: " + ip + " " + jsonGeo["city"] + " " + latitude + " " + longitude);
+
+                return newLocation;
             }
             catch (Exception e)
             {
                 Console.WriteLine("Error getting geolocation for " + ip + ": " + e.Message);
-                m_ipAddrToLatLong[ip] = new LatLong("0", "0");
+
+                // 5. Create, cache, and return an 'error' object
+                var errorLocation = new LatLong("0", "0");
+                m_ipAddrToLatLong[ip] = errorLocation;
+                return errorLocation;
             }
         }
 
         //        protected static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
 
 
-        protected int DistanceFromClient(string lat, string lon)
+        // 1. SIGNATURE CHANGE:
+        // Renamed to '...Async' and changed from 'int' to 'async Task<int>'
+        protected async Task<int> DistanceFromClientAsync(string lat, string lon)
         {
             var serverLatitude = float.Parse(lat);
             var serverLongitude = float.Parse(lon);
@@ -1189,39 +1291,32 @@ namespace JamFan22.Pages
             string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
             if ((clientIP.Length < 5) || clientIP.Contains("127.0.0.1"))
             {
-                //                Console.WriteLine("initial ipaddr: " + clientIP);
-
-                // ::1 appears in local debugging, but also possibly in reverse-proxy :o
+                // ... (all your X-Forwarded-For logic is correct) ...
                 if (clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
                 {
                     var xff = (string)HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-                    // xff from the proxy doesn't include the ::ffff: prefix, which I believe causes failures to match.
-                    // so I re-add
-
                     if (null != xff)
                     {
                         if (false == xff.Contains("::ffff"))
                             xff = "::ffff:" + xff;
-
-                        //                        Console.WriteLine("XFF was non-null, value: " + xff);
                         clientIP = xff;
                     }
                     else
                     {
-                        //                        Console.WriteLine("XFF was null, clientIP hardcoded to 75.172.123.21, Monroe, Louisiana.");
                         clientIP = "75.172.123.21";
                     }
                 }
             }
-            // clientIP = "75.172.123.21"; // hardcode to make same code outcome as server THIS IS FOR LOCAL DEBUGGING ONLY. DON'T DEPLOY.
 
-            double clientLatitude = 0.0;
-            double clientLongitude = 0.0;
-            SmartGeoLocate(clientIP, ref clientLatitude, ref clientLongitude);
+            // 2. 'someIp' VARIABLE FIX:
+            // Changed 'someIp' to 'clientIP', which is the correct variable
+            LatLong location = await SmartGeoLocateAsync(clientIP);
 
-            //            SmartGeoLocate(ipThem, ref serverLatitude, ref serverLongitude);
+            // You can now get the values from the returned object
+            double clientLatitude = double.Parse(location.lat);
+            double clientLongitude = double.Parse(location.lon);
 
-            // https://www.simongilbert.net/parallel-haversine-formula-dotnetcore/
+            // ... (all your distance calculation logic is correct) ...
             const double EquatorialRadiusOfEarth = 6371D;
             const double DegreesToRadians = (Math.PI / 180D);
             var deltalat = (serverLatitude - clientLatitude) * DegreesToRadians;
@@ -1234,10 +1329,8 @@ namespace JamFan22.Pages
             var c = 2D * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1D - a));
             var d = EquatorialRadiusOfEarth * c;
             return Convert.ToInt32(d);
-
         }
-
-
+    
         protected int Distance(double lat1, double lon1, double lat2, double lon2)
         {
             // https://www.simongilbert.net/parallel-haversine-formula-dotnetcore/
@@ -1345,75 +1438,96 @@ namespace JamFan22.Pages
         */
 
         static Dictionary<string, LatLong> m_openCageCache = new Dictionary<string, LatLong>();
-        public static bool CallOpenCageCached(string placeName, ref string lat, ref string lon)
+
+        // 1. Signature changed to async Task with a tuple result.
+        // 'ref' parameters are removed.
+        public static async Task<(bool Success, string Lat, string Lon)> CallOpenCageCachedAsync(string placeName)
         {
             if (m_openCageCache.ContainsKey(placeName))
             {
-                if (m_openCageCache[placeName] == null)
-                    return false;
-
-                lat = m_openCageCache[placeName].lat;
-                lon = m_openCageCache[placeName].lon;
-                return true;
-            }
-
-            if (CallOpenCage(placeName, ref lat, ref lon))
-            {
-                m_openCageCache[placeName] = new LatLong(lat, lon);
-                return true;
-            }
-
-            m_openCageCache[placeName] = null; // I couldn't map yuour name to a lat-long, but i store null so i don't keep asking.
-            return false;
-        }
-
-
-
-        public static bool CallOpenCage(string placeName, ref string lat, ref string lon)
-        {
-            if (placeName.Length < 3)
-                return false;
-            if (placeName == "MOON")
-                return false;
-            if (false == Regex.IsMatch(placeName, "[a-zA-Z]"))
-                return false;
-
-            string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
-            string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
-            using var client = new HttpClient();
-            System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
-            task.Wait();
-            string s = task.Result;
-            JObject latLongJson = JObject.Parse(s);
-            if (latLongJson["results"].HasValues)
-            {
-                string typeOfMatch = (string)latLongJson["results"][0]["components"]["_type"];
-                if (("neighbourhood" == typeOfMatch) ||
-                    ("village" == typeOfMatch) ||
-                    ("city" == typeOfMatch) ||
-                    ("county" == typeOfMatch) ||
-                    ("municipality" == typeOfMatch) ||
-                    ("administrative" == typeOfMatch) ||
-                    ("state" == typeOfMatch) ||
-                    ("boundary" == typeOfMatch) ||
-                    ("country" == typeOfMatch))
+                var cachedLocation = m_openCageCache[placeName];
+                if (cachedLocation == null)
                 {
-                    lat = (string)latLongJson["results"][0]["geometry"]["lat"];
-                    lon = (string)latLongJson["results"][0]["geometry"]["lng"];
-                    //                    m_PlaceNameToLatLong[placeName.ToUpper()] = new LatLong(lat, lon);
-                    return true;
+                    // We cached a failure, so just return failure
+                    return (false, null, null);
                 }
+
+                // We cached a success, return the cached data
+                return (true, cachedLocation.lat, cachedLocation.lon);
             }
 
-            //            MaxMind.GeoIP2
+            // 2. Not in cache, so 'await' the async network call
+            var (success, lat, lon) = await CallOpenCageAsync(placeName);
 
-            return false;
+            if (success)
+            {
+                // 3. Cache the successful result
+                m_openCageCache[placeName] = new LatLong(lat, lon);
+                return (true, lat, lon);
+            }
+
+            // 4. Cache the failure as 'null' so we don't ask again
+            m_openCageCache[placeName] = null;
+            return (false, null, null);
         }
 
-        public void PlaceToLatLon(string serverPlace, string userPlace, string ipAddr, ref string lat, ref string lon)
+
+        // 1. Signature changed to return an async Task with a ValueTuple
+        // This replaces 'bool' and the 'ref' parameters.
+        public static async Task<(bool Success, string Lat, string Lon)> CallOpenCageAsync(string placeName)
         {
-            lat = "";
-            lon = "";
+            // 2. Early returns are now tuples
+            if (placeName.Length < 3)
+                return (false, null, null);
+            if (placeName == "MOON")
+                return (false, null, null);
+            if (false == Regex.IsMatch(placeName, "[a-zA-Z]"))
+                return (false, null, null);
+
+            // 6. Add try/catch for network operations
+            try
+            {
+                string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
+                string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
+
+                // 3. Use the shared 'httpClient' and 'await'
+                string s = await httpClient.GetStringAsync(endpoint);
+
+                JObject latLongJson = JObject.Parse(s);
+                if (latLongJson["results"].HasValues)
+                {
+                    string typeOfMatch = (string)latLongJson["results"][0]["components"]["_type"];
+                    if (("neighbourhood" == typeOfMatch) ||
+                        ("village" == typeOfMatch) ||
+                        ("city" == typeOfMatch) ||
+                        ("county" == typeOfMatch) ||
+                        ("municipality" == typeOfMatch) ||
+                        ("administrative" == typeOfMatch) ||
+                        ("state" == typeOfMatch) ||
+                        ("boundary" == typeOfMatch) ||
+                        ("country" == typeOfMatch))
+                    {
+                        // 4. Declare local variables and return them
+                        string lat = (string)latLongJson["results"][0]["geometry"]["lat"];
+                        string lon = (string)latLongJson["results"][0]["geometry"]["lng"];
+                        // m_PlaceNameToLatLong[placeName.ToUpper()] = new LatLong(lat, lon);
+                        return (true, lat, lon);
+                    }
+                }
+
+                // 5. No match found
+                return (false, null, null);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error calling OpenCage for {placeName}: {ex.Message}");
+                return (false, null, null);
+            }
+        }
+
+        // 1. Signature changed: No 'ref' params, returns a 'Task<LatLong>'
+        public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPlace, string ipAddr)
+        {
             ipAddr = ipAddr.Trim();
             serverPlace = serverPlace.Trim();
             userPlace = userPlace.Trim();
@@ -1421,16 +1535,12 @@ namespace JamFan22.Pages
             System.Diagnostics.Debug.Assert(serverPlace.ToUpper() == serverPlace);
             System.Diagnostics.Debug.Assert(userPlace.ToUpper() == userPlace);
 
-
-            // I SHOULD DETECT HOW MANY CARDS I LAY, AND ONLY REFRESH IF FEWER THAN 4 OR SOMETHING
-            // INSTEAD I DO THIS.
+            // ... (Your cache flushing logic remains unchanged) ...
             var rng = new Random();
             if (0 == rng.Next(20000))
             {
-
                 Console.WriteLine("Want to flush cached lat-longs, but they are even more scarce now, so only if things are not full-tilt.");
-
-                if (m_secondsPause > 20) // This flush technique just sucks. Flushing isn't even that critical. Just do it daily.
+                if (m_secondsPause > 20)
                 {
                     Console.WriteLine("Detected relative slowdown and flushed.");
                     m_PlaceNameToLatLong.Clear();
@@ -1438,137 +1548,125 @@ namespace JamFan22.Pages
                 }
             }
 
-            if (m_PlaceNameToLatLong.ContainsKey(serverPlace))
+            // 2. Cache checks now return the LatLong object directly.
+            if (m_PlaceNameToLatLong.TryGetValue(serverPlace, out var cachedServerPlace))
             {
-                lat = m_PlaceNameToLatLong[serverPlace].lat;
-                lon = m_PlaceNameToLatLong[serverPlace].lon;
-                return;
+                return cachedServerPlace;
             }
 
-            if (m_PlaceNameToLatLong.ContainsKey(userPlace))
+            if (m_PlaceNameToLatLong.TryGetValue(userPlace, out var cachedUserPlace))
             {
-                lat = m_PlaceNameToLatLong[userPlace].lat;
-                lon = m_PlaceNameToLatLong[userPlace].lon;
-                return;
+                return cachedUserPlace;
             }
 
-            if (m_ipAddrToLatLong.ContainsKey(ipAddr))
+            if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp))
             {
-                lat = m_ipAddrToLatLong[ipAddr].lat;
-                lon = m_ipAddrToLatLong[ipAddr].lon;
-                return;
+                return cachedIp;
             }
+
+            // --- All checks below are now async ---
 
             bool fServerLLSuccess = false;
             string serverLat = "";
             string serverLon = "";
 
-            if (serverPlace.Length > 1)
-                if (serverPlace != "yourCity")
+            if (serverPlace.Length > 1 && serverPlace != "yourCity")
+            {
+                // 3. Await the async call. Renamed tuple vars for clarity.
+                var serverResult = await CallOpenCageAsync(serverPlace);
+                if (serverResult.Success)
                 {
-                    //                    if (serverPlace == "MALLORCA, UNITED STATES")
-                    //                        serverPlace = "MALLORCA, SPAIN";
-
-                    //         serverPlace = serverPlace.Replace(", UNITED STATES", "");
-                    if (CallOpenCage(serverPlace, ref serverLat, ref serverLon))
-                    {
-                        Console.WriteLine("Used server location: " + serverPlace);
-                        fServerLLSuccess = true;
-                    }
+                    serverLat = serverResult.Lat;
+                    serverLon = serverResult.Lon;
+                    Console.WriteLine("Used server location: " + serverPlace);
+                    fServerLLSuccess = true;
                 }
+            }
 
-            // consider user location
             bool fUserLLSuccess = false;
             string userLat = "";
             string userLon = "";
 
-            if (CallOpenCage(userPlace, ref userLat, ref userLon))
+            // 4. Await the second async call
+            var userResult = await CallOpenCageAsync(userPlace);
+            if (userResult.Success)
             {
+                userLat = userResult.Lat;
+                userLon = userResult.Lon;
                 Console.WriteLine("Used user location: " + userPlace);
                 fUserLLSuccess = true;
             }
-            //Console.WriteLine("User location failed: " + userPlace);
 
-            // consider server IP geolocation
             bool fServerIPLLSuccess = false;
             string serverIPLat = "";
             string serverIPLon = "";
 
             if (ipAddr.Length > 5)
             {
-                /*
-                IPGeolocationAPI api = new IPGeolocationAPI(MYSTERY_STRING);
-                GeolocationParams geoParams = new GeolocationParams();
-                //geoParams.SetIPAddress(ipAddr);
-                geoParams.SetIp(ipAddr);
-                geoParams.SetFields("geo,time_zone,currency");
-                Geolocation geolocation = api.GetGeolocation(geoParams);
-                Console.WriteLine(ipAddr + " " + geolocation.GetCity());
-                serverIPLat = geolocation.GetLatitude();
-                serverIPLon = geolocation.GetLongitude();
-                */
+                // 5. This block is now fully async, uses the shared httpClient,
+                //    and has proper error handling.
+                try
+                {
+                    string ip4Addr = ipAddr.Replace("::ffff:", "");
+                    string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4Addr + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
 
+                    // 6. FIXED: Use shared 'httpClient' and 'await'
+                    string s = await httpClient.GetStringAsync(endpoint);
 
-                string ip4Addr = ipAddr.Replace("::ffff:", "");
-                // string endpoint = "http://api.ipstack.com/" + ip4Addr + "?access_key=" + IPSTACK_MYSTERY_STRING;
-                string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4Addr + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
-                using var client = new HttpClient();
-                System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
-                task.Wait();
-                string s = task.Result;
-                JObject jsonGeo = JObject.Parse(s);
-                serverIPLat = (string)jsonGeo["location"]["latitude"];
-                serverIPLon = (string)jsonGeo["location"]["longitude"];
+                    JObject jsonGeo = JObject.Parse(s);
+                    serverIPLat = (string)jsonGeo["location"]["latitude"];
+                    serverIPLon = (string)jsonGeo["location"]["longitude"];
 
-                fServerIPLLSuccess = true;
-                m_ipAddrToLatLong[ipAddr] = new LatLong(serverIPLat, serverIPLon);
-                Console.WriteLine("AN IP geo has been cached: " + serverIPLat + " " + serverIPLon);
+                    fServerIPLLSuccess = true;
+                    var newIpLocation = new LatLong(serverIPLat, serverIPLon);
+                    m_ipAddrToLatLong[ipAddr] = newIpLocation;
+                    Console.WriteLine("AN IP geo has been cached: " + serverIPLat + " " + serverIPLon);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error fetching IP geolocation for {ipAddr}: {ex.Message}");
+                    m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // Cache failure
+                }
             }
             else
-                m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // so we stop asking?
+            {
+                m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // Cache empty IP
+            }
 
-            // if we have lat-lon based on server's IP,
-            // and we have lat-lon based on user's UP,
-            // and they are on same continent,
-            // when we use user's IP.
-            //
-            // but if there's no user IP lat-lon
-            // and tehre's no server SELF-DESCRIBED LOCATION lat-lon
-            // then we use server's IP lat-lon
-            //
-            // if no serverIP lat-lon, we use server self-described lat-lon
+            // --- Final Logic: Decide which LatLong to return ---
 
             if (fServerIPLLSuccess)
             {
                 if (fUserLLSuccess)
                 {
-                    // if these two latlongs are on the same continent
-                    // then ignore the server's self-stated place.
                     char serverIPContinent = ContinentOfLatLong(serverIPLat, serverIPLon);
                     char userContinent = ContinentOfLatLong(userLat, userLon);
                     if (serverIPContinent == userContinent)
                     {
-                        lat = userLat;
-                        lon = userLon;
-                        m_PlaceNameToLatLong[serverPlace.ToUpper()] = new LatLong(lat, lon);
-                        return;
+                        // Action: Use User's Place
+                        var location = new LatLong(userLat, userLon);
+                        m_PlaceNameToLatLong[serverPlace.ToUpper()] = location;
+                        return location; // 7. Return the 'LatLong' object
                     }
                 }
+
                 if (false == fServerLLSuccess)
                 {
-                    lat = serverIPLat;
-                    lon = serverIPLon;
-                    return;
+                    // Action: Use Server IP's location
+                    // (Already cached in m_ipAddrToLatLong, but we return it)
+                    return m_ipAddrToLatLong[ipAddr];
                 }
             }
 
-            lat = serverLat;
-            lon = serverLon;
-            Debug.Assert(lat != null);
-            Debug.Assert(lat != null);
-            m_PlaceNameToLatLong[serverPlace.ToUpper()] = new LatLong(lat, lon);
-        }
+            // Default Action: Use Server's Place
+            Debug.Assert(serverLat != null);
+            Debug.Assert(serverLon != null); // Original code had 'lat != null' twice
 
+            var serverLocation = new LatLong(serverLat, serverLon);
+            m_PlaceNameToLatLong[serverPlace.ToUpper()] = serverLocation;
+            return serverLocation;
+        }
+    
         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
         protected void NotateWhoHere(string server, string who)
         {
@@ -2086,6 +2184,8 @@ namespace JamFan22.Pages
 
         static Dictionary<string, int> twoSecondZoneOfLastSample = new Dictionary<string, int>();
         static Dictionary<string, bool> freeStatusCache = new Dictionary<string, bool>();
+
+        /*
         public static bool InstanceIsFree(string url, string currentDock)
         {
             // is this dock creator's ISP allowed to create leases?
@@ -2117,6 +2217,7 @@ namespace JamFan22.Pages
             twoSecondZoneOfLastSample[url] = DateTime.Now.Second / 2;
             return result;
         }
+        */
 
 
 
@@ -2133,28 +2234,40 @@ namespace JamFan22.Pages
 
 
 
+public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
+{
+    if (DateTime.Now.Hour != m_hourLastFlushed)
+     {
+     m_ipapiOutputs.Clear();
+     m_hourLastFlushed = DateTime.Now.Hour;
+     }
 
-        public static JObject GetClientIPDetails(string clientIP)
-        {
-            if (DateTime.Now.Hour != m_hourLastFlushed)
-            {
-                m_ipapiOutputs.Clear();
-                m_hourLastFlushed = DateTime.Now.Hour;
-            }
+     if (m_ipapiOutputs.ContainsKey(clientIP))
+     return m_ipapiOutputs[clientIP];
 
-            if (m_ipapiOutputs.ContainsKey(clientIP))
-                return m_ipapiOutputs[clientIP];
-
-            // var client = new HttpClient();
-            // Reuse the same HttpClient instance with the timeout set
-            HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-            System.Threading.Tasks.Task<string> task = client.GetStringAsync("http://ip-api.com/json/" + clientIP);
-            task.Wait();
-            string st = task.Result;
-            JObject json = JObject.Parse(st);
-            m_ipapiOutputs[clientIP] = json;
-            return json;
-        }
+     try
+     {
+     // Use a CancellationTokenSource for the 1-second timeout
+     using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+     {
+     // Use the static shared httpClient and await the non-blocking call
+     string st = await httpClient.GetStringAsync("http://ip-api.com/json/" + clientIP, cts.Token);
+     JObject json = JObject.Parse(st);
+     m_ipapiOutputs[clientIP] = json;
+     return json;
+     }
+     }
+     catch (OperationCanceledException)
+     {
+     Console.WriteLine($"ip-api.com lookup TIMED OUT for {clientIP}.");
+     return null; // Return null on timeout
+     }
+     catch (Exception ex)
+     {
+     Console.WriteLine($"ip-api.com lookup FAILED for {clientIP}: {ex.Message}");
+     return null;
+     }
+}
 
 
         public static async Task<string> AsnOfThisIpAsync(string ip)
@@ -2195,7 +2308,7 @@ namespace JamFan22.Pages
         private static PreloadedData m_cachedPreloadedData;
         private static DateTime m_lastDataLoadTime = DateTime.MinValue;
         private const double CacheDurationSeconds = 65.0;
-        private static readonly object _dataLoadLock = new object();
+        private static readonly SemaphoreSlim _dataLoadLock = new SemaphoreSlim(1, 1);
 
 
         public async Task<string> GetGutsRightNow()
@@ -2207,7 +2320,7 @@ namespace JamFan22.Pages
             await UpdatePredictionsIfNeededAsync();
 
             // 3. Get cached data, refreshing if older than 65 seconds
-            var preloadedData = GetCachedPreloadedData(); // <-- This line has changed
+            var preloadedData = await GetCachedPreloadedDataAsync();
 
             // 4. Process all servers and clients to build the internal list
             await ProcessServerListsAsync(preloadedData);
@@ -2228,34 +2341,41 @@ namespace JamFan22.Pages
         /// <summary>
         /// Gets the preloaded data, refreshing it from disk if the cache is older than 65 seconds.
         /// </summary>
-        private PreloadedData GetCachedPreloadedData()
+        // 1. Signature changed to 'async Task<...>'
+        private async Task<PreloadedData> GetCachedPreloadedDataAsync()
         {
-            // First, check without a lock for the most common case: cache is valid.
+            // First, check without a lock (fast path, unchanged)
             if (DateTime.Now <= m_lastDataLoadTime.AddSeconds(CacheDurationSeconds))
             {
                 return m_cachedPreloadedData;
             }
 
-            // Cache is expired, so we must acquire a lock to reload.
-            lock (_dataLoadLock)
+            // Cache is expired, so acquire the async-friendly semaphore
+            // 2. Replaced 'lock' with 'await WaitAsync'
+            await _dataLoadLock.WaitAsync();
+            try
             {
-                // Now that we have the lock, double-check if another thread
-                // finished reloading while we were waiting.
+                // Now that we have the lock, double-check
                 if (DateTime.Now > m_lastDataLoadTime.AddSeconds(CacheDurationSeconds))
                 {
                     Console.WriteLine($"Cache expired ({CacheDurationSeconds}s). Reloading all data files...");
 
-                    // Call the original method that reads all files
-                    m_cachedPreloadedData = LoadPreloadedData();
+                    // 3. Call the ASYNC version of your load method
+                    // (We will need to create this method next)
+                    m_cachedPreloadedData = await LoadPreloadedDataAsync();
 
                     m_lastDataLoadTime = DateTime.Now;
                     Console.WriteLine("Data file reload complete.");
                 }
             }
+            finally
+            {
+                // 4. Release the semaphore
+                _dataLoadLock.Release();
+            }
 
             return m_cachedPreloadedData;
         }
-
 
         //################################################################################
         // PRIVATE HELPER METHODS (Unchanged from previous refactor)
@@ -2315,40 +2435,45 @@ namespace JamFan22.Pages
         /// Loads all data from local files (block lists, etc.) into memory.
         /// This method is now called by the caching manager.
         /// </summary>
-        private PreloadedData LoadPreloadedData()
+        private async Task<PreloadedData> LoadPreloadedDataAsync()
         {
+            // 1. Converted to ReadAllLinesAsync
             var blockedASNs = new HashSet<string>(
-                System.IO.File.ReadAllLines("wwwroot/asn-blocks.txt")
+                (await System.IO.File.ReadAllLinesAsync("wwwroot/asn-blocks.txt"))
                     .Where(line => !string.IsNullOrWhiteSpace(line))
                     .Select(line => line.Trim().Split(' ')[0])
             );
 
-            // This is still inefficient, but matches the original logic of reading the whole file.
-            // A better solution would be to process this file into a persistent DB or cache.
+            // 2. Converted to ReadAllLinesAsync
+            // (File.Exists is synchronous but very fast, so it's fine)
             var joinEventsLines = System.IO.File.Exists("join-events.csv")
-                ? System.IO.File.ReadAllLines("join-events.csv")
+                ? await System.IO.File.ReadAllLinesAsync("join-events.csv")
                 : new string[0];
 
+            // 3. Converted to ReadAllLinesAsync
             var erasedServerNames = new HashSet<string>(
                 System.IO.File.Exists("erased.txt")
-                    ? System.IO.File.ReadAllLines("erased.txt").Select(l => l.Trim().ToLower())
+                    ? (await System.IO.File.ReadAllLinesAsync("erased.txt")).Select(l => l.Trim().ToLower())
                     : new string[0]
             );
 
+            // 4. Converted to ReadAllLinesAsync
             var noPingIpPartial = new HashSet<string>(
                 System.IO.File.Exists("no-ping.txt")
-                    ? System.IO.File.ReadAllLines("no-ping.txt").Where(l => l.Trim().Length > 0)
+                    ? (await System.IO.File.ReadAllLinesAsync("no-ping.txt")).Where(l => l.Trim().Length > 0)
                     : new string[0]
             );
 
+            // 5. Converted to ReadAllLinesAsync
             var blockedServerARNs = new HashSet<string>(
                 System.IO.File.Exists("arn-servers-blocked.txt")
-                    ? System.IO.File.ReadAllLines("arn-servers-blocked.txt")
+                    ? await System.IO.File.ReadAllLinesAsync("arn-servers-blocked.txt")
                     : new string[0]
             );
 
-            // This method was called inside the single-user card builder
-            var goodGuids = GetGoodGuidsSet();
+            // 6. IMPORTANT: This method must also be made async
+            // This will be our *next* error to fix.
+            var goodGuids = await GetGoodGuidsSetAsync();
 
             return new PreloadedData(
                 blockedASNs,
@@ -2359,7 +2484,7 @@ namespace JamFan22.Pages
                 goodGuids
             );
         }
-
+    
         /// <summary>
         /// Iterates through the master server lists and processes each server.
         /// Populates the 'm_allMyServers' list.
@@ -2389,8 +2514,9 @@ namespace JamFan22.Pages
                     // Determine server and user locations
                     var (place, usersPlace, serverCountry) = GetServerAndUserLocation(server, clientResult.UserCountries);
 
-                    // Get distance and zone
-                    CalculateServerDistanceAndZone(place, usersPlace, server.ip, out int dist, out char zone);
+                    // Get distance and zone (NOW ASYNC)
+                    // This is the changed line:
+                    var (dist, zone) = await CalculateServerDistanceAndZoneAsync(place, usersPlace, server.ip);
 
                     // Apply distance boost for solo users
                     dist = CalculateBoostedDistance(server, dist, clientResult.FirstUserHash);
@@ -2640,22 +2766,29 @@ namespace JamFan22.Pages
         /// <summary>
         /// Calculates the distance and time zone for a server.
         /// </summary>
-        private void CalculateServerDistanceAndZone(string place, string usersPlace, string serverIp, out int dist, out char zone)
+        // 1. Signature changed: no 'out' params, returns a 'Task' with a tuple
+        private async Task<(int dist, char zone)> CalculateServerDistanceAndZoneAsync(string place, string usersPlace, string serverIp)
         {
-            string lat = "";
-            string lon = "";
-            PlaceToLatLon(place.ToUpper(), usersPlace.ToUpper(), serverIp, ref lat, ref lon);
+            // 2. Call the new async method and await its 'LatLong' result
+            LatLong location = await PlaceToLatLonAsync(place.ToUpper(), usersPlace.ToUpper(), serverIp);
 
-            dist = 0;
-            zone = ' ';
+            // 3. Initialize local variables
+            int dist = 0;
+            char zone = ' ';
 
-            if (lat.Length > 1 || lon.Length > 1)
+            // 4. Use the 'LatLong' object's properties
+            if (location != null && (location.lat.Length > 1 || location.lon.Length > 1))
             {
-                dist = DistanceFromClient(lat, lon);
-                zone = ContinentOfLatLong(lat, lon);
-            }
-        }
+                // This is the changed line
+                dist = await DistanceFromClientAsync(location.lat, location.lon);
 
+                zone = ContinentOfLatLong(location.lat, location.lon);
+            }
+            
+            // 5. Return the tuple result
+            return (dist, zone);
+        }
+        
         /// <summary>
         /// Applies a "boost" to the distance (making it seem closer) if a user is solo.
         /// </summary>
@@ -2999,13 +3132,14 @@ namespace JamFan22.Pages
             {
                 using var httpClient2 = new HttpClient();
                 var contents2 = await httpClient2.GetStringAsync("https://jamulus.live/can-dock.txt");
-                if (contents2.Contains(ipport) && !AnyoneBlockStreaming(ipport))
+                //if (contents2.Contains(ipport) && !AnyoneBlockStreaming(ipport))
+                if (false) // not happening now
                 {
                     var lobby = System.IO.File.ReadAllLines("lobby.txt").ToList();
                     if (lobby.Count <= 1)
                     {
                         string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
-                        JObject json = GetClientIPDetails(clientIP); // Assumes this helper exists
+                        JObject json = await GetClientIPDetailsAsync(clientIP);
                         if (json != null && !forbidder.m_forbiddenIsp.Contains(json["as"].ToString()))
                         {
                             byte[] bytes = System.Text.Encoding.UTF8.GetBytes(ipport + DateTime.UtcNow.Hour);
@@ -3203,21 +3337,26 @@ namespace JamFan22.Pages
         private static readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(1);
 
         // Thread-safe lock object for updating the cache
-        private static readonly object _cacheLock = new object();
+        private static readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
 
         /// <summary>
         /// Reads join-events.csv and builds a HashSet of all GUIDs
         /// that have a non-zero value in the 13th column.
         /// </summary>
-        private static HashSet<string> LoadGoodGuidsFromFile()
+        // 1. Signature changed to 'async Task<HashSet<string>>'
+        private static async Task<HashSet<string>> LoadGoodGuidsFromFileAsync()
         {
             var goodGuids = new HashSet<string>();
-            string filePath = "join-events.csv"; // Assumes this file is in the application's root/bin directory.
-                                                 // You may need to change this to a full path.
+            string filePath = "join-events.csv";
+
             try
             {
-                // Use File.ReadLines for memory-efficient reading.
-                foreach (string line in System.IO.File.ReadLines(filePath))
+                // 2. This is the non-blocking file read.
+                // It reads all lines into an array asynchronously.
+                string[] lines = await System.IO.File.ReadAllLinesAsync(filePath);
+
+                // 3. Loop over the array (this part is fast and fine)
+                foreach (string line in lines)
                 {
                     if (string.IsNullOrWhiteSpace(line))
                     {
@@ -3247,43 +3386,50 @@ namespace JamFan22.Pages
             {
                 // Log the error so you know if the file is missing or permissions are wrong.
                 System.Diagnostics.Debug.WriteLine($"Error loading join-events.csv: {ex.Message}");
-                // Return an empty set on failure so the site still works, but filters nothing.
+                // Return an empty set on failure
                 return new HashSet<string>();
             }
 
             return goodGuids;
         }
-
+    
         /// <summary>
         /// Gets the set of "good" GUIDs, loading from file and
         /// caching the result for 5 minutes.
         /// </summary>
-        private static HashSet<string> GetGoodGuidsSet()
+        // 1. Signature changed to 'async Task<HashSet<string>>'
+        private static async Task<HashSet<string>> GetGoodGuidsSetAsync()
         {
-            // 1. Check if the cache is valid.
+            // 1. Check if the cache is valid (fast path, no change).
             if (_goodGuidsCache != null && DateTime.UtcNow < _cacheExpiry)
             {
                 return _goodGuidsCache;
             }
 
-            // 2. If cache is invalid, acquire a lock to update it.
-            // This prevents multiple threads from reading the file at the same time.
-            lock (_cacheLock)
+            // 2. If cache is invalid, acquire the ASYNC lock.
+            await _cacheLock.WaitAsync();
+            try
             {
-                // 3. Double-check if another thread updated the cache while we waited for the lock.
+                // 3. Double-check if another thread updated the cache while we waited.
                 if (_goodGuidsCache != null && DateTime.UtcNow < _cacheExpiry)
                 {
                     return _goodGuidsCache;
                 }
 
-                // 4. This thread will update the cache.
-                _goodGuidsCache = LoadGoodGuidsFromFile();
+                // 4. This thread will update the cache by calling the ASYNC file loader.
+                //    (This will be our *next* error to fix).
+                _goodGuidsCache = await LoadGoodGuidsFromFileAsync();
                 _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
 
                 return _goodGuidsCache;
             }
+            finally
+            {
+                // 5. Release the async lock.
+                _cacheLock.Release();
+            }
         }
-
+    
         // --- End: Caching logic for Join-Events ---
 
         public static Dictionary<string, DateTime> m_clientIPLastVisit = new Dictionary<string, DateTime>();
@@ -3314,7 +3460,7 @@ namespace JamFan22.Pages
 
         //        public static Dictionary<string, DateTime> countryLastVisit = new Dictionary<string, DateTime>();
 
-        public static System.Threading.Mutex m_serializerMutex = new System.Threading.Mutex(false, "MASTER_MUTEX");
+        private static SemaphoreSlim m_serializerMutex = new SemaphoreSlim(1, 1);
 
         //        static string m_ThreeLetterNationCode = "USA";
         static string m_TwoLetterNationCode = "US";
@@ -3475,11 +3621,11 @@ namespace JamFan22.Pages
             }
         }
 
-// Example usage:
-// double myLat = 47.6295;
-// double myLon = -122.3165;
-// string tableHtml = GetMusicianHtmlSynchronously(myLat, myLon);
-// Console.WriteLine(tableHtml);
+        // Example usage:
+        // double myLat = 47.6295;
+        // double myLon = -122.3165;
+        // string tableHtml = GetMusicianHtmlSynchronously(myLat, myLon);
+        // Console.WriteLine(tableHtml);
 
         /*
         public string UniqueServerCountOfEveryActiveUser
@@ -3599,6 +3745,7 @@ namespace JamFan22.Pages
             return false;
         }
 
+/*
         public string HowManyUsers
         {
             get
@@ -3606,18 +3753,6 @@ namespace JamFan22.Pages
                 m_serializerMutex.WaitOne();
                 try
                 {
-
-                    /*
-                    var iNations = 0;
-                    foreach (var timeski in m_countriesDeemedLegit.Values)
-                    {
-                        if (DateTime.Now < timeski.AddMinutes(60))
-                            iNations++;
-                    }
-
-                    m_usersCounted.Add(DateTime.Now, iActiveJamFans);
-                     */
-
 
 
                     List<string> svrActivesIpPort = new List<string>();
@@ -3682,17 +3817,17 @@ namespace JamFan22.Pages
 
                                     // I don't want to sample any addresses that have a Listen link
                                     if (false == HasListenLink(fullAddress))
-                                        if (false == AnyoneBlockSnippeting(fullAddress))
-                                        {
-                                            List<string> recents = new List<string>();
-                                            recents = System.IO.File.ReadAllLines("last-snippet.txt").ToList();
-                                            bool okToAdd = true;
-                                            foreach (var lin in recents)
-                                                if (lin.Contains(fullAddress))
-                                                    okToAdd = false;
-                                            if (okToAdd)
-                                                svrActivesIpPort.Add(fullAddress);
-                                        }
+                                    //                                        if (false == AnyoneBlockSnippeting(fullAddress))
+                                    {
+                                        List<string> recents = new List<string>();
+                                        recents = System.IO.File.ReadAllLines("last-snippet.txt").ToList();
+                                        bool okToAdd = true;
+                                        foreach (var lin in recents)
+                                            if (lin.Contains(fullAddress))
+                                                okToAdd = false;
+                                        if (okToAdd)
+                                            svrActivesIpPort.Add(fullAddress);
+                                    }
                                 }
 
                                 // else
@@ -3722,37 +3857,7 @@ namespace JamFan22.Pages
                         }
                     }
 
-                    /*
-                    int iTopCount = 0;
-                    DateTime timeOfTopCount = DateTime.Now;
-
-                    foreach (var timeski in m_usersCounted.Keys)
-                    {
-                        if (DateTime.Now < timeski.AddHours(24))
-                            if (m_usersCounted[timeski] > iTopCount)
-                            {
-                                iTopCount = m_usersCounted[timeski];
-                                timeOfTopCount = timeski;
-                            }
-                    }
-                    */
-
                     string ret = "";
-                    /*
-                    iActiveJamFans.ToString() + " musicians " + 
-//                        "from " + iNations.ToString() + " countries " +
-                        "have viewed this page in the last hour";
-                    */
-
-
-                    /*
-                    if (iTopCount > iActiveJamFans)
-                    {
-                        if (iTopCount == iActiveJamFans + 1)
-                            ret += ", which is near today's high";
-                        else
-                    */
-
 
                     {
                         int iActiveJamFansOver24Hours = 0;
@@ -3768,7 +3873,7 @@ namespace JamFan22.Pages
 
                         ret += "" +
                         //                                ". " +
-//                        SinceNowInText(timeOfTopCount) +
+                        //                        SinceNowInText(timeOfTopCount) +
                         " Over the last day, " + iActiveJamFansOver24Hours.ToString() + " musicians watched this page";
 
                         if (iActiveJamFansOver1Hour > 0)
@@ -3788,39 +3893,48 @@ namespace JamFan22.Pages
                 finally { m_serializerMutex.ReleaseMutex(); }
             }
         }
+        
+        */
 
 
-        public string ShowServerByIPPort
+// 1. ADD THIS NEW "VIEW" PROPERTY
+    // This simple string will be safely read by your Razor page.
+    public string ShowServerByIPPortForView { get; private set; }
+
+
+        // 2. ADD THIS NEW ASYNC METHOD
+        // This is the non-blocking version of your old property.
+        // It correctly uses 'await WaitAsync' and 'Release'.
+        public async Task<string> GetShowServerByIPPortAsync()
         {
-            get
+            // This is the new, non-blocking 'await'
+            await m_serializerMutex.WaitAsync();
+            try
             {
+                string ret = "<table><tr><th>Server<th>Server Address</tr>\n";
+
+                // Your original logic is unchanged.
+                // Using .ToList() here is good as it copies the list
+                // so you can release the lock quickly.
+                foreach (var s in m_allMyServers.OrderBy(x => x.name).ToList())
                 {
-                    m_serializerMutex.WaitOne();
-                    try
-                    {
-
-                        string ret = "<table><tr><th>Server<th>Server Address</tr>\n";
-
-                        foreach (var s in m_allMyServers.OrderBy(x => x.name).ToList())
-                        {
-                            ret += "<tr><td>" + s.name + "<td>" +
-                                //                        "<a class='link-unstyled' title='Copy server address to clipboard' href='javascript:copyToClipboard(&quot;" +
-                                //                        s.serverIpAddress + ":" + s.serverPort + "&quot;)'>" +
-                                s.serverIpAddress +
-                                ":" +
-                                s.serverPort +
-                                //                        "</a>" + 
-                                "</tr>\n";
-                        }
-                        ret += "</table>\n"; // <hr>";
-
-                        return ret;
-                    }
-                    finally { m_serializerMutex.ReleaseMutex(); }
+                    ret += "<tr><td>" + s.name + "<td>" +
+                           s.serverIpAddress +
+                           ":" +
+                           s.serverPort +
+                           "</tr>\n";
                 }
+                ret += "</table>\n";
+
+                return ret;
+            }
+            finally
+            {
+                // This is the new, non-blocking 'Release'
+                m_serializerMutex.Release();
             }
         }
-
+    
 
         static int m_conditionsDelta = 0;
 
@@ -3949,21 +4063,25 @@ return (120 + rand.Next(-9,9)).ToString();
             return ipString.StartsWith("::ffff:") ? ipString : $"::ffff:{ipString}";
         }
 
-        private MyUserGeoCandy GetOrAddUserGeoData(string ipAddress)
+        // 1. Signature changed to 'async Task<MyUserGeoCandy>'
+        private async Task<MyUserGeoCandy> GetOrAddUserGeoDataAsync(string ipAddress)
         {
             if (userIpCachedItems.TryGetValue(ipAddress, out var cachedCandy))
             {
+                // Compiler handles wrapping this in a completed Task
                 return cachedCandy;
             }
 
             try
             {
-                GEOAPIFY_MYSTERY_STRING ??= System.IO.File.ReadAllText("secretGeoApifykey.txt");
+                // 2. Switched to async file read to avoid blocking
+                GEOAPIFY_MYSTERY_STRING ??= await System.IO.File.ReadAllTextAsync("secretGeoApifykey.txt");
+
                 string ipv4Address = ipAddress.Replace("::ffff:", "");
                 string endpoint = $"https://api.geoapify.com/v1/ipinfo?ip={ipv4Address}&apiKey={GEOAPIFY_MYSTERY_STRING}";
 
-                // Blocking call to get the result from the async method
-                string jsonResponse = httpClient.GetStringAsync(endpoint).Result;
+                // 3. This is the main fix: await the async call
+                string jsonResponse = await httpClient.GetStringAsync(endpoint);
                 JObject jsonGeo = JObject.Parse(jsonResponse);
 
                 var newCandy = new MyUserGeoCandy
@@ -3978,21 +4096,129 @@ return (120 + rand.Next(-9,9)).ToString();
             }
             catch (Exception ex)
             {
-                // AggregateException is common when blocking on Tasks, so we check for it.
-                Console.WriteLine($"Error fetching geolocation for {ipAddress}: {ex.InnerException?.Message ?? ex.Message}");
+                // 4. 'await' unwraps AggregateException. 
+                // 'ex' is now the real exception (e.g., HttpRequestException).
+                Console.WriteLine($"Error fetching geolocation for {ipAddress}: {ex.Message}");
                 return null;
             }
         }
-
+    
         private static readonly ConcurrentDictionary<string, string> ipToGuidCache = new();
         private static readonly ConcurrentDictionary<string, DateTime> ipCacheTime = new();
         private static readonly TimeSpan cacheDuration = TimeSpan.FromMinutes(5);
 
-        public string GuidFromIp(string ipAddress)
+        // 1. Signature changed to 'async Task<string>'
+
+        //        static string m_likelyGuidOfUser = null;
+
+        /*
+                public string RightNow
+                {
+                    get
+                    {
+                        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                        m_serializerMutex.WaitOne();
+                        try
+                        {
+                            string ipAddress = GetClientIpAddress();
+                            if (string.IsNullOrEmpty(ipAddress)) return string.Empty;
+
+                            // var geoData = GetOrAddUserGeoData(ipAddress);
+                            MyUserGeoCandy geoData = await GetOrAddUserGeoDataAsync(ipAddress);
+                            if (geoData != null)
+                            {
+                                UpdateUserStatistics(ipAddress, geoData);
+                                m_TwoLetterNationCode = geoData.countryCode2;
+                            }
+
+
+                            // Call the synchronous version or block the async version
+                            var task = GetGutsRightNow(); // Assuming GetGutsRightNow returns a Task<string>
+                            task.Wait();
+                            return task.Result;
+                        }
+                        finally
+                        {
+                            stopwatch.Stop();
+                            AdjustPerformanceDelta(stopwatch.Elapsed);
+                            m_serializerMutex.ReleaseMutex();
+                        }
+                    }
+
+                    set
+                    {
+                    }
+                }
+                */
+
+        // ADD THIS METHOD (The new async version of 'RightNow')
+        public async Task<string> GetRightNowAsync()
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            // This is the new ASYNC, NON-BLOCKING wait
+            await m_serializerMutex.WaitAsync();
+
+            try
+            {
+                string ipAddress = GetClientIpAddress();
+                if (string.IsNullOrEmpty(ipAddress)) return string.Empty;
+
+                // This is your 'await' from the error message
+                MyUserGeoCandy geoData = await GetOrAddUserGeoDataAsync(ipAddress);
+                if (geoData != null)
+                {
+                    UpdateUserStatistics(ipAddress, geoData);
+                    m_TwoLetterNationCode = geoData.countryCode2;
+                }
+
+                // This now 'awaits' the result instead of blocking
+                // (Make sure 'GetGutsRightNow' is 'async Task<string>')
+                return await GetGutsRightNow();
+            }
+            finally
+            {
+                stopwatch.Stop();
+                AdjustPerformanceDelta(stopwatch.Elapsed);
+
+                // This is the new ASYNC, NON-BLOCKING release
+                m_serializerMutex.Release();
+            }
+        }
+
+public string RightNowForView { get; private set; }
+
+        // 1. Converted from a 'string' property to an 'async Task<string>' method
+        public async Task<string> GetIPDerivedHashAsync()
+        {
+            string ipAddress = GetClientIpAddress();
+#if WINDOWS
+        // Testing on windows doesn't give real data so I do this.
+        ipAddress = "97.186.6.197";
+#endif
+            // 2. This is the fix: 'await' the async method
+            var likelyGuidOfUser = await GuidFromIpAsync(ipAddress); // Might be null!
+
+            if (null != likelyGuidOfUser)
+            {
+                Console.WriteLine(likelyGuidOfUser + " is the likely guid of " + ipAddress);
+                if (m_guidNamePairs.ContainsKey(likelyGuidOfUser))
+                    Console.WriteLine("  AKA: " + m_guidNamePairs[likelyGuidOfUser]);
+            }
+
+            if (null == likelyGuidOfUser)
+                return "null;";
+            else
+                return "\"" + likelyGuidOfUser + "\";";
+        }
+
+
+        // MAKE SURE YOUR 'GuidFromIpAsync' METHOD IS ALSO IN THIS FILE:
+        public async Task<string> GuidFromIpAsync(string ipAddress)
         {
             string ipv4Address = ipAddress.Replace("::ffff:", "");
 
-            // 1. Check for a valid, non-expired cache entry.
+            // 1. Check for a valid, non-expired cache entry (logic is unchanged).
             if (ipCacheTime.TryGetValue(ipv4Address, out var cacheTime) &&
                 DateTime.UtcNow - cacheTime < cacheDuration &&
                 ipToGuidCache.TryGetValue(ipv4Address, out var cachedGuid))
@@ -4000,97 +4226,34 @@ return (120 + rand.Next(-9,9)).ToString();
                 return cachedGuid;
             }
 
-            // 2. If miss, fetch the GUID from the URL synchronously.
             string url = $"http://24.199.107.192:5000/lookup_guid/{ipv4Address}";
 
             try
             {
-                HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-
-                // Using .Result makes the call blocking.
-                string guid = client.GetStringAsync(url).Result;
-
-                if (!string.IsNullOrEmpty(guid))
+                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
                 {
-                    // 3. Update caches with new data.
-                    ipToGuidCache[ipv4Address] = guid;
-                    ipCacheTime[ipv4Address] = DateTime.UtcNow;
+                    string guid = await httpClient.GetStringAsync(url, cts.Token);
+
+                    if (!string.IsNullOrEmpty(guid))
+                    {
+                        ipToGuidCache[ipv4Address] = guid;
+                        ipCacheTime[ipv4Address] = DateTime.UtcNow;
+                    }
+                    return guid;
                 }
-                return guid;
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine($"An error occurred: GUID lookup timed out for {ipv4Address}.");
+                return null;
             }
             catch (Exception e)
             {
-                // .Result wraps the actual exception in an AggregateException
-                Console.WriteLine($"An error occurred: {e.InnerException?.Message ?? e.Message}");
+                Console.WriteLine($"An error occurred: {e.Message}");
                 return null;
             }
         }
-
-
-//        static string m_likelyGuidOfUser = null;
-
-        public string RightNow
-        {
-            get
-            {
-                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                m_serializerMutex.WaitOne();
-                try
-                {
-                    string ipAddress = GetClientIpAddress();
-                    if (string.IsNullOrEmpty(ipAddress)) return string.Empty;
-
-                    var geoData = GetOrAddUserGeoData(ipAddress);
-                    if (geoData != null)
-                    {
-                        UpdateUserStatistics(ipAddress, geoData);
-                        m_TwoLetterNationCode = geoData.countryCode2;
-                    }
-
-                 
-                    // Call the synchronous version or block the async version
-                    var task = GetGutsRightNow(); // Assuming GetGutsRightNow returns a Task<string>
-                    task.Wait();
-                    return task.Result;
-                }
-                finally
-                {
-                    stopwatch.Stop();
-                    AdjustPerformanceDelta(stopwatch.Elapsed);
-                    m_serializerMutex.ReleaseMutex();
-                }
-            }
-
-        set
-            {
-            }
-        }
-
-        public string IPDerivedHash
-        {
-            get 
-            {
-                string ipAddress = GetClientIpAddress();
-#if WINDOWS
-                // Testing on windows doesn't give real data so I do this.
-                ipAddress = "97.186.6.197";
-#endif
-                var likelyGuidOfUser = GuidFromIp(ipAddress); // Might be null!
-                if (null != likelyGuidOfUser)
-                {
-                    Console.WriteLine(likelyGuidOfUser + " is the likely guid of " + ipAddress);
-                    if (m_guidNamePairs.ContainsKey(likelyGuidOfUser))
-                        Console.WriteLine("  AKA: " + m_guidNamePairs[likelyGuidOfUser]);
-                }
-
-                if (null == likelyGuidOfUser)
-                    return "null;";
-                else
-                    return "\"" + likelyGuidOfUser + "\";";
-            }
-            set { }
-        }
-
+    
 
         /*
         //[Route("{daysForward}")]
@@ -4135,6 +4298,8 @@ return (120 + rand.Next(-9,9)).ToString();
         public static JArray recommended;
         public static int iMinuteOfSample = 0;
 
+
+/*
         public string ComingUp
         {
             get
@@ -4202,5 +4367,6 @@ return "";
             }
             set { }
         }
+        */
     }
 }
