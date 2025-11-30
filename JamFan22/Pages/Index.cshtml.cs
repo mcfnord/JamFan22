@@ -2565,7 +2565,23 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
             List<string> userCountries = new List<string>();
             string firstUserHash = null;
 
-            foreach (var guy in server.clients)
+            // --- SORTING LOGIC ---
+            // 1. Calculate the hash and duration for every user.
+            // 2. Sort DESCENDING: Large numbers (Longest time) -> Small numbers (Newest time).
+            var sortedClients = server.clients
+                .OrderByDescending(guy =>
+                {
+                    string h = GetHash(guy.name, guy.country, guy.instrument);
+                    double d = DurationHereInMins(server.ip + ":" + server.port, h);
+
+                    // If d is -1 (just spotted this second), treat it as 0 so they are grouped with new arrivals.
+                    return (d < 0) ? 0 : d;
+                })
+                .ThenBy(guy => guy.name) // Secondary sort: Alphabetical for people with same duration
+                .ToList();
+            // ---------------------
+
+            foreach (var guy in sortedClients) // Loop through our newly sorted list
             {
                 if (guy.name.ToLower().Contains("script"))
                 {
@@ -2593,6 +2609,7 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
                 }
 
                 // Build the HTML for this specific client
+                // (This method adds the "just-arrived" class to the people at the bottom of this list)
                 string clientHtml = BuildClientHtml(guy, server, musicianHash);
                 if (string.IsNullOrEmpty(clientHtml))
                 {
@@ -2609,62 +2626,50 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
         /// <summary>
         /// Builds the HTML snippet for a single client.
         /// </summary>
+        // Replace your existing BuildClientHtml method with this:
         private string BuildClientHtml(Client guy, JamulusServers server, string encodedHashOfGuy)
         {
+            // 1. Standard instrument cleanup
             string slimmerInstrument = (guy.instrument == "-") ? "" : guy.instrument;
-            if (slimmerInstrument.Length > 0)
-            {
-                slimmerInstrument = " " + slimmerInstrument;
-            }
+            if (slimmerInstrument.Length > 0) slimmerInstrument = " " + slimmerInstrument;
 
-            var nam = guy.name.Trim().Replace("  ", " ").Replace("  ", " ").Replace("  ", " ").Replace("<", "");
+            // 2. Standard name cleanup
+            var nam = guy.name.Trim().Replace("  ", " ").Replace("<", "");
+            if (nam.Length == 0 && (slimmerInstrument == "" || slimmerInstrument == " Streamer")) return null;
 
-            // Filter out nameless/streamer clients
-            if (nam.Length == 0 && (slimmerInstrument == "" || slimmerInstrument == " Streamer"))
-            {
-                return null;
-            }
-
-            // Determine font size
+            // 3. Determine font size
             string font = "<font size='+0'>";
-            if (server.clients.GetLength(0) > 11)
-            {
-                font = "<font size='-1'>";
-            }
+            if (server.clients.GetLength(0) > 11) font = "<font size='-1'>";
             else
             {
                 foreach (var longguy in server.clients)
-                {
-                    if (longguy.name.Length > 14 && slimmerInstrument.Length > 0)
-                    {
-                        font = "<font size='-1'>";
-                        break;
-                    }
-                }
+                    if (longguy.name.Length > 14 && slimmerInstrument.Length > 0) { font = "<font size='-1'>"; break; }
             }
 
-            string hash = guy.name + guy.country; // Used for JS toggle
+            // 4. --- THE NEW MAGIC --- 
+            // Calculate if they have been here less than 3 minutes
+            double minsHere = DurationHereInMins(server.ip + ":" + server.port, encodedHashOfGuy);
 
+            // If minsHere is >= 0 (found) and < 3.0, they get the class
+            string arrivalClass = (minsHere >= 0 && minsHere < 3.0) ? " just-arrived" : "";
+            // ------------------------
+
+            string hash = guy.name + guy.country;
+
+            // 5. Inject the class into the span
             var newpart = "<span class=\"musician " +
-                server.ip + " " + encodedHashOfGuy + "\"" +
+                server.ip + " " + encodedHashOfGuy + arrivalClass + "\"" + // <--- injected here
                 " id =\"" + hash + "\"" +
                 " onmouseover=\"this.style.cursor='pointer'\" onmouseout=\"this.style.cursor='default'\" onclick=\"toggle('" + hash + "')\";>" +
                 font +
                 "<b>" + nam + "</b>" +
                 "<i>" + slimmerInstrument + "</i></font></span>\n";
 
-            if (server.clients.GetLength(0) < 17)
-            {
-                newpart += "<br>";
-            }
-            else if (guy != server.clients[server.clients.GetLength(0) - 1])
-            {
-                newpart += " · ";
-            }
+            if (server.clients.GetLength(0) < 17) newpart += "<br>";
+            else if (guy != server.clients[server.clients.GetLength(0) - 1]) newpart += " · ";
 
             return newpart;
         }
-
 
         /// <summary>
         /// Efficiently checks if a client's ASN is on the block list.

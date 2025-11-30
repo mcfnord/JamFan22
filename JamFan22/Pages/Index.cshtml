@@ -7,6 +7,36 @@
 <meta http-equiv="refresh" content="@Html.Raw(@Model.RefreshDuration)">
 
 <style>
+
+    /* Add this to your <style> block */
+
+    /* Note the double @@ below */
+
+    @@keyframes friendPulse {
+        0% {
+            box-shadow: 0 0 5px #FFD700; /* Gold */
+            transform: scale(1);
+            z-index: 1;
+        }
+
+        50% {
+            box-shadow: 0 0 25px #FF4500; /* Orange-Red glow */
+            transform: scale(1.05); /* Slight pop out */
+            z-index: 10; /* Make sure it pops over neighbors */
+        }
+
+        100% {
+            box-shadow: 0 0 5px #FFD700;
+            transform: scale(1);
+            z-index: 1;
+        }
+    }
+
+    .friend-arrived {
+        animation: friendPulse 1.5s infinite ease-in-out !important;
+        font-weight: bold !important;
+    }
+
     .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -88,25 +118,29 @@
     }
 
     function subRefresh(collection, border, background) {
-        var divs = document.getElementsByTagName('span');
-        var l = divs.length;
-        people = getTrackedPeople(collection);
-        for (var i = 0; i < l; i++) {
-            var divId = divs[i].getAttribute("id");
-            if (people.includes(divId)) {
-                {
+            var divs = document.getElementsByTagName('span');
+            var l = divs.length;
+            people = getTrackedPeople(collection);
+
+            for (var i = 0; i < l; i++) {
+                var divId = divs[i].getAttribute("id");
+
+                if (people.includes(divId)) {
+                    // 1. Apply the standard Friend Highlight (Yellow/Green)
                     divs[i].style.border = border;
                     divs[i].style.background = background;
+
+                    // 2. CHECK: Is this friend ALSO a new arrival?
+                    // The C# code adds the class "just-arrived" to the HTML.
+                    // We check for that here.
+                    if (divs[i].classList.contains("just-arrived")) {
+                        divs[i].classList.add("friend-arrived");
+                    } else {
+                        divs[i].classList.remove("friend-arrived");
+                    }
                 }
             }
-            /*
-                        else {
-                            divs[i].style.border = "";
-                            divs[i].style.background = "";
-                        }
-                        */
         }
-    }
 
 
     function listRefresh(collection, border, background) {
