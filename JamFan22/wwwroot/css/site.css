@@ -25,3 +25,68 @@ hr {
 .container {
     max-width: 9999px;
 }
+
+/* ========================================= */
+/* SHARED ANIMATION (Hardware Accelerated)   */
+/* ========================================= */
+@keyframes gpuPulse {
+    0% {
+        opacity: 0;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(1);
+    }
+}
+
+/* ========================================= */
+/* 1. STRANGERS (New Arrivals) - GOLD        */
+/* ========================================= */
+.just-arrived {
+    position: relative;
+    z-index: 1;
+    font-weight: 500;
+}
+
+    .just-arrived::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: 1rem;
+        /* Gold Fill & Glow */
+        background-color: rgba(255, 215, 0, 0.25);
+        box-shadow: 0 0 15px #FFD700;
+        opacity: 0;
+        z-index: -1;
+        /* SLOWED DOWN TO 7s */
+        animation: gpuPulse 7s infinite ease-in-out;
+        will-change: opacity, transform;
+        pointer-events: none;
+    }
+
+/* ========================================= */
+/* 2. FRIENDS (Overrides Strangers) - RED    */
+/* ========================================= */
+.friend-arrived {
+    font-weight: bold !important;
+    border: 1px solid #FFD700 !important;
+}
+
+    .friend-arrived::after {
+        /* Red/Orange Fill & Glow */
+        /* This overrides the Gold settings above */
+        background-color: rgba(255, 69, 0, 0.15) !important;
+        box-shadow: 0 0 20px #FF4500 !important;
+        /* SLOWED DOWN TO 7s */
+        animation: gpuPulse 7s infinite ease-in-out !important;
+    }
