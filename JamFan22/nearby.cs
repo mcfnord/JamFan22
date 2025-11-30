@@ -24,6 +24,7 @@ namespace JamFan22
         private static CacheItem<List<PredictedRecord>> _predictedUsersCache;
         private static CacheItem<MusicianDataCache> _musicianDataCache;
         private static CacheItem<Dictionary<string, string>> _guidCensusCache;
+        private static CacheItem<Dictionary<string, string>> _tooltipCache; // NEW: Tooltips
         private static readonly object _cacheLock = new object();
         
         // --- 24-Hour Blocklist Fields ---
@@ -33,6 +34,11 @@ namespace JamFan22
         // --- Promotion Hack Field ---
         private static readonly ConcurrentDictionary<string, string> _promotedGuidMap = new ConcurrentDictionary<string, string>();
         
+        // --- Prediction Diagnostics (NEW) ---
+        // These persist as long as the application runs to keep a tally
+        private static readonly ConcurrentDictionary<string, byte> _allTimePredictedGuids = new ConcurrentDictionary<string, byte>();
+        private static readonly ConcurrentDictionary<string, byte> _allTimeArrivedGuids = new ConcurrentDictionary<string, byte>();
+
         // --- IP API Throttle Fields ---
         private static DateTime _lastIpApiCall = DateTime.MinValue;
         private static TimeSpan _ipApiDelay = TimeSpan.FromSeconds(1);
@@ -150,20 +156,45 @@ namespace JamFan22
             var accruedTimeMap = await GetAccruedTimeMap(); 
             var predictedUsers = GetPredictedUsers();
 
+            // --- NEW: DIAGNOSTIC TALLY ---
+            // Tracks % of predicted users who actually showed up
+            if (predictedUsers.Any())
+            {
+                foreach (var prediction in predictedUsers)
+                {
+                    // 1. Register that this person was predicted (if not already counted)
+                    _allTimePredictedGuids.TryAdd(prediction.Guid, 1);
+
+                    // 2. Check if they are currently live
+                    if (rawLiveGuids.Contains(prediction.Guid))
+                    {
+                        // 3. Register that they arrived
+                        _allTimeArrivedGuids.TryAdd(prediction.Guid, 1);
+                    }
+                }
+
+                int totalPredicted = _allTimePredictedGuids.Count;
+                int totalArrived = _allTimeArrivedGuids.Count;
+                double percentage = totalPredicted > 0 
+                    ? (double)totalArrived / totalPredicted * 100.0 
+                    : 0.0;
+
+                Console.WriteLine($"[PREDICTION DIAGNOSTIC] Arrived: {totalArrived} / Predicted: {totalPredicted} ({percentage:F1}%)");
+            }
+            // -----------------------------
+
             // Get stats map early for logging names
             var fullStatsMap = GetMusicianDataFromCsv().FullStatsMap;
             var censusNameMap = await GetGuidCensusMapAsync();
 
-            // --- NEW: 1. CLEANUP ---
-            // Clean up promotions for users who have left
+            // --- CLEANUP: Clean up promotions for users who have left ---
             var usersWhoLeft = _promotedGuidMap.Keys.Except(rawLiveGuids).ToList();
             foreach (var leftGuid in usersWhoLeft)
             {
                 _promotedGuidMap.TryRemove(leftGuid, out _);
             }
-            // -------------------------
 
-            // --- NEW 24-HOUR BLOCKLIST LOGIC (No Grace Period) ---
+            // --- 24-HOUR BLOCKLIST LOGIC (No Grace Period) ---
             var now = DateTime.UtcNow;
 
             // 1. Update first-seen timestamps and check for 24-hour violations
@@ -171,32 +202,30 @@ namespace JamFan22
             {
                 if (_sessionBlocklist.ContainsKey(guid))
                 {
-                    string name = "Unknown"; // Default
+                    string name = "Unknown"; 
                     if (fullStatsMap.TryGetValue(guid, out var stats) && stats?.MostRecentRecord != null && !string.IsNullOrWhiteSpace(stats.MostRecentRecord.Name))
                     {
-                        name = stats.MostRecentRecord.Name; // 1st choice: Most recent name from join-events
+                        name = stats.MostRecentRecord.Name; 
                     }
                     else if (censusNameMap.TryGetValue(guid, out var censusName))
                     {
-                        name = censusName; // 2nd choice: Master name from censusgeo
+                        name = censusName; 
                     }
 
                     string userInfo = $"{guid} ({name})";
                     Console.WriteLine($"{userInfo,-60} is PERMANENTLY HIDDEN (live > 24h).");
-                    continue; // Already blocklisted, nothing to do.
+                    continue; 
                 }
 
-                // If this is the first time we've seen them in this session, add them.
                 _liveUserFirstSeen.TryAdd(guid, now);
                 
-                // Check if their first-seen time is older than 24 hours
                 if (_liveUserFirstSeen.TryGetValue(guid, out var firstSeenTime))
                 {
                     if (now - firstSeenTime > TimeSpan.FromHours(24))
                     {
                         Console.WriteLine($"{guid} has been live for over 24 hours. Adding to session blocklist.");
                         _sessionBlocklist.TryAdd(guid, 1);
-                        _liveUserFirstSeen.TryRemove(guid, out _); // Remove from tracking
+                        _liveUserFirstSeen.TryRemove(guid, out _); 
                     }
                 }
             }
@@ -205,18 +234,17 @@ namespace JamFan22
             var usersWhoLoggedOff = _liveUserFirstSeen.Keys.Except(rawLiveGuids).ToList();
             foreach (var guid in usersWhoLoggedOff)
             {
-                _liveUserFirstSeen.TryRemove(guid, out _); // Reset their 24h timer
+                _liveUserFirstSeen.TryRemove(guid, out _); 
             }
 
-            // 3. Create the *filtered* liveGuids list, excluding blocklisted users
+            // 3. Create the *filtered* liveGuids list
             var liveGuids = rawLiveGuids.Where(g => !_sessionBlocklist.ContainsKey(g)).ToHashSet();
-            // --- END NEW LOGIC ---
 
 
             // Get users seen in the last 60 minutes.
             var recentGuids = lastSeenMap.Where(kvp => kvp.Value > DateTime.UtcNow.AddMinutes(-60))
                 .Select(kvp => kvp.Key)
-                .Where(g => !_sessionBlocklist.ContainsKey(g)) // Filter here
+                .Where(g => !_sessionBlocklist.ContainsKey(g)) 
                 .ToHashSet();
             
             const double minLiveTime = 10.0;
@@ -232,21 +260,18 @@ namespace JamFan22
                 .Where(g => accruedTimeMap.GetValueOrDefault(g, 0) >= minRecentTime)
                 .ToHashSet();
             
-            // The final list of GUIDs to show (before predictions) is the union of these two filtered lists.
             var finalGuids = eligibleLiveGuids.Union(eligibleRecentGuids).ToHashSet();
             
-            // --- NEW: 2. INJECT ---
-            // Force the system to load the old, trusted GUIDs for any live, promoted users
+            // --- INJECT: Force load old trusted GUIDs for promoted users ---
             foreach (var oldTrustedGuid in _promotedGuidMap.Values)
             {
                 finalGuids.Add(oldTrustedGuid);
             }
-            // ------------------------
 
             // Filter predictions against the blocklist too.
             var finalPredictedUsers = predictedUsers
                 .Where(p => !finalGuids.Contains(p.Guid))
-                .Where(p => !_sessionBlocklist.ContainsKey(p.Guid)) // Filter here
+                .Where(p => !_sessionBlocklist.ContainsKey(p.Guid)) 
                 .ToList();
 
             var predictedGuids = finalPredictedUsers.Select(p => p.Guid).ToHashSet();
@@ -255,14 +280,13 @@ namespace JamFan22
             if (!combinedGuidsForLookup.Any())
                 return "<table><tr><td>No musicians found matching all criteria.</td></tr></table>";
 
-            // This now gets all data from cache and filters it fast
+            // Get Data
             var musicianRecords = GetMusicianRecords(combinedGuidsForLookup, userLat, userLon);
             
             var predictedUserDataMap = finalPredictedUsers.ToDictionary(p => p.Guid);
 
             var completedMusicianRecords = new List<MusicianRecord>();
             
-            // --- This is the ORIGINAL loop that fetches IP data for trusted users ---
             foreach (var record in musicianRecords)
             {
                 record.Location = await GetIpDetailsAsync(record.IpAddress);
@@ -272,7 +296,7 @@ namespace JamFan22
                 {
                     record.IsPredicted = true;
                     record.PredictedArrivalTime = predictedData.PredictedArrivalTime;
-                    record.PredictedServer = predictedData.Server; // MAP THE SERVER INFO
+                    record.PredictedServer = predictedData.Server; 
                 }
                 else
                 {
@@ -282,8 +306,7 @@ namespace JamFan22
                 completedMusicianRecords.Add(record);
             }
 
-            // --- NEW "GHOST PROMOTION" HACK (Stateful) ---
-            // Build a map of ALL live users (even untrusted ones) from their historical data
+            // --- "GHOST PROMOTION" HACK ---
             var liveUserRecords = new Dictionary<string, MusicianRecord>();
             foreach (var liveGuid in rawLiveGuids) 
             {
@@ -293,30 +316,25 @@ namespace JamFan22
                 }
             }
 
-            // We create a new list for the final output
             var finalProcessedRecords = new List<MusicianRecord>(); 
             
             foreach (var record in completedMusicianRecords)
             {
                 bool isLive = rawLiveGuids.Contains(record.Guid);
                 
-                // Skip if it's already live or predicted
                 if (record.IsPredicted || isLive)
                 {
                     finalProcessedRecords.Add(record);
                     continue; 
                 }
 
-                // --- We have a gray record. See if it's a "ghost" ---
+                // Gray record check
                 bool wasRevived = false;
                 foreach (var liveUser in liveUserRecords.Values)
                 {
-                    // Check for Name + UserCity match
                     bool isNameMatch = liveUser.Name == record.Name;
                     bool isCityMatch = liveUser.UserCity == record.UserCity;
 
-                    // --- MODIFIED: VALIDATION ---
-                    // A match is only valid if the name and city are *not* empty or default placeholders.
                     bool hasValidName = isNameMatch && 
                                         !string.IsNullOrWhiteSpace(liveUser.Name) && 
                                         liveUser.Name.Trim() != "No Name" &&
@@ -325,46 +343,33 @@ namespace JamFan22
                     bool hasValidCity = isCityMatch && 
                                         !string.IsNullOrWhiteSpace(liveUser.UserCity) && 
                                         liveUser.UserCity.Trim() != "-";
-                    // --- END MODIFICATION ---
 
                     if (hasValidName && hasValidCity)
                     {
-                        // Found a live user with the same name AND city.
                         Console.WriteLine($"HACK: Reviving gray {record.Name} ({record.Guid}) via City match to live user {liveUser.Guid}.");
-                        
-                        // --- NEW: 3. SAVE ---
-                        // Save this promotion for future runs
                         _promotedGuidMap.TryAdd(liveUser.Guid, record.Guid);
-                        // --------------------
                         
-                        // Mutate the 'record' to become the 'liveUser'
-                        record.Instrument = liveUser.Instrument; // Overwrite instrument
-                        record.Guid = liveUser.Guid; // This is the key: makes BuildMusicianRowHtml see it as "live"
+                        record.Instrument = liveUser.Instrument; 
+                        record.Guid = liveUser.Guid; 
                         
                         wasRevived = true;
-                        finalProcessedRecords.Add(record); // Add the *revived* record
-                        break; // Stop searching for live matches
+                        finalProcessedRecords.Add(record); 
+                        break; 
                     }
-                } // end inner loop (live users)
+                } 
 
                 if (!wasRevived)
                 {
-                    // This was a "real" gray record, not a ghost. 
-                    
-                    // --- NEW CHECK: Filter "No Name" from gray lists ---
-                    // If they are offline (Gray) and their name is "No Name", skip them.
                     if (string.Equals(record.Name?.Trim(), "No Name", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
-                    // ---------------------------------------------------
-
                     finalProcessedRecords.Add(record);
                 }
             }
             // --- END OF HACK ---
 
-            // We pass the new, "hacked" list, the original 'rawLiveGuids', and the 'first seen' map
+            // Pass the tooltip map here implicitly via GetTooltipMap() inside BuildHtmlTable/Row
             return BuildHtmlTable(finalProcessedRecords, rawLiveGuids, _liveUserFirstSeen);
         }
 
@@ -375,17 +380,52 @@ namespace JamFan22
             if (totalMinutes <= 15) return "soon";
             if (totalMinutes <= 40) return "in ½ hour";
             if (totalMinutes <= 75) return "in 1 hour";
-            if (totalMinutes <= 135) return "in 2 hours"; // Matches up to 2h 15m
-            return "in 2+ hours"; // Matches anything longer than 2h 15m
+            if (totalMinutes <= 135) return "in 2 hours"; 
+            return "in 2+ hours"; 
         }
 
-        private string BuildMusicianRowHtml(MusicianRecord record, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap)
+        // --- NEW: TOOLTIP LOADER ---
+        private Dictionary<string, string> GetTooltipMap()
+        {
+            // Check Cache
+            if (_tooltipCache != null && !_tooltipCache.IsExpired) return _tooltipCache.Data;
+
+            var map = new Dictionary<string, string>();
+            string path = "tooltips.json"; // This must match Python output
+
+            if (File.Exists(path))
+            {
+                try
+                {
+                    // Use a file stream with sharing to prevent locking issues if Python is writing
+                    using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var sr = new StreamReader(fs, Encoding.UTF8))
+                    {
+                        string json = sr.ReadToEnd();
+                        map = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                    }
+                }
+                catch (Exception ex)
+                { 
+                    Console.WriteLine($"[GetTooltipMap] Error reading tooltips.json: {ex.Message}");
+                }
+            }
+
+            // Cache for 1 minute (high churn allowed)
+            lock (_cacheLock) 
+            { 
+                _tooltipCache = new CacheItem<Dictionary<string, string>>(map, TimeSpan.FromMinutes(1)); 
+            }
+            return map;
+        }
+
+        private string BuildMusicianRowHtml(MusicianRecord record, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap, Dictionary<string, string> tooltips)
         {
             bool isLive = liveGuids.Contains(record.Guid);
             
             if (isLive)
             {
-                record.IsPredicted = false; // Cannot be predicted if already live
+                record.IsPredicted = false; 
             }
 
             var sb = new StringBuilder();
@@ -408,25 +448,18 @@ namespace JamFan22
                     timeDisplay += $"{duration.Minutes}m</span>";
                 }
             }
-            // -----------------------------
             
             if (record.IsPredicted)
             {
                 bulbClass = "orange";
-                // Get base time string (e.g. "in 2 hours", "soon", "DUE")
-                // NOTE: This is now PLAIN TEXT (User City font), NOT wrapped in sub-line
                 string timeStr = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
                 
-                // Check for Server Name
                 if (!string.IsNullOrWhiteSpace(record.PredictedServer))
                 {
-                    // "in 2 hours @" or "soon @"
-                    // Server name on next line, styled like Region (sub-line)
                     locationDisplay = $"{timeStr} @<br/><span class='sub-line'>{record.PredictedServer}</span>";
                 }
                 else
                 {
-                    // Just "in 2 hours" or "soon"
                     locationDisplay = timeStr;
                 }
             }
@@ -445,19 +478,27 @@ namespace JamFan22
                     locationDisplay = regionHtml;
             }
 
-            // --- NEW HTML STRUCTURE ---
-            // 1. Build the instrument part with the new class
+            // --- HTML STRUCTURE ---
             string instrumentHtml = !string.IsNullOrWhiteSpace(record.Instrument) && record.Instrument.Trim() != "-"
                 ? $"<span class='sub-line-instrument'>{record.Instrument}</span>"
-                : "<span></span>"; // Add empty span to ensure flex alignment works
+                : "<span></span>"; 
 
-            // 2. Combine instrument and time in the new container
             string sublineContainer = $"<div class='sub-line-container'>{instrumentHtml}{timeDisplay}</div>";
 
-            // 3. Build the final HTML
+            // --- NEW: APPLY TOOLTIP ---
+            string tooltipAttr = "";
+            // We verify the GUID exists in our loaded tooltips map
+            if (tooltips != null && tooltips.TryGetValue(record.Guid, out string tip))
+            {
+                // HtmlEncode handles special characters, but newlines must be preserved for title attribute.
+                // WebUtility.HtmlEncode escapes <, >, &, ", etc. It does NOT escape \n.
+                string safeTip = WebUtility.HtmlEncode(tip);
+                tooltipAttr = $" title=\"{safeTip}\"";
+            }
+            // ------------------------
+
             sb.AppendLine($"        <tr{rowClass}>");
-            // --- MODIFICATION: Added class='musician-info' ---
-            sb.AppendLine($"          <td class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div class='musician-info'>{record.Name}{sublineContainer}</div></div></td>");
+            sb.AppendLine($"          <td class='col-musician'><div class='musician-cell-content'{tooltipAttr}><span class='bulb {bulbClass}'></span><div class='musician-info'>{record.Name}{sublineContainer}</div></div></td>");
             sb.AppendLine($"          <td class='col-location'>{locationDisplay}</td>");
             sb.AppendLine("        </tr>");
             
@@ -466,6 +507,10 @@ namespace JamFan22
         
         private string BuildHtmlTable(IEnumerable<MusicianRecord> records, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap)
         {
+            // --- NEW: Fetch Tooltips Once ---
+            var tooltips = GetTooltipMap();
+            // -------------------------------
+
             var sb = new StringBuilder();
             sb.AppendLine("<style>");
             sb.AppendLine("  table, th, td { border: 1px solid #ccc; border-collapse: collapse; table-layout: fixed; }");
@@ -478,16 +523,11 @@ namespace JamFan22
             sb.AppendLine("  summary { cursor: pointer; color: #007bff; padding: 8px; }");
             sb.AppendLine("  .col-musician { width: 55%; }");
             sb.AppendLine("  .col-location { width: 45%; }");
-            
-            // --- UPDATED CSS for sub-lines ---
-            sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }"); // For location
+            sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }"); 
             sb.AppendLine("  .sub-line-container { display: flex; justify-content: space-between; align-items: baseline; }");
             sb.AppendLine("  .sub-line-instrument { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }");
             sb.AppendLine("  .sub-line-time { font-size: 0.8em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #777; font-style: italic; margin-left: 4px; }");
-            // ---------------------------------
-
             sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; }");
-            // --- ADDED a class to make the info block fill the cell ---
             sb.AppendLine("  .musician-info { flex-grow: 1; }");
             sb.AppendLine("  .distant-row { display: none; }");
             sb.AppendLine("  .show-more-cell { cursor: pointer; color: #007bff; text-align: center; padding: 8px !important; }");
@@ -522,33 +562,27 @@ namespace JamFan22
             }
 
             foreach (var record in nearbyRecords)
-                sb.Append(BuildMusicianRowHtml(record, liveGuids, firstSeenMap));
+                sb.Append(BuildMusicianRowHtml(record, liveGuids, firstSeenMap, tooltips));
             
-            // PASTE OVER the existing "if (distantRecords.Any())" block with this:
             if (distantRecords.Any())
             {
-                // 1. Add the "Show more" row
                 sb.AppendLine("  <tr id='show-more-row' onclick='ShowDistantRows()'>");
                 sb.AppendLine($"    <td colspan='2' class='show-more-cell'>{distantRecords.Count} more</td>");
                 sb.AppendLine("  </tr>");
 
-                // 2. Add the hidden distant rows
                 foreach (var record in distantRecords)
                 {
-                    string rowHtml = BuildMusicianRowHtml(record, liveGuids, firstSeenMap);
+                    string rowHtml = BuildMusicianRowHtml(record, liveGuids, firstSeenMap, tooltips);
                     
-                    // Inject the 'distant-row' class into the <tr> tag
                     string modifiedRowHtml;
                     string rowClass = (record.IsPredicted || liveGuids.Contains(record.Guid)) ? "" : " class='not-here'";
 
                     if (string.IsNullOrEmpty(rowClass))
                     {
-                        // The original <tr> tag was just "<tr>"
                         modifiedRowHtml = rowHtml.Replace("<tr>", "<tr class='distant-row'>");
                     }
                     else
                     {
-                        // The original <tr> tag was "<tr class='not-here'>"
                         modifiedRowHtml = rowHtml.Replace("class='not-here'", "class='not-here distant-row'");
                     }
                     
@@ -564,7 +598,7 @@ namespace JamFan22
                 sb.AppendLine("    var distantRows = document.getElementsByClassName('distant-row');");
                 sb.AppendLine("    for (var i = distantRows.length - 1; i >= 0; i--) {");
                 sb.AppendLine("      distantRows[i].style.display = 'table-row';");
-                sb.AppendLine("      distantRows[i].classList.remove('distant-row');"); // Make it permanent
+                sb.AppendLine("      distantRows[i].classList.remove('distant-row');"); 
                 sb.AppendLine("    }");
                 sb.AppendLine("    var showMoreRow = document.getElementById('show-more-row');");
                 sb.AppendLine("    if (showMoreRow) {");
@@ -607,10 +641,8 @@ namespace JamFan22
         {
             if (string.IsNullOrWhiteSpace(userCity)) return userCity;
             
-            string cleanedCity = userCity.Trim(); // Ensure we trim first
+            string cleanedCity = userCity.Trim(); 
             
-            // NEW RULE: If the city name is EXACTLY a state/province abbreviation (e.g. "Nj", "TX"), ignore it.
-            // This prevents "Nj, New Jersey" by effectively removing the "Nj" city part.
             if (UsStateAbbreviations.Contains(cleanedCity) || CanadianProvinceAbbreviations.Contains(cleanedCity))
             {
                 return "";
@@ -667,16 +699,14 @@ namespace JamFan22
 
         private MusicianDataCache GetMusicianDataFromCsv()
         {
-            // --- CACHE CHECK ---
             if (_musicianDataCache != null && !_musicianDataCache.IsExpired)
             {
                 return _musicianDataCache.Data;
             }
-            // -----------------
             
             var allGoldenGuids = new HashSet<string>();
             var fullStatsMap = new Dictionary<string, UserStats>();
-            const int cacheDurationSeconds = 30; // Cache for 30 seconds
+            const int cacheDurationSeconds = 30; 
 
             try
             {
@@ -688,14 +718,12 @@ namespace JamFan22
 
                     var guid = fields[2].Trim();
                     
-                    // Check fields[12] (13th column), not fields[13]
                     bool isGolden = fields.Length > 12 && fields[12].Trim() != "0";
                     if (isGolden)
                     {
                         allGoldenGuids.Add(guid);
                     }
 
-                    // Get or create stats for *every* GUID in the file
                     if (!fullStatsMap.TryGetValue(guid, out UserStats stats))
                     {
                         stats = new UserStats();
@@ -738,14 +766,12 @@ namespace JamFan22
 
             var cacheData = new MusicianDataCache { AllGoldenGuids = allGoldenGuids, FullStatsMap = fullStatsMap };
             
-            // --- CACHE UPDATE ---
             lock (_cacheLock) { _musicianDataCache = new CacheItem<MusicianDataCache>(cacheData, TimeSpan.FromSeconds(cacheDurationSeconds)); }
             return cacheData;
         }
 
         private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
         {
-            // Get all stats from the cache
             var cachedData = GetMusicianDataFromCsv();
             var allGoldenGuids = cachedData.AllGoldenGuids;
             var fullStatsMap = cachedData.FullStatsMap;
@@ -753,9 +779,6 @@ namespace JamFan22
             var finalRecords = new List<MusicianRecord>();
             foreach (var guid in guidsToFind)
             {
-                // Get the pre-computed stats for this specific GUID
-                // This check ALSO handles your "must have lat/lon" rule,
-                // because MostRecentRecord will be null if they never had a valid lat/lon entry.
                 if (!fullStatsMap.TryGetValue(guid, out var stats) || stats.MostRecentRecord == null)
                 {
                     continue;
@@ -766,23 +789,17 @@ namespace JamFan22
 
                 if (!hasGoldenMatchEver)
                 {
-                    // Create a left-aligned, padded string for the user info
                     string userInfo = $"{guid} ({stats.MostRecentRecord.Name})";
 
-                    // --- THIS IS THE MODIFIED LOGIC ---
-                    // We no longer check the ratio. We ONLY check if the total entry count is > 1.
                     if (stats.TotalEntries > 1)
                     {
                         passesInferredIpTest = true;
-                        // PASSED: Met the new criteria
                         Console.WriteLine($"{userInfo,-60} PASSED. No 'golden match'. (Entries: {stats.TotalEntries} > 1)");
                     }
                     else
                     {
-                        // FAILED: Failed on new entry count rule
                         Console.WriteLine($"{userInfo,-60} FAILED. No 'golden match'. (Entries: {stats.TotalEntries} <= 1)");
                     }
-                    // --- END OF MODIFIED LOGIC ---
                 }
 
                 if (hasGoldenMatchEver || passesInferredIpTest)
@@ -803,10 +820,6 @@ namespace JamFan22
             
         private async Task<HashSet<string>> GetLiveGuidsFromApiAsync()
         {
-            // Note: This data comes from 'JamFan22.Pages.IndexModel.LastReportedList'
-            // which is assumed to be its own in-memory cache managed by another part
-            // of the application. No additional file I/O caching is added here.
-            
             var liveGuids = new HashSet<string>();
             foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
             {
@@ -844,16 +857,14 @@ namespace JamFan22
 
         private List<PredictedRecord> GetPredictedUsers()
         {
-            // --- CACHE CHECK ---
             if (_predictedUsersCache != null && !_predictedUsersCache.IsExpired)
             {
                 return _predictedUsersCache.Data;
             }
-            // -----------------
 
             var predictedUsers = new List<PredictedRecord>();
             const string fileName = "predicted.csv";
-            const int cacheDurationSeconds = 30; // Cache for 30 seconds
+            const int cacheDurationSeconds = 30; 
 
             if (!File.Exists(fileName))
             {
@@ -871,7 +882,6 @@ namespace JamFan22
                 var lines = File.ReadAllLines(fileName);
                 foreach (var line in lines)
                 {
-                    // MODIFIED: Changed Split logic to allow for the 4th column
                     var fields = line.Split(','); 
                     if (fields.Length < 3) continue;
 
@@ -880,7 +890,6 @@ namespace JamFan22
                         var arrivalTime = epoch.AddMinutes(minutesSinceEpoch);
                         if (arrivalTime > tenMinutesAgo && arrivalTime <= threeHoursFromNow)
                         {
-                            // MODIFIED: Parse the Server Name if it exists (index 3)
                             string serverName = "";
                             if (fields.Length > 3)
                             {
@@ -892,7 +901,7 @@ namespace JamFan22
                                 PredictedArrivalTime = arrivalTime,
                                 Guid = fields[1].Trim(),
                                 Name = WebUtility.UrlDecode(fields[2].Trim()),
-                                Server = serverName // Store server info
+                                Server = serverName 
                             });
                         }
                     }
@@ -910,16 +919,14 @@ namespace JamFan22
 
         private async Task<Dictionary<string, DateTime>> GetLastSeenMap()
         {
-            // --- CACHE CHECK ---
             if (_lastSeenMapCache != null && !_lastSeenMapCache.IsExpired)
             {
                 return _lastSeenMapCache.Data;
             }
-            // -----------------
 
             var lastSeenMap = new Dictionary<string, DateTime>();
             const string fileName = "timeTogetherLastUpdates.json";
-            const int cacheDurationSeconds = 30; // Cache for 30 seconds
+            const int cacheDurationSeconds = 30; 
             
             int maxRetries = 2; 
             int delayMs = 250; 
@@ -968,28 +975,26 @@ namespace JamFan22
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-                    lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+                    lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
                     return lastSeenMap;
                 }
             }
 
             Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR: All {maxRetries} retry attempts failed for {fileName}.");
-            lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+            lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
             return lastSeenMap;
         }
 
         private async Task<Dictionary<string, double>> GetAccruedTimeMap()
         {
-            // --- CACHE CHECK ---
             if (_accruedTimeCache != null && !_accruedTimeCache.IsExpired)
             {
                 return _accruedTimeCache.Data;
             }
-            // -----------------
 
             var accruedTime = new Dictionary<string, double>();
             const string fileName = "timeTogether.json";
-            const int cacheDurationSeconds = 30; // Cache for 30 seconds
+            const int cacheDurationSeconds = 30; 
 
             int maxRetries = 2;
             int delayMs = 250;
@@ -1011,13 +1016,11 @@ namespace JamFan22
                     {
                         if (record.Key.Length != 64) continue;
                         
-                        // The value is a TimeSpan string (e.g., "161.17:25:18.7955569"), not a simple double.
                         if (TimeSpan.TryParse(record.Value, CultureInfo.InvariantCulture, out TimeSpan duration))
                         {
                             string guidA = record.Key.Substring(0, 32);
                             string guidB = record.Key.Substring(32, 32);
                             
-                            // Use the TotalMinutes from the parsed TimeSpan
                             double minutes = duration.TotalMinutes;
                             
                             accruedTime[guidA] = accruedTime.GetValueOrDefault(guidA, 0) + minutes;
@@ -1031,7 +1034,7 @@ namespace JamFan22
                     
                     lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); }
                     Console.WriteLine($"[GetAccruedTimeMap] Successfully loaded {accruedTime.Count} unique GUIDs from {fileName}.");
-                    return accruedTime; // Success!
+                    return accruedTime; 
                 }
                 catch (JsonException ex)
                 {
@@ -1046,29 +1049,25 @@ namespace JamFan22
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[GetAccruedTimeMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-                    lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
-                    return accruedTime; // Fail fast
+                    lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
+                    return accruedTime; 
                 }
             }
             
             Console.WriteLine($"[GetAccruedTimeMap] CRITICAL ERROR: All {maxRetries} retry attempts failed for {fileName}.");
-            lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } // Cache failure
+            lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
             return accruedTime;
         }
 
-        // --- NEW METHOD: GetGuidCensusMapAsync ---
         private async Task<Dictionary<string, string>> GetGuidCensusMapAsync()
         {
-            // --- CACHE CHECK ---
             if (_guidCensusCache != null && !_guidCensusCache.IsExpired)
             {
                 return _guidCensusCache.Data;
             }
-            // -----------------
 
             var censusMap = new Dictionary<string, string>();
             const string fileName = "data/censusgeo.csv";
-            // This file is more static, so we can cache it for longer than the live data files.
             const int cacheDurationMinutes = 5; 
 
             int maxRetries = 2; 
@@ -1081,14 +1080,13 @@ namespace JamFan22
                     if (!File.Exists(fileName))
                     {
                         Console.WriteLine($"[GetGuidCensusMapAsync] Warning: File not found: {fileName}");
-                        break; // Don't retry if the file doesn't exist
+                        break; 
                     }
 
                     var lines = File.ReadAllLines(fileName);
                     foreach (var line in lines)
                     {
                         var fields = line.Split(',');
-                        // Expects: GUID,Name,Instrument,City,Country
                         if (fields.Length >= 2) 
                         {
                             string guid = fields[0].Trim();
@@ -1103,7 +1101,7 @@ namespace JamFan22
                     
                     Console.WriteLine($"[GetGuidCensusMapAsync] Successfully loaded {censusMap.Count} unique GUIDs from {fileName}.");
                     lock (_cacheLock) { _guidCensusCache = new CacheItem<Dictionary<string, string>>(censusMap, TimeSpan.FromMinutes(cacheDurationMinutes)); }
-                    return censusMap; // Success
+                    return censusMap; 
                 }
                 catch (IOException ex)
                 {
@@ -1113,16 +1111,14 @@ namespace JamFan22
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[GetGuidCensusMapAsync] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-                    break; // Don't retry on unexpected errors
+                    break; 
                 }
             }
 
-            // Cache failure
             Console.WriteLine($"[GetGuidCensusMapAsync] CRITICAL ERROR: All retry attempts failed for {fileName}. Caching empty map.");
             lock (_cacheLock) { _guidCensusCache = new CacheItem<Dictionary<string, string>>(censusMap, TimeSpan.FromMinutes(cacheDurationMinutes)); } 
             return censusMap;
         }
-        // --- END NEW METHOD ---
 
         private async Task<IpApiDetails> GetIpDetailsAsync(string ip)
         {
@@ -1133,16 +1129,16 @@ namespace JamFan22
                 return cachedItem.Data;
             }
 
-            // --- New Throttle Logic ---
+            // --- Throttle Logic ---
             lock (_ipApiLock)
             {
                 var now = DateTime.UtcNow;
                 if (now - _lastIpApiCall < _ipApiDelay)
                 {
                     Console.WriteLine($"[GetIpDetailsAsync] THROTTLED: Call for {ipAddress} blocked. Next call allowed after {_ipApiDelay.TotalSeconds:F0}s.");
-                    return new IpApiDetails { status = "throttled" }; // Return a custom "failed" status
+                    return new IpApiDetails { status = "throttled" }; 
                 }
-                _lastIpApiCall = now; // Mark this thread as the one making the call
+                _lastIpApiCall = now; 
             }
             // --- End Lock ---
 
@@ -1157,16 +1153,15 @@ namespace JamFan22
                 if (details?.status == "success")
                 {
                     Console.WriteLine($"[GetIpDetailsAsync] API SUCCESS for {ipAddress} ({stopwatch.ElapsedMilliseconds}ms): City={details.city}, Lat={details.lat}, Lon={details.lon}");
-                    _ipApiDelay = TimeSpan.FromSeconds(1); // Reset backoff on success
+                    _ipApiDelay = TimeSpan.FromSeconds(1); 
                     IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
                     return details;
                 }
                 else
                 {
-                    // API returned "fail", "invalid query", etc.
                     var newDelay = _ipApiDelay.TotalSeconds * 2;
                     Console.WriteLine($"[GetIpDetailsAsync] API FAILED for {ipAddress} ({stopwatch.ElapsedMilliseconds}ms): {details?.status}. Doubling delay to {newDelay}s.");
-                    _ipApiDelay *= 2; // Double the delay
+                    _ipApiDelay *= 2; 
                 }
             }
             catch (HttpRequestException ex)
@@ -1184,7 +1179,7 @@ namespace JamFan22
                 _ipApiDelay *= 2;
             }
 
-            return new IpApiDetails { status = "fail" }; // Return a generic failed status
+            return new IpApiDetails { status = "fail" }; 
         }
 
         private static string GetGuid(string name, string country, string instrument)
@@ -1197,7 +1192,7 @@ namespace JamFan22
 
         private static double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
         {
-            const double R = 6371; // Earth's mean radius in kilometers
+            const double R = 6371; 
             var dLat = ToRadians(lat2 - lat1);
             var dLon = ToRadians(lon2 - lon1);
             var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
