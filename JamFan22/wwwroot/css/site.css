@@ -1,20 +1,20 @@
 html {
-  font-size: 14px;
+    font-size: 14px;
 }
 
 @media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
+    html {
+        font-size: 16px;
+    }
 }
 
 html {
-  position: relative;
-  min-height: 100%;
+    position: relative;
+    min-height: 100%;
 }
 
 body {
-  margin-bottom: 60px;
+    margin-bottom: 60px;
 }
 
 hr {
@@ -63,12 +63,11 @@ hr {
         right: 0;
         bottom: 0;
         border-radius: 1rem;
-        /* Gold Fill & Glow */
-        background-color: rgba(255, 215, 0, 0.25);
-        box-shadow: 0 0 15px #FFD700;
+        /* ELECTRIC BLUE FILL & GLOW */
+        background-color: rgba(0, 191, 255, 0.15);
+        box-shadow: 0 0 15px #00BFFF;
         opacity: 0;
         z-index: -1;
-        /* SLOWED DOWN TO 7s */
         animation: gpuPulse 7s infinite ease-in-out;
         will-change: opacity, transform;
         pointer-events: none;
@@ -89,4 +88,34 @@ hr {
         box-shadow: 0 0 20px #FF4500 !important;
         /* SLOWED DOWN TO 7s */
         animation: gpuPulse 7s infinite ease-in-out !important;
+    }
+
+
+/* ========================================= */
+/* 3. HOTTIES - SIMPLE PINK PULSE            */
+/* ========================================= */
+.hottie-arrived {
+    font-weight: bold !important;
+    border: 1px solid #FF1493 !important; /* Deep Pink Border */
+    position: relative;
+    z-index: 1;
+}
+
+    .hottie-arrived::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: 1rem;
+        /* Simple Pink Tint & Glow */
+        background-color: rgba(255, 105, 180, 0.15);
+        box-shadow: 0 0 15px #FF1493;
+        opacity: 0;
+        z-index: -1;
+        /* Matches the 7s speed of everyone else */
+        animation: gpuPulse 7s infinite ease-in-out;
+        will-change: opacity, transform;
+        pointer-events: none;
     }

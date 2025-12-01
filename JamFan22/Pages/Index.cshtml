@@ -793,47 +793,28 @@
     showFlagsForNonWindows();
 
     var loginHash = getCurrentUserHash();
-    if (null != loginHash) {
-        fetch('/hotties/' + encodeURIComponent(loginHash))
-            .then(res => res.json())
-            .then((data) => {
-                //console.log(data);
-                for (i = 0; i < data.length; i++)
-                {
-                    var peeps = document.getElementsByClassName(data[i]);
-                    if(peeps.length > 0)
-                    if(false == peeps[0].style.border.includes("solid"))
-                    if(false == peeps[0].style.border.includes("dashed"))
-                    if('1' !==  peeps[0].parentElement.style.gridRowStart)
-                    {
-                        /*
-                        var reddism = 255 - i*2;
-                        if(reddism < 16)
-                            reddism = 16 ;
+        if (null != loginHash) {
+            fetch('/hotties/' + encodeURIComponent(loginHash))
+                .then(res => res.json())
+                .then((data) => {
+                    for (i = 0; i < data.length; i++) {
+                        var peeps = document.getElementsByClassName(data[i]);
+                        if (peeps.length > 0) {
+                            var p = peeps[0];
 
-                        var restism = 234;
-                        restism = restism - (255 - reddism);
-                        if(restism < 16)
-                            restism = 16;
-
-                        peeps[0].style.background = "#" + reddism.toString(16) + 
-                        restism.toString(16) + restism.toString(16) ;
-                        */
-
-                       // fade from current top color #FF4747
-                       // to default background color #D9F9F9... MINUS one. dunno if they'll be visible.
-                       var red = 255 - (i * 3);  // darkens from pure red
-                       if(red < 218) red = 218;
-                       var nonred = 164 + (i * 3); // lightens
-                       if(nonred > 255) nonred = 255 ;
-                       var col = "#" + red.toString(16) + nonred.toString(16) + nonred.toString(16);
-                       peeps[0].style.background = col;
-                       peeps[0].style.border = "1px dotted " + col;
+                            // Safety Check: Don't override Manual Selections (Friends) or Yourself
+                            if (false == p.style.border.includes("solid"))
+                            if (false == p.style.border.includes("dashed"))
+                            if ('1' !== p.parentElement.style.gridRowStart)
+                            {
+                                // The Simple Fix: Just add the tag
+                                p.classList.add("hottie-arrived");
+                            }
+                        }
                     }
-                }
-            }).catch(err => console.error(err));
-    }
-    else
+                }).catch(err => console.error(err));
+        }
+        else
     {
         var elements = document.getElementsByClassName('listen');
         for (var i = 0; i < elements.length; i++) {
