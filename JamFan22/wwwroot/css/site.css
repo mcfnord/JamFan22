@@ -27,6 +27,17 @@ hr {
 }
 
 /* ========================================= */
+/* LAYERING FIX (The Sandwich)               */
+/* ========================================= */
+/* Lift the text so it sits on top of the Pulse and the Background */
+.musician b, 
+.musician i,
+.musician font {
+    position: relative;
+    z-index: 2; 
+}
+
+/* ========================================= */
 /* SHARED ANIMATION (Hardware Accelerated)   */
 /* ========================================= */
 @keyframes gpuPulse {
@@ -47,30 +58,31 @@ hr {
 }
 
 /* ========================================= */
-/* 1. STRANGERS (New Arrivals) - GOLD        */
+/* 1. STRANGERS (New Arrivals) - ELECTRIC BLUE */
 /* ========================================= */
 .just-arrived {
     position: relative;
-    z-index: 1;
+    z-index: 1; /* Establishes Stacking Context */
     font-weight: 500;
 }
 
     .just-arrived::after {
         content: "";
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        top: 0; left: 0; right: 0; bottom: 0;
         border-radius: 1rem;
+        pointer-events: none;
+        
         /* ELECTRIC BLUE FILL & GLOW */
         background-color: rgba(0, 191, 255, 0.15);
         box-shadow: 0 0 15px #00BFFF;
+        
+        /* Layer -1 puts it behind text, but above standard transparent backgrounds */
+        z-index: -1; 
+        
         opacity: 0;
-        z-index: -1;
         animation: gpuPulse 7s infinite ease-in-out;
         will-change: opacity, transform;
-        pointer-events: none;
     }
 
 /* ========================================= */
@@ -79,20 +91,32 @@ hr {
 .friend-arrived {
     font-weight: bold !important;
     border: 1px solid #FFD700 !important;
+    position: relative; 
+    z-index: 1;
 }
 
     .friend-arrived::after {
-        /* Red/Orange Fill & Glow */
-        /* This overrides the Gold settings above */
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        border-radius: 1rem;
+        pointer-events: none;
+
+        /* RED FILL & GLOW */
         background-color: rgba(255, 69, 0, 0.15) !important;
         box-shadow: 0 0 20px #FF4500 !important;
-        /* SLOWED DOWN TO 7s */
+        
+        /* CRITICAL FIX: Sits on top of Yellow Background (Layer 0) */
+        z-index: 0 !important; 
+
+        opacity: 0;
         animation: gpuPulse 7s infinite ease-in-out !important;
+        will-change: opacity, transform;
     }
 
 
 /* ========================================= */
-/* 3. HOTTIES - SIMPLE PINK PULSE            */
+/* 3. HOTTIES (Auto-Rec) - HOT PINK          */
 /* ========================================= */
 .hottie-arrived {
     font-weight: bold !important;
@@ -104,18 +128,18 @@ hr {
     .hottie-arrived::after {
         content: "";
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        top: 0; left: 0; right: 0; bottom: 0;
         border-radius: 1rem;
-        /* Simple Pink Tint & Glow */
+        pointer-events: none;
+
+        /* PINK FILL & GLOW */
         background-color: rgba(255, 105, 180, 0.15);
         box-shadow: 0 0 15px #FF1493;
+        
+        /* Layer 0 ensures it sits on top of any potential background conflicts */
+        z-index: 0 !important; 
+
         opacity: 0;
-        z-index: -1;
-        /* Matches the 7s speed of everyone else */
         animation: gpuPulse 7s infinite ease-in-out;
         will-change: opacity, transform;
-        pointer-events: none;
     }
