@@ -3016,15 +3016,24 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
             if (firstUser == null) return ""; // Should not happen if s_myUserCount=1, but safe
 
             string userHash = GetHash(firstUser.name, firstUser.country, firstUser.instrument);
+            string serverAddress = $"{s.serverIpAddress}:{s.serverPort}"; // Moved up for access
 
             // --- GUID and Timeout Check ---
             if (!goodGuids.Contains(userHash))
             {
-                return "";
+                // NEW: Grace Period Logic
+                // If they are unknown ("Nobody"), give them 15 minutes of fame.
+                // After 15 minutes, if they still aren't "Good" (Verified), hide them.
+                double howLong = DurationHereInMins(serverAddress, userHash);
+                
+                // Note: -1 means "just arrived/not tracked yet", so we treat that as 0
+                if (howLong > 15.0) 
+                {
+                    return ""; 
+                }
             }
 
-            const int maxDurationMinutes = 6 * 60; // 6 hours
-            string serverAddress = $"{s.serverIpAddress}:{s.serverPort}";
+            const int maxDurationMinutes = 6 * 60; // 6 hours (For "Good" users)
             if (DurationHereInMins(serverAddress, userHash) > maxDurationMinutes)
             {
                 return ""; // Sat there for 6 hours
