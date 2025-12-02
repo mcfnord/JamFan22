@@ -38,8 +38,9 @@ hr {
 }
 
 /* ========================================= */
-/* SHARED ANIMATION (Hardware Accelerated)   */
+/* STANDARD ANIMATION (Small Breath)         */
 /* ========================================= */
+/* Used for Strangers and Hotties */
 @keyframes gpuPulse {
     0% {
         opacity: 0;
@@ -48,7 +49,7 @@ hr {
 
     50% {
         opacity: 1;
-        transform: scale(1.05);
+        transform: scale(1.05); /* 5% Growth */
     }
 
     100% {
@@ -58,11 +59,31 @@ hr {
 }
 
 /* ========================================= */
-/* 1. STRANGERS (New Arrivals) - ELECTRIC BLUE */
+/* TIGHT BOLD SWELL (Friends)                */
+/* ========================================= */
+/* Fast, Intense, but controlled size */
+@keyframes friendSwell {
+    0% {
+        opacity: 0;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        /* Medium expansion (15%) - tighter than before */
+        transform: scale(1.15); 
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1);
+    }
+}
+
+/* ========================================= */
+/* 1. STRANGERS (New Arrivals) - Electric Blue */
 /* ========================================= */
 .just-arrived {
     position: relative;
-    z-index: 1; /* Establishes Stacking Context */
+    z-index: 1; 
     font-weight: 500;
 }
 
@@ -73,24 +94,22 @@ hr {
         border-radius: 1rem;
         pointer-events: none;
         
-        /* ELECTRIC BLUE FILL & GLOW */
         background-color: rgba(0, 191, 255, 0.15);
         box-shadow: 0 0 15px #00BFFF;
         
-        /* Layer -1 puts it behind text, but above standard transparent backgrounds */
         z-index: -1; 
         
         opacity: 0;
+        /* SLOW BREATH: 7s */
         animation: gpuPulse 7s infinite ease-in-out;
         will-change: opacity, transform;
     }
 
 /* ========================================= */
-/* 2. FRIENDS (Overrides Strangers) - RED    */
+/* 2. FRIENDS - Chartreuse (INTENSE/TIGHT)   */
 /* ========================================= */
 .friend-arrived {
     font-weight: bold !important;
-    border: 1px solid #FFD700 !important;
     position: relative; 
     z-index: 1;
 }
@@ -102,25 +121,28 @@ hr {
         border-radius: 1rem;
         pointer-events: none;
 
-        /* RED FILL & GLOW */
-        background-color: rgba(255, 69, 0, 0.15) !important;
-        box-shadow: 0 0 20px #FF4500 !important;
+        /* ELECTRIC CHARTREUSE (More Yellow, Less Green) */
+        /* High Opacity (0.45) for Intensity */
+        background-color: rgba(223, 255, 0, 0.45) !important;
         
-        /* CRITICAL FIX: Sits on top of Yellow Background (Layer 0) */
+        /* TIGHTER SHADOW (25px) */
+        box-shadow: 0 0 25px 5px #DFFF00 !important; 
+        
         z-index: 0 !important; 
 
         opacity: 0;
-        animation: gpuPulse 7s infinite ease-in-out !important;
+        /* FAST: 6s */
+        animation: friendSwell 6s infinite ease-in-out !important;
         will-change: opacity, transform;
     }
 
 
 /* ========================================= */
-/* 3. HOTTIES (Auto-Rec) - HOT PINK          */
+/* 3. HOTTIES (Auto-Rec) - Hot Pink          */
 /* ========================================= */
 .hottie-arrived {
     font-weight: bold !important;
-    border: 1px solid #FF1493 !important; /* Deep Pink Border */
+    border: 1px solid #FF1493 !important; 
     position: relative;
     z-index: 1;
 }
@@ -132,14 +154,13 @@ hr {
         border-radius: 1rem;
         pointer-events: none;
 
-        /* PINK FILL & GLOW */
         background-color: rgba(255, 105, 180, 0.15);
-        box-shadow: 0 0 15px #FF1493;
+        box-shadow: 0 0 10px #FF1493;
         
-        /* Layer 0 ensures it sits on top of any potential background conflicts */
         z-index: 0 !important; 
 
         opacity: 0;
-        animation: gpuPulse 7s infinite ease-in-out;
+        /* MEDIUM BREATH: 5s */
+        animation: gpuPulse 8s infinite ease-in-out;
         will-change: opacity, transform;
     }
