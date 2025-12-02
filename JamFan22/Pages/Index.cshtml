@@ -8,35 +8,6 @@
 
 <style>
 
-    /* Add this to your <style> block */
-
-    /* Note the double @@ below */
-
-    @@keyframes friendPulse {
-        0% {
-            box-shadow: 0 0 5px #FFD700; /* Gold */
-            transform: scale(1);
-            z-index: 1;
-        }
-
-        50% {
-            box-shadow: 0 0 25px #FF4500; /* Orange-Red glow */
-            transform: scale(1.05); /* Slight pop out */
-            z-index: 10; /* Make sure it pops over neighbors */
-        }
-
-        100% {
-            box-shadow: 0 0 5px #FFD700;
-            transform: scale(1);
-            z-index: 1;
-        }
-    }
-
-    .friend-arrived {
-        animation: friendPulse 1.5s infinite ease-in-out !important;
-        font-weight: bold !important;
-    }
-
     .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -60,8 +31,6 @@
         background-color: lightblue;
         line-height: unset;
     }
-
-
 
     /* Style the button that is used to open and close the collapsible content */
     .collapsible {
@@ -108,42 +77,57 @@
         return JSON.parse(retrievedData);
     }
 
-    function blankForRefresh() {
+function blankForRefresh() {
         var divs = document.getElementsByTagName('span');
         var l = divs.length;
         for (var i = 0; i < l; i++) {
+            // Only clear the inline colors/borders. 
+            // Do NOT remove the "friend-arrived" class here.
             divs[i].style.border = "";
             divs[i].style.background = "";
         }
     }
 
-    function subRefresh(collection, border, background) {
-            var divs = document.getElementsByTagName('span');
-            var l = divs.length;
-            people = getTrackedPeople(collection);
+function subRefresh(collection, border, background) {
+        var divs = document.getElementsByTagName('span');
+        var l = divs.length;
+        
+        // 1. Get the specific people we are coloring right now (e.g. Yellows)
+        var people = getTrackedPeople(collection);
 
-            for (var i = 0; i < l; i++) {
-                var divId = divs[i].getAttribute("id");
+        // 2. Pre-fetch BOTH lists so we can check if someone loses their halo
+        var allYellows = getTrackedPeople("trackedPeople");
+        var allGreens = getTrackedPeople("advancedTrackedPeople");
 
-                if (people.includes(divId)) {
-                    // 1. Apply the standard Friend Highlight (Yellow/Green)
-                    divs[i].style.border = border;
-                    divs[i].style.background = background;
+        for (var i = 0; i < l; i++) {
+            var divId = divs[i].getAttribute("id");
+            var el = divs[i];
 
-                    // 2. CHECK: Is this friend ALSO a new arrival?
-                    // The C# code adds the class "just-arrived" to the HTML.
-                    // We check for that here.
-                    if (divs[i].classList.contains("just-arrived")) {
-                        divs[i].classList.add("friend-arrived");
-                    } else {
-                        divs[i].classList.remove("friend-arrived");
-                    }
+            if (people.includes(divId)) {
+                // CASE A: They are in this collection.
+                // 1. Apply the inline colors (Yellow or Green)
+                el.style.border = border;
+                el.style.background = background;
+
+                // 2. Ensure they have the Halo.
+                // Checking 'contains' first prevents the animation from restarting/flickering.
+                if (!el.classList.contains("friend-arrived")) {
+                    el.classList.add("friend-arrived");
+                }
+            } 
+            else {
+                // CASE B: They are NOT in this specific collection.
+                // We must check if they are in the OTHER collection before taking the halo away.
+                // If they are not in Yellows AND not in Greens, strip the halo.
+                
+                if (!allYellows.includes(divId) && !allGreens.includes(divId)) {
+                    el.classList.remove("friend-arrived");
                 }
             }
         }
+    }
 
-
-    function listRefresh(collection, border, background) {
+function listRefresh(collection, border, background) {
         var peeps = document.getElementsByClassName('musicianInList');
         var l = peeps.length;
         people = getTrackedPeople(collection);
@@ -623,58 +607,67 @@
         Hash = hash;
     }
 
+    // We no longer rely on toggle(hash) because apostrophes break it.
+    // Instead, we find the ID directly from the clicked element.
     window.onclick = function (event) {
-        PeopleCollection = "trackedPeople"; // default
+        
+        // 1. Find the clicked musician (handle clicks on <b> or <i> tags inside the name)
+        // We look for the closest parent 'SPAN' tag.
+        var target = event.target.closest('span');
 
-        if (true == window.event.ctrlKey) {
+        // If they clicked empty space, or something without an ID, do nothing.
+        if (!target || !target.id) return;
+
+        var clickedId = target.id;
+        
+        // 2. Determine which list to use (Ctrl+Click vs Normal Click)
+        PeopleCollection = "trackedPeople"; // default
+        if (event.ctrlKey) {
             PeopleCollection = "advancedTrackedPeople";
         }
 
-        // if the hash is found, remove it.
-        // if not found, add it.
-        // get existing array, if any.
-        fPureRemoval = false; // if found, then toggling is removing from both
-        people = getTrackedPeople("trackedPeople"); // relies on the global
+        // 3. Logic: If found in ANY list, remove from ALL lists.
+        // If not found in any list, add to the CURRENT selected list.
+        
+        var fPureRemoval = false; 
 
-        // if found, remove it.
-        if (people.includes(Hash)) {
+        // Check Basic List
+        var people = getTrackedPeople("trackedPeople"); 
+        if (people.includes(clickedId)) {
             for (var i = 0; i < people.length; i++) {
-                if (people[i] === Hash) {
+                if (people[i] === clickedId) {
                     people.splice(i, 1);
                     localStorage.setItem("trackedPeople", JSON.stringify(people));
                 }
             }
-            fPureRemoval = true; // added to no list if removing from any list
+            fPureRemoval = true;
         }
 
-        people = getTrackedPeople("advancedTrackedPeople"); // relies on the global
-
-        // if found, remove it.
-        if (people.includes(Hash)) {
+        // Check Advanced List
+        people = getTrackedPeople("advancedTrackedPeople");
+        if (people.includes(clickedId)) {
             for (var i = 0; i < people.length; i++) {
-                if (people[i] === Hash) {
+                if (people[i] === clickedId) {
                     people.splice(i, 1);
                     localStorage.setItem("advancedTrackedPeople", JSON.stringify(people));
                 }
             }
-            fPureRemoval = true; // added to no list if removing from any list
+            fPureRemoval = true;
         }
 
+        // If we removed them, we are done (don't re-add them instantly)
         if (fPureRemoval) {
             refreshHighlights();
-            Hash = ""; // forget the hash so the click zone stays properly bounded
             return;
         }
 
-        // not found, so add it, hopefully to the right list.
+        // 4. Not found anywhere? Add them to the chosen collection.
         people = getTrackedPeople(PeopleCollection);
-        people.push(Hash);
+        people.push(clickedId);
         localStorage.setItem(PeopleCollection, JSON.stringify(people));
+        
         refreshHighlights();
-
-        Hash = ""; // forget the hash so the click zone stays properly bounded
     }
-
 
 
 </script>
