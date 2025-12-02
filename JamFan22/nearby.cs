@@ -24,7 +24,7 @@ namespace JamFan22
         private static CacheItem<List<PredictedRecord>> _predictedUsersCache;
         private static CacheItem<MusicianDataCache> _musicianDataCache;
         private static CacheItem<Dictionary<string, string>> _guidCensusCache;
-        private static CacheItem<Dictionary<string, string>> _tooltipCache; // NEW: Tooltips
+        private static CacheItem<Dictionary<string, string>> _tooltipCache; 
         private static readonly object _cacheLock = new object();
         
         // --- 24-Hour Blocklist Fields ---
@@ -34,8 +34,7 @@ namespace JamFan22
         // --- Promotion Hack Field ---
         private static readonly ConcurrentDictionary<string, string> _promotedGuidMap = new ConcurrentDictionary<string, string>();
         
-        // --- Prediction Diagnostics (NEW) ---
-        // These persist as long as the application runs to keep a tally
+        // --- Prediction Diagnostics ---
         private static readonly ConcurrentDictionary<string, byte> _allTimePredictedGuids = new ConcurrentDictionary<string, byte>();
         private static readonly ConcurrentDictionary<string, byte> _allTimeArrivedGuids = new ConcurrentDictionary<string, byte>();
 
@@ -107,6 +106,7 @@ namespace JamFan22
         private class MusicianRecord
         {
             public long MinutesSinceEpoch { get; set; }
+            public int GoldenValue { get; set; } 
             public string Guid { get; set; }
             public string Name { get; set; }
             public string Instrument { get; set; }
@@ -127,6 +127,10 @@ namespace JamFan22
             public int TotalEntries { get; set; } = 0;
             public int EntriesWithInferredIp { get; set; } = 0;
             public MusicianRecord MostRecentRecord { get; set; } = null;
+            
+            // --- NEW: History Quality Tracking ---
+            public int MaxGoldenValue { get; set; } = 0;
+            public int ZeroGoldenCount { get; set; } = 0;
         }
         
         private class MusicianDataCache
@@ -151,24 +155,19 @@ namespace JamFan22
         private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
         {
             // Get all data (from cache or file)
-            var rawLiveGuids = await GetLiveGuidsFromApiAsync(); // This is the unfiltered "live" list
+            var rawLiveGuids = await GetLiveGuidsFromApiAsync(); 
             var lastSeenMap = await GetLastSeenMap(); 
             var accruedTimeMap = await GetAccruedTimeMap(); 
             var predictedUsers = GetPredictedUsers();
 
-            // --- NEW: DIAGNOSTIC TALLY ---
-            // Tracks % of predicted users who actually showed up
+            // --- DIAGNOSTIC TALLY ---
             if (predictedUsers.Any())
             {
                 foreach (var prediction in predictedUsers)
                 {
-                    // 1. Register that this person was predicted (if not already counted)
                     _allTimePredictedGuids.TryAdd(prediction.Guid, 1);
-
-                    // 2. Check if they are currently live
                     if (rawLiveGuids.Contains(prediction.Guid))
                     {
-                        // 3. Register that they arrived
                         _allTimeArrivedGuids.TryAdd(prediction.Guid, 1);
                     }
                 }
@@ -181,23 +180,20 @@ namespace JamFan22
 
                 Console.WriteLine($"[PREDICTION DIAGNOSTIC] Arrived: {totalArrived} / Predicted: {totalPredicted} ({percentage:F1}%)");
             }
-            // -----------------------------
 
-            // Get stats map early for logging names
             var fullStatsMap = GetMusicianDataFromCsv().FullStatsMap;
             var censusNameMap = await GetGuidCensusMapAsync();
 
-            // --- CLEANUP: Clean up promotions for users who have left ---
+            // --- CLEANUP ---
             var usersWhoLeft = _promotedGuidMap.Keys.Except(rawLiveGuids).ToList();
             foreach (var leftGuid in usersWhoLeft)
             {
                 _promotedGuidMap.TryRemove(leftGuid, out _);
             }
 
-            // --- 24-HOUR BLOCKLIST LOGIC (No Grace Period) ---
+            // --- 24-HOUR BLOCKLIST LOGIC ---
             var now = DateTime.UtcNow;
 
-            // 1. Update first-seen timestamps and check for 24-hour violations
             foreach (var guid in rawLiveGuids)
             {
                 if (_sessionBlocklist.ContainsKey(guid))
@@ -230,18 +226,14 @@ namespace JamFan22
                 }
             }
 
-            // 2. Clean up _liveUserFirstSeen: remove users who are no longer live
             var usersWhoLoggedOff = _liveUserFirstSeen.Keys.Except(rawLiveGuids).ToList();
             foreach (var guid in usersWhoLoggedOff)
             {
                 _liveUserFirstSeen.TryRemove(guid, out _); 
             }
 
-            // 3. Create the *filtered* liveGuids list
             var liveGuids = rawLiveGuids.Where(g => !_sessionBlocklist.ContainsKey(g)).ToHashSet();
 
-
-            // Get users seen in the last 60 minutes.
             var recentGuids = lastSeenMap.Where(kvp => kvp.Value > DateTime.UtcNow.AddMinutes(-60))
                 .Select(kvp => kvp.Key)
                 .Where(g => !_sessionBlocklist.ContainsKey(g)) 
@@ -250,25 +242,21 @@ namespace JamFan22
             const double minLiveTime = 10.0;
             const double minRecentTime = 30.0;
 
-            // Filter live users: must have >= 10 minutes accrued.
             var eligibleLiveGuids = liveGuids
                 .Where(g => accruedTimeMap.GetValueOrDefault(g, 0) >= minLiveTime)
                 .ToHashSet();
 
-            // Filter recent users: must have >= 30 minutes accrued.
             var eligibleRecentGuids = recentGuids
                 .Where(g => accruedTimeMap.GetValueOrDefault(g, 0) >= minRecentTime)
                 .ToHashSet();
             
             var finalGuids = eligibleLiveGuids.Union(eligibleRecentGuids).ToHashSet();
             
-            // --- INJECT: Force load old trusted GUIDs for promoted users ---
             foreach (var oldTrustedGuid in _promotedGuidMap.Values)
             {
                 finalGuids.Add(oldTrustedGuid);
             }
 
-            // Filter predictions against the blocklist too.
             var finalPredictedUsers = predictedUsers
                 .Where(p => !finalGuids.Contains(p.Guid))
                 .Where(p => !_sessionBlocklist.ContainsKey(p.Guid)) 
@@ -369,7 +357,6 @@ namespace JamFan22
             }
             // --- END OF HACK ---
 
-            // Pass the tooltip map here implicitly via GetTooltipMap() inside BuildHtmlTable/Row
             return BuildHtmlTable(finalProcessedRecords, rawLiveGuids, _liveUserFirstSeen);
         }
 
@@ -384,20 +371,18 @@ namespace JamFan22
             return "in 2+ hours"; 
         }
 
-        // --- NEW: TOOLTIP LOADER ---
+        // --- TOOLTIP LOADER ---
         private Dictionary<string, string> GetTooltipMap()
         {
-            // Check Cache
             if (_tooltipCache != null && !_tooltipCache.IsExpired) return _tooltipCache.Data;
 
             var map = new Dictionary<string, string>();
-            string path = "tooltips.json"; // This must match Python output
+            string path = "tooltips.json"; 
 
             if (File.Exists(path))
             {
                 try
                 {
-                    // Use a file stream with sharing to prevent locking issues if Python is writing
                     using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     using (var sr = new StreamReader(fs, Encoding.UTF8))
                     {
@@ -411,7 +396,6 @@ namespace JamFan22
                 }
             }
 
-            // Cache for 1 minute (high churn allowed)
             lock (_cacheLock) 
             { 
                 _tooltipCache = new CacheItem<Dictionary<string, string>>(map, TimeSpan.FromMinutes(1)); 
@@ -485,17 +469,13 @@ namespace JamFan22
 
             string sublineContainer = $"<div class='sub-line-container'>{instrumentHtml}{timeDisplay}</div>";
 
-            // --- NEW: APPLY TOOLTIP ---
+            // --- APPLY TOOLTIP ---
             string tooltipAttr = "";
-            // We verify the GUID exists in our loaded tooltips map
             if (tooltips != null && tooltips.TryGetValue(record.Guid, out string tip))
             {
-                // HtmlEncode handles special characters, but newlines must be preserved for title attribute.
-                // WebUtility.HtmlEncode escapes <, >, &, ", etc. It does NOT escape \n.
                 string safeTip = WebUtility.HtmlEncode(tip);
                 tooltipAttr = $" title=\"{safeTip}\"";
             }
-            // ------------------------
 
             sb.AppendLine($"        <tr{rowClass}>");
             sb.AppendLine($"          <td class='col-musician'><div class='musician-cell-content'{tooltipAttr}><span class='bulb {bulbClass}'></span><div class='musician-info'>{record.Name}{sublineContainer}</div></div></td>");
@@ -507,9 +487,7 @@ namespace JamFan22
         
         private string BuildHtmlTable(IEnumerable<MusicianRecord> records, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap)
         {
-            // --- NEW: Fetch Tooltips Once ---
             var tooltips = GetTooltipMap();
-            // -------------------------------
 
             var sb = new StringBuilder();
             sb.AppendLine("<style>");
@@ -718,8 +696,14 @@ namespace JamFan22
 
                     var guid = fields[2].Trim();
                     
-                    bool isGolden = fields.Length > 12 && fields[12].Trim() != "0";
-                    if (isGolden)
+                    // Parse Golden Value safely
+                    int currentRowGoldenVal = 0;
+                    if (fields.Length > 12)
+                    {
+                        int.TryParse(fields[12].Trim(), out currentRowGoldenVal);
+                    }
+
+                    if (currentRowGoldenVal != 0)
                     {
                         allGoldenGuids.Add(guid);
                     }
@@ -732,6 +716,18 @@ namespace JamFan22
                     
                     stats.TotalEntries++;
                     
+                    // --- NEW STATS TRACKING ---
+                    if (currentRowGoldenVal > stats.MaxGoldenValue)
+                    {
+                        stats.MaxGoldenValue = currentRowGoldenVal;
+                    }
+
+                    if (currentRowGoldenVal == 0)
+                    {
+                        stats.ZeroGoldenCount++;
+                    }
+                    // --------------------------
+
                     if (!string.IsNullOrWhiteSpace(fields[11]) && fields[11].Trim() != "-")
                     {
                         stats.EntriesWithInferredIp++;
@@ -742,11 +738,32 @@ namespace JamFan22
                         double.TryParse(fields[10].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double lon) &&
                         !string.IsNullOrWhiteSpace(fields[11].Trim()) && fields[11].Trim() != "-")
                     {
-                        if (stats.MostRecentRecord == null || minutes > stats.MostRecentRecord.MinutesSinceEpoch)
+                        bool shouldUpdate = false;
+
+                        if (stats.MostRecentRecord == null)
+                        {
+                            shouldUpdate = true;
+                        }
+                        else
+                        {
+                            // 1. Higher Golden Value wins
+                            if (currentRowGoldenVal > stats.MostRecentRecord.GoldenValue)
+                            {
+                                shouldUpdate = true;
+                            }
+                            // 2. Tie-break with Time
+                            else if (currentRowGoldenVal == stats.MostRecentRecord.GoldenValue && minutes > stats.MostRecentRecord.MinutesSinceEpoch)
+                            {
+                                shouldUpdate = true;
+                            }
+                        }
+
+                        if (shouldUpdate)
                         {
                             stats.MostRecentRecord = new MusicianRecord
                             {
                                 MinutesSinceEpoch = minutes,
+                                GoldenValue = currentRowGoldenVal, 
                                 Guid = guid,
                                 Name = WebUtility.UrlDecode(fields[3].Trim()),
                                 Instrument = fields[4].Trim(),
@@ -783,6 +800,22 @@ namespace JamFan22
                 {
                     continue;
                 }
+
+                // --- NEW FILTER RULE ---
+                // Rule: Max Value <= 1 AND >= 88% are zeroes
+                bool hasLowCeiling = stats.MaxGoldenValue <= 1;
+                bool hasHighZeroRatio = (double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.88;
+
+                if (hasLowCeiling && hasHighZeroRatio)
+                {
+                    string uName = stats.MostRecentRecord.Name ?? "Unknown";
+                    Console.WriteLine($"[FILTER] Excluded {guid} ({uName}). " +
+                                      $"MaxGold: {stats.MaxGoldenValue}, " +
+                                      $"Zeroes: {stats.ZeroGoldenCount}/{stats.TotalEntries} " +
+                                      $"({(double)stats.ZeroGoldenCount/stats.TotalEntries:P0})");
+                    continue; // Skip this user entirely
+                }
+                // -----------------------
 
                 bool hasGoldenMatchEver = allGoldenGuids.Contains(guid);
                 bool passesInferredIpTest = false;
