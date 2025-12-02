@@ -1303,7 +1303,7 @@ public static string GetHash(string name, string country, string instrument)
                     }
                     else
                     {
-                        clientIP = "75.172.123.21";
+                        clientIP = "24.18.55.230";
                     }
                 }
             }
@@ -4073,7 +4073,7 @@ return (120 + rand.Next(-9,9)).ToString();
                 ? HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
                 : remoteIp?.ToString();
 
-            ipString ??= "75.172.123.21";
+            ipString ??= "24.18.55.230";
             return ipString.StartsWith("::ffff:") ? ipString : $"::ffff:{ipString}";
         }
 
@@ -4227,47 +4227,92 @@ public string RightNowForView { get; private set; }
         }
 
 
-        // MAKE SURE YOUR 'GuidFromIpAsync' METHOD IS ALSO IN THIS FILE:
         public async Task<string> GuidFromIpAsync(string ipAddress)
         {
-            string ipv4Address = ipAddress.Replace("::ffff:", "");
+            string ipClean = ipAddress.Replace("::ffff:", "").Trim();
 
-            // 1. Check for a valid, non-expired cache entry (logic is unchanged).
-            if (ipCacheTime.TryGetValue(ipv4Address, out var cacheTime) &&
-                DateTime.UtcNow - cacheTime < cacheDuration &&
-                ipToGuidCache.TryGetValue(ipv4Address, out var cachedGuid))
+            // --- 1. Harvest Active GUIDs from Live Memory ---
+            // We use a HashSet for O(1) lookup speed later.
+            HashSet<string> activeGuids = new HashSet<string>();
+            var keys = LastReportedList.Keys.ToList(); // Snapshot keys for thread safety
+
+            foreach (var key in keys)
             {
-                return cachedGuid;
+                // OPTIMIZATION: Try to use the deserialized cache first to save CPU
+                if (!m_deserializedCache.TryGetValue(key, out var servers))
+                {
+                    // Fallback to raw JSON if cache missing
+                    if (LastReportedList.TryGetValue(key, out string json))
+                    {
+                        try { servers = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(json); }
+                        catch { continue; }
+                    }
+                }
+
+                if (servers != null)
+                {
+                    foreach (var server in servers)
+                    {
+                        if (server.clients != null)
+                        {
+                            foreach (var client in server.clients)
+                            {
+                                activeGuids.Add(GetHash(client.name, client.country, client.instrument));
+                            }
+                        }
+                    }
+                }
             }
 
-            string url = $"http://24.199.107.192:5000/lookup_guid/{ipv4Address}";
+            // --- 2. Access the Preloaded CSV Data from RAM ---
+            // This ensures we are NOT reading from disk (0ms latency here)
+            var preloadedData = await GetCachedPreloadedDataAsync();
+            string[] lines = preloadedData.JoinEventsLines;
 
-            try
+            // --- 3. Parse Candidates ---
+            var candidates = new List<(string Guid, int Signal)>();
+
+            foreach (var line in lines)
             {
-                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
-                {
-                    string guid = await httpClient.GetStringAsync(url, cts.Token);
+                // MICRO-OPTIMIZATION: Check .Contains before splitting string
+                // String.Split is expensive; we only want to do it if the IP is actually there.
+                if (!line.Contains(ipClean)) continue;
 
-                    if (!string.IsNullOrEmpty(guid))
+                var parts = line.Split(',');
+
+                // We need at least up to column 12 (Golden Bitfield)
+                if (parts.Length > 12)
+                {
+                    // Column 11 is IP
+                    if (parts[11].Trim().Contains(ipClean))
                     {
-                        ipToGuidCache[ipv4Address] = guid;
-                        ipCacheTime[ipv4Address] = DateTime.UtcNow;
+                        string candidateGuid = parts[2].Trim(); // Column 2 is GUID
+
+                        // Column 12 is Signal Strength (Golden Bitfield)
+                        if (int.TryParse(parts[12], out int signal))
+                        {
+                            candidates.Add((candidateGuid, signal));
+                        }
                     }
+                }
+            }
+
+            // --- 4. Sort by Signal Strength (High to Low) ---
+            var sortedMatches = candidates
+                .OrderByDescending(x => x.Signal)
+                .Select(x => x.Guid);
+
+            // --- 5. Return the first Historical Match that is Active Now ---
+            foreach (var guid in sortedMatches)
+            {
+                if (activeGuids.Contains(guid))
+                {
                     return guid;
                 }
             }
-            catch (OperationCanceledException)
-            {
-                Console.WriteLine($"An error occurred: GUID lookup timed out for {ipv4Address}.");
-                return null;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"An error occurred: {e.Message}");
-                return null;
-            }
+
+            return null;
         }
-    
 
         /*
         //[Route("{daysForward}")]
