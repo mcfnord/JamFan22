@@ -152,7 +152,7 @@ namespace JamFan22
             return await FindMusiciansHtmlAsync(userLocation.lat, userLocation.lon);
         }
 
-        private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
+private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
         {
             // Get all data (from cache or file)
             var rawLiveGuids = await GetLiveGuidsFromApiAsync(); 
@@ -160,7 +160,57 @@ namespace JamFan22
             var accruedTimeMap = await GetAccruedTimeMap(); 
             var predictedUsers = GetPredictedUsers();
 
-            // --- DIAGNOSTIC TALLY ---
+            // --- 1. NEW: DETAILED PREDICTION DIAGNOSTICS ---
+            // We fetch the CSV data early here to inspect the predicted users
+            var csvDataDebug = GetMusicianDataFromCsv();
+            
+            if (predictedUsers.Any())
+            {
+                Console.WriteLine("\n--- DETAILED PREDICTION DIAGNOSTICS ---");
+                foreach (var pred in predictedUsers)
+                {
+                    string diagInfo = $"GUID: {pred.Guid} | Name (Predicted.csv): {pred.Name}";
+
+                    if (csvDataDebug.FullStatsMap.TryGetValue(pred.Guid, out var stats) && stats.MostRecentRecord != null)
+                    {
+                        var r = stats.MostRecentRecord;
+                        diagInfo += $"\n    -> MATCH FOUND IN CSV: {r.Name} ({r.Instrument}) from {r.UserCity}";
+                        
+                        // --- REPLICATING FILTER LOGIC FROM GetMusicianRecords ---
+                        // Rule 1: High Zero Ratio
+                        bool hasLowCeiling = stats.MaxGoldenValue <= 1;
+                        bool hasHighZeroRatio = stats.TotalEntries > 0 && ((double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.943);
+                        
+                        // Rule 2: Golden/Inferred Entry Requirement
+                        bool hasGoldenMatchEver = csvDataDebug.AllGoldenGuids.Contains(pred.Guid);
+                        bool passesInferredIpTest = stats.TotalEntries > 1;
+
+                        diagInfo += $"\n    -> STATS: Entries={stats.TotalEntries}, MaxGold={stats.MaxGoldenValue}, ZeroCount={stats.ZeroGoldenCount}";
+                        
+                        if (hasLowCeiling && hasHighZeroRatio)
+                        {
+                            diagInfo += $"\n    -> RESULT: [BLOCKED] User is flagged as 'Low Quality/Bot' (Zero Ratio: {(double)stats.ZeroGoldenCount/stats.TotalEntries:P1} >= 94.3%).";
+                        }
+                        else if (!hasGoldenMatchEver && !passesInferredIpTest)
+                        {
+                            diagInfo += $"\n    -> RESULT: [BLOCKED] User has no 'Golden' history and only 1 entry (Ghost filter).";
+                        }
+                        else
+                        {
+                            diagInfo += $"\n    -> RESULT: [OK] User passes quality filters. (Should appear unless location is too far).";
+                        }
+                    }
+                    else
+                    {
+                        diagInfo += $"\n    -> RESULT: [MISSING] User exists in Prediction list but NOT in 'join-events.csv'. Cannot display (no IP/Location data).";
+                    }
+                    Console.WriteLine(diagInfo);
+                }
+                Console.WriteLine("---------------------------------------\n");
+            }
+            // ---------------------------------------------------
+
+            // --- 2. EXISTING: AGGREGATE PREDICTION STATS ---
             if (predictedUsers.Any())
             {
                 foreach (var prediction in predictedUsers)
@@ -178,10 +228,10 @@ namespace JamFan22
                     ? (double)totalArrived / totalPredicted * 100.0 
                     : 0.0;
 
-                Console.WriteLine($"[PREDICTION DIAGNOSTIC] Arrived: {totalArrived} / Predicted: {totalPredicted} ({percentage:F1}%)");
+                Console.WriteLine($"[PREDICTION AGGREGATE] Arrived: {totalArrived} / Predicted: {totalPredicted} ({percentage:F1}%)");
             }
 
-            var fullStatsMap = GetMusicianDataFromCsv().FullStatsMap;
+            var fullStatsMap = csvDataDebug.FullStatsMap; // Re-use the data fetched above
             var censusNameMap = await GetGuidCensusMapAsync();
 
             // --- CLEANUP ---
@@ -226,14 +276,30 @@ namespace JamFan22
                 }
             }
 
-            var usersWhoLoggedOff = _liveUserFirstSeen.Keys.Except(rawLiveGuids).ToList();
-            foreach (var guid in usersWhoLoggedOff)
+            var potentialLogoffs = _liveUserFirstSeen.Keys.Except(rawLiveGuids).ToList();
+            foreach (var guid in potentialLogoffs)
             {
-                _liveUserFirstSeen.TryRemove(guid, out _); 
+                // FIX: Only reset their "First Seen" timer if they have been gone 
+                // for more than 10 minutes. This prevents server-hopping from 
+                // resetting the "Pulse" animation.
+                bool recentlySeen = false;
+                if (lastSeenMap.TryGetValue(guid, out var lastSeen))
+                {
+                    if ((DateTime.UtcNow - lastSeen).TotalMinutes < 10) 
+                    {
+                        recentlySeen = true;
+                    }
+                }
+
+                if (!recentlySeen)
+                {
+                    _liveUserFirstSeen.TryRemove(guid, out _); 
+                }
             }
 
             var liveGuids = rawLiveGuids.Where(g => !_sessionBlocklist.ContainsKey(g)).ToHashSet();
 
+            // Keep "Gone" users for 60 minutes, but we will fade them visually
             var recentGuids = lastSeenMap.Where(kvp => kvp.Value > DateTime.UtcNow.AddMinutes(-60))
                 .Select(kvp => kvp.Key)
                 .Where(g => !_sessionBlocklist.ContainsKey(g)) 
@@ -359,7 +425,7 @@ namespace JamFan22
 
             return BuildHtmlTable(finalProcessedRecords, rawLiveGuids, _liveUserFirstSeen);
         }
-
+        
         private static string GetArrivalTimeDisplayString(DateTime arrivalTime)
         {
             double totalMinutes = (arrivalTime - DateTime.UtcNow).TotalMinutes;
@@ -403,116 +469,68 @@ namespace JamFan22
             return map;
         }
 
-        private string BuildMusicianRowHtml(MusicianRecord record, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap, Dictionary<string, string> tooltips)
-        {
-            bool isLive = liveGuids.Contains(record.Guid);
-            
-            if (isLive)
-            {
-                record.IsPredicted = false; 
-            }
-
-            var sb = new StringBuilder();
-            string bulbClass;
-            string rowClass = "";
-            string locationDisplay;
-            
-            // --- Time Display Logic ---
-            string timeDisplay = "";
-            if (isLive && firstSeenMap.TryGetValue(record.Guid, out var firstSeenTime))
-            {
-                var duration = DateTime.UtcNow - firstSeenTime;
-                if (duration.TotalMinutes >= 1)
-                {
-                    timeDisplay = "<span class='sub-line-time'>";
-                    if (duration.TotalHours >= 1)
-                    {
-                        timeDisplay += $"{(int)duration.TotalHours}h ";
-                    }
-                    timeDisplay += $"{duration.Minutes}m</span>";
-                }
-            }
-            
-            if (record.IsPredicted)
-            {
-                bulbClass = "orange";
-                string timeStr = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
-                
-                if (!string.IsNullOrWhiteSpace(record.PredictedServer))
-                {
-                    locationDisplay = $"{timeStr} @<br/><span class='sub-line'>{record.PredictedServer}</span>";
-                }
-                else
-                {
-                    locationDisplay = timeStr;
-                }
-            }
-            else
-            {
-                rowClass = isLive ? "" : " class='not-here'";
-                bulbClass = isLive ? "green" : "gray";
-                string ipDerivedRegion = record.Location?.regionName ?? "";
-                string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
-                bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
-                bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
-
-                if (hasValidCity && cityIsDifferentFromRegion)
-                    locationDisplay = $"{record.UserCity},<br/>{regionHtml}";
-                else
-                    locationDisplay = regionHtml;
-            }
-
-            // --- HTML STRUCTURE ---
-            string instrumentHtml = !string.IsNullOrWhiteSpace(record.Instrument) && record.Instrument.Trim() != "-"
-                ? $"<span class='sub-line-instrument'>{record.Instrument}</span>"
-                : "<span></span>"; 
-
-            string sublineContainer = $"<div class='sub-line-container'>{instrumentHtml}{timeDisplay}</div>";
-
-            // --- APPLY TOOLTIP ---
-            string tooltipAttr = "";
-            if (tooltips != null && tooltips.TryGetValue(record.Guid, out string tip))
-            {
-                string safeTip = WebUtility.HtmlEncode(tip);
-                tooltipAttr = $" title=\"{safeTip}\"";
-            }
-
-            sb.AppendLine($"        <tr{rowClass}>");
-            sb.AppendLine($"          <td class='col-musician'><div class='musician-cell-content'{tooltipAttr}><span class='bulb {bulbClass}'></span><div class='musician-info'>{record.Name}{sublineContainer}</div></div></td>");
-            sb.AppendLine($"          <td class='col-location'>{locationDisplay}</td>");
-            sb.AppendLine("        </tr>");
-            
-            return sb.ToString();
-        }
-        
         private string BuildHtmlTable(IEnumerable<MusicianRecord> records, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap)
         {
             var tooltips = GetTooltipMap();
-
             var sb = new StringBuilder();
+
             sb.AppendLine("<style>");
-            sb.AppendLine("  table, th, td { border: 1px solid #ccc; border-collapse: collapse; table-layout: fixed; }");
-            sb.AppendLine("  th, td { padding: 4px; text-align: left; word-wrap: break-word; vertical-align: middle; }");
+            
+            // 1. SMART GRID CONTAINER
+            // Uses auto-fit to switch between 1, 2, or 3 columns automatically based on width.
+            sb.AppendLine("  .musician-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr)); gap: 2px; width: 100%; }");
+            
+            // 2. THE ROWS (Cards)
+            // 'align-items: stretch' ensures the divider lines connect to the top/bottom borders.
+            sb.AppendLine("  .musician-row { border: 1px solid #444; padding: 0; display: flex; align-items: stretch; min-height: 42px; }"); 
+            
+            // 3. LEFT COLUMN (Musician)
+            sb.AppendLine("  .col-musician { width: 55%; position: relative; padding: 4px 8px 4px 4px; display: flex; align-items: center; }"); 
+            
+            // THE SPLIT MARKERS (The little brackets)
+            // CHANGE: Height reduced from 25% to 20% to make them shorter.
+            // Top Stub
+            sb.AppendLine("  .col-musician::before { content: ''; position: absolute; right: 0; top: 0; height: 20%; width: 1px; background-color: #777; }");
+            // Bottom Stub
+            sb.AppendLine("  .col-musician::after { content: ''; position: absolute; right: 0; bottom: 0; height: 20%; width: 1px; background-color: #777; }");
+
+            // 4. RIGHT COLUMN (Location)
+            // 'align-items: center' centers the text block vertically.
+            sb.AppendLine("  .col-location { width: 45%; padding: 4px 4px 4px 8px; word-wrap: break-word; display: flex; align-items: center; }");
+
+            // 5. UTILITIES
             sb.AppendLine("  .bulb { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; flex-shrink: 0; }");
             sb.AppendLine("  .green { background-color: #28a745; }");
             sb.AppendLine("  .gray { background-color: #adb5bd; }");
-            sb.AppendLine("  .orange { background-color: #fd7e14; }");
+            sb.AppendLine("  .yellow { background-color: #ffc107; }"); 
             sb.AppendLine("  .not-here { color: #6c757d; }");
-            sb.AppendLine("  summary { cursor: pointer; color: #007bff; padding: 8px; }");
-            sb.AppendLine("  .col-musician { width: 55%; }");
-            sb.AppendLine("  .col-location { width: 45%; }");
-            sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }"); 
+            
+            sb.AppendLine("  .fading-medium { opacity: 0.75; }");
+            sb.AppendLine("  .fading-ghost { opacity: 0.45; }");
+            sb.AppendLine("  .bulb-shrink { transform: scale(0.75); }");
+            
+            sb.AppendLine("  @keyframes pulser { 0% { transform: scale(0.95); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.7; } }");
+            sb.AppendLine("  .pulse-green { animation: pulser 2s infinite ease-in-out; }");
+            sb.AppendLine("  .pulse-yellow { animation: pulser 2s infinite ease-in-out; }");
+            sb.AppendLine("  @keyframes urgent-pulse { 0% { transform: scale(1); background-color: #ffc107; box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7); } 50% { transform: scale(1.3); background-color: #ff5722; box-shadow: 0 0 10px rgba(255, 87, 34, 0.5); } 100% { transform: scale(1); background-color: #ffc107; box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); } }");
+            sb.AppendLine("  .pulse-due { animation: urgent-pulse 1s infinite ease-in-out; z-index: 10; position: relative; }");
+            
+            sb.AppendLine("  .sub-line { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #888; }"); 
             sb.AppendLine("  .sub-line-container { display: flex; justify-content: space-between; align-items: baseline; }");
-            sb.AppendLine("  .sub-line-instrument { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #555; }");
+            sb.AppendLine("  .sub-line-instrument { font-size: 0.85em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #888; }");
             sb.AppendLine("  .sub-line-time { font-size: 0.8em; font-family: sans-serif-condensed, Arial Narrow, sans-serif; color: #777; font-style: italic; margin-left: 4px; }");
-            sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; }");
+            
+            sb.AppendLine("  .musician-cell-content { display: flex; align-items: center; width: 100%; }");
             sb.AppendLine("  .musician-info { flex-grow: 1; }");
-            sb.AppendLine("  .distant-row { display: none; }");
-            sb.AppendLine("  .show-more-cell { cursor: pointer; color: #007bff; text-align: center; padding: 8px !important; }");
-            sb.AppendLine("  .show-more-cell:hover { background-color: #f8f9fa; }");        
+            
+            // 6. SHOW MORE LOGIC
+            sb.AppendLine("  .distant-row { display: none !important; }"); 
+            sb.AppendLine("  .show-more-card { grid-column: 1 / -1; cursor: pointer; color: #007bff; text-align: center; padding: 10px; border: 1px dashed #555; }");
+            sb.AppendLine("  .show-more-card:hover { background-color: rgba(0,0,0,0.1); }");   
             sb.AppendLine("</style>");
 
-            sb.AppendLine("<table style='width: 100%;' class='musician-table'><tbody>");
+            // --- BUILD THE GRID ---
+            sb.AppendLine("<div class='musician-grid'>");
 
             var orderedRecords = records
                 .OrderBy(r => r.DistanceKm)
@@ -540,78 +558,139 @@ namespace JamFan22
             }
 
             foreach (var record in nearbyRecords)
+            {
                 sb.Append(BuildMusicianRowHtml(record, liveGuids, firstSeenMap, tooltips));
+            }
             
             if (distantRecords.Any())
             {
-                sb.AppendLine("  <tr id='show-more-row' onclick='ShowDistantRows()'>");
-                sb.AppendLine($"    <td colspan='2' class='show-more-cell'>{distantRecords.Count} more</td>");
-                sb.AppendLine("  </tr>");
+                sb.AppendLine($"<div id='show-more-card' class='show-more-card' onclick='ShowDistantRows()'>{distantRecords.Count} more</div>");
 
                 foreach (var record in distantRecords)
                 {
                     string rowHtml = BuildMusicianRowHtml(record, liveGuids, firstSeenMap, tooltips);
-                    
-                    string modifiedRowHtml;
-                    string rowClass = (record.IsPredicted || liveGuids.Contains(record.Guid)) ? "" : " class='not-here'";
-
-                    if (string.IsNullOrEmpty(rowClass))
-                    {
-                        modifiedRowHtml = rowHtml.Replace("<tr>", "<tr class='distant-row'>");
-                    }
-                    else
-                    {
-                        modifiedRowHtml = rowHtml.Replace("class='not-here'", "class='not-here distant-row'");
-                    }
-                    
+                    string modifiedRowHtml = rowHtml.Replace("class='musician-row", "class='musician-row distant-row");
                     sb.Append(modifiedRowHtml);
                 }
             }
 
-            sb.AppendLine("</tbody></table>");
+            sb.AppendLine("</div>"); 
+
             if (distantRecords.Any())
             {
                 sb.AppendLine("<script>");
                 sb.AppendLine("  function ShowDistantRows() {");
                 sb.AppendLine("    var distantRows = document.getElementsByClassName('distant-row');");
                 sb.AppendLine("    for (var i = distantRows.length - 1; i >= 0; i--) {");
-                sb.AppendLine("      distantRows[i].style.display = 'table-row';");
                 sb.AppendLine("      distantRows[i].classList.remove('distant-row');"); 
                 sb.AppendLine("    }");
-                sb.AppendLine("    var showMoreRow = document.getElementById('show-more-row');");
-                sb.AppendLine("    if (showMoreRow) {");
-                sb.AppendLine("      showMoreRow.style.display = 'none';");
-                sb.AppendLine("    }");
+                sb.AppendLine("    var btn = document.getElementById('show-more-card');");
+                sb.AppendLine("    if (btn) btn.style.display = 'none';");
                 sb.AppendLine("  }");
                 sb.AppendLine("</script>");
             }        
 
+            // Logging loop
             foreach (var record in orderedRecords)
             {
                 if (liveGuids.Contains(record.Guid)) record.IsPredicted = false;
-                
                 string musicianPart = !string.IsNullOrWhiteSpace(record.Instrument) && record.Instrument.Trim() != "-"
                     ? $"{record.Name} ({record.Instrument})" : record.Name;
                 string status = record.IsPredicted ? "PREDICTED" : (liveGuids.Contains(record.Guid) ? "NOW" : "GONE");
                 string detailsPart;
                 if(record.IsPredicted)
-                {
                     detailsPart = $"Displays \"{GetArrivalTimeDisplayString(record.PredictedArrivalTime)}\"";
-                    if (!string.IsNullOrWhiteSpace(record.PredictedServer))
-                    {
-                        detailsPart += $" @ {record.PredictedServer}";
-                    }
-                }
                 else
-                {
-                    string ipDerivedRegion = record.Location?.regionName ?? "Unknown Region";
-                    detailsPart = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-" && 
-                                    !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase)
-                        ? $"{record.UserCity}, {ipDerivedRegion}"
-                        : ipDerivedRegion;
-                }
+                    detailsPart = !string.IsNullOrWhiteSpace(record.UserCity) ? $"{record.UserCity}, {record.Location?.regionName}" : record.Location?.regionName;
                 Console.WriteLine($"{record.Guid} {status,-9} {musicianPart,-35} -> {detailsPart}");
             }
+            return sb.ToString();
+        }
+
+        private string BuildMusicianRowHtml(MusicianRecord record, HashSet<string> liveGuids, ConcurrentDictionary<string, DateTime> firstSeenMap, Dictionary<string, string> tooltips)
+        {
+            bool isLive = liveGuids.Contains(record.Guid);
+            if (isLive) record.IsPredicted = false;
+
+            var sb = new StringBuilder();
+            string bulbClass;
+            string rowClass = "musician-row";
+            string locationDisplay;
+            string rowOpacityClass = ""; 
+            string bulbSizeClass = "";   
+            
+            // --- Time Display Logic ---
+            string timeDisplay = "";
+            bool isFreshArrival = false;
+
+            if (isLive)
+            {
+                if (firstSeenMap.TryGetValue(record.Guid, out var firstSeenTime))
+                {
+                    var duration = DateTime.UtcNow - firstSeenTime;
+                    if (duration.TotalMinutes < 5) isFreshArrival = true;
+                    if (duration.TotalMinutes >= 1)
+                    {
+                        timeDisplay = "<span class='sub-line-time'>";
+                        if (duration.TotalHours >= 1) timeDisplay += $"{(int)duration.TotalHours}h ";
+                        timeDisplay += $"{duration.Minutes}m</span>";
+                    }
+                }
+            }
+            else if (!record.IsPredicted) 
+            {
+                var timeGone = DateTime.UtcNow - record.LastSeen;
+                if (timeGone.TotalMinutes > 30) { rowOpacityClass = " fading-ghost"; bulbSizeClass = " bulb-shrink"; }
+                else if (timeGone.TotalMinutes > 15) { rowOpacityClass = " fading-medium"; }
+            }
+            
+            if (record.IsPredicted)
+            {
+                bulbClass = "yellow"; 
+                double minutesUntil = (record.PredictedArrivalTime - DateTime.UtcNow).TotalMinutes;
+                if (minutesUntil <= 0) bulbClass += " pulse-due";
+                else if (minutesUntil <= 15) bulbClass += " pulse-yellow";
+
+                string timeStr = GetArrivalTimeDisplayString(record.PredictedArrivalTime);
+                locationDisplay = !string.IsNullOrWhiteSpace(record.PredictedServer) 
+                    ? $"{timeStr} @<br/><span class='sub-line'>{record.PredictedServer}</span>" 
+                    : timeStr;
+            }
+            else
+            {
+                rowClass += isLive ? "" : " not-here" + rowOpacityClass;
+                bulbClass = isLive ? "green" : "gray" + bulbSizeClass;
+                if (isLive && isFreshArrival) bulbClass += " pulse-green"; 
+
+                string ipDerivedRegion = record.Location?.regionName ?? "";
+                string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
+                bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
+                bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
+
+                locationDisplay = (hasValidCity && cityIsDifferentFromRegion) 
+                    ? $"{record.UserCity},<br/>{regionHtml}" 
+                    : regionHtml;
+            }
+
+            // --- HTML STRUCTURE ---
+            string instrumentHtml = !string.IsNullOrWhiteSpace(record.Instrument) && record.Instrument.Trim() != "-"
+                ? $"<span class='sub-line-instrument'>{record.Instrument}</span>"
+                : "<span></span>"; 
+
+            string sublineContainer = $"<div class='sub-line-container'>{instrumentHtml}{timeDisplay}</div>";
+
+            string tooltipAttr = "";
+            if (tooltips != null && tooltips.TryGetValue(record.Guid, out string tip))
+            {
+                tooltipAttr = $" title=\"{WebUtility.HtmlEncode(tip)}\"";
+            }
+
+            // CHANGE: Wrapped {locationDisplay} in a div so flexbox doesn't flatten the <br/>
+            sb.AppendLine($"<div class='{rowClass}' {tooltipAttr}>");
+            sb.AppendLine($"  <div class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div class='musician-info'>{record.Name}{sublineContainer}</div></div></div>");
+            sb.AppendLine($"  <div class='col-location'><div>{locationDisplay}</div></div>");
+            sb.AppendLine("</div>");
+            
             return sb.ToString();
         }
 
@@ -766,7 +845,7 @@ namespace JamFan22
                                 GoldenValue = currentRowGoldenVal, 
                                 Guid = guid,
                                 Name = WebUtility.UrlDecode(fields[3].Trim()),
-                                Instrument = fields[4].Trim(),
+                                Instrument = WebUtility.UrlDecode(fields[4].Trim()),
                                 UserCity = WebUtility.UrlDecode(fields[5].Trim()).Split(',')[0].Trim(),
                                 Lat = lat,
                                 Lon = lon,
@@ -804,7 +883,7 @@ namespace JamFan22
                 // --- NEW FILTER RULE ---
                 // Rule: Max Value <= 1 AND >= 88% are zeroes
                 bool hasLowCeiling = stats.MaxGoldenValue <= 1;
-                bool hasHighZeroRatio = (double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.88;
+                bool hasHighZeroRatio = (double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.943;
 
                 if (hasLowCeiling && hasHighZeroRatio)
                 {
