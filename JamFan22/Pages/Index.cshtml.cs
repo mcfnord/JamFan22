@@ -1525,6 +1525,7 @@ public static string GetHash(string name, string country, string instrument)
             }
         }
 
+/*
         // 1. Signature changed: No 'ref' params, returns a 'Task<LatLong>'
         public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPlace, string ipAddr)
         {
@@ -1666,6 +1667,159 @@ public static string GetHash(string name, string country, string instrument)
             m_PlaceNameToLatLong[serverPlace.ToUpper()] = serverLocation;
             return serverLocation;
         }
+
+        */
+
+// ---------------------------------------------------------
+// NEW STATIC FIELDS (For the "Night Watchman" Flush Logic)
+// ---------------------------------------------------------
+private static DateTime _lastGeolocCacheFlush = DateTime.Now;
+private static DateTime _lastRequestTimestamp = DateTime.Now;
+private static readonly object _flushLock = new object();
+
+// ---------------------------------------------------------
+// THE REPLACEMENT METHOD
+// ---------------------------------------------------------
+public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPlace, string ipAddr)
+{
+    ipAddr = ipAddr.Trim();
+    serverPlace = serverPlace.Trim();
+    userPlace = userPlace.Trim();
+
+    // --- NEW SMART FLUSH LOGIC ---
+    // We track the gap between requests.
+    var now = DateTime.Now;
+    var timeSinceLastRequest = now - _lastRequestTimestamp;
+    _lastRequestTimestamp = now; // Update for the next person
+
+    // Logic: 
+    // 1. Has it been > 6 hours since we last flushed?
+    // 2. Was the server silent for > 30 seconds before this request? (True idle time)
+    
+    if (timeSinceLastRequest.TotalSeconds > 30 && 
+        (now - _lastGeolocCacheFlush).TotalHours > 6)
+    {
+        lock (_flushLock)
+        {
+            // Double-check inside lock
+            if ((now - _lastGeolocCacheFlush).TotalHours > 6)
+            {
+                Console.WriteLine($"[Cache Cleanup] Server silent for {timeSinceLastRequest.TotalSeconds:F1}s. Flushing Geolocation Cache.");
+                
+                m_PlaceNameToLatLong.Clear();
+                m_ipAddrToLatLong.Clear();
+                
+                _lastGeolocCacheFlush = now;
+            }
+        }
+    }
+    // -----------------------------
+
+    // 1. Check Cache First (Fast path)
+    if (m_PlaceNameToLatLong.TryGetValue(serverPlace.ToUpper(), out var cachedServerPlace)) return cachedServerPlace;
+    if (m_PlaceNameToLatLong.TryGetValue(userPlace.ToUpper(), out var cachedUserPlace)) return cachedUserPlace;
+    if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp)) return cachedIp;
+
+    // 2. Async Lookups (Slow path - done in parallel where possible)
+    bool fServerLLSuccess = false;
+    string serverLat = "", serverLon = "";
+
+    if (serverPlace.Length > 1 && serverPlace != "yourCity")
+    {
+        var result = await CallOpenCageAsync(serverPlace);
+        if (result.Success)
+        {
+            serverLat = result.Lat;
+            serverLon = result.Lon;
+            fServerLLSuccess = true;
+        }
+    }
+
+    bool fUserLLSuccess = false;
+    string userLat = "", userLon = "";
+
+    var userResult = await CallOpenCageAsync(userPlace);
+    if (userResult.Success)
+    {
+        userLat = userResult.Lat;
+        userLon = userResult.Lon;
+        fUserLLSuccess = true;
+    }
+
+    bool fServerIPLLSuccess = false;
+    string serverIPLat = "", serverIPLon = "";
+
+    if (ipAddr.Length > 5)
+    {
+        try
+        {
+            string ip4Addr = ipAddr.Replace("::ffff:", "");
+            string endpoint = $"https://api.geoapify.com/v1/ipinfo?ip={ip4Addr}&apiKey={GEOAPIFY_MYSTERY_STRING}";
+            
+            // Use a short timeout so we don't hang if GeoApify is slow
+            using (var cts = new System.Threading.CancellationTokenSource(2000))
+            {
+                string s = await httpClient.GetStringAsync(endpoint, cts.Token);
+                JObject jsonGeo = JObject.Parse(s);
+                
+                serverIPLat = (string)jsonGeo["location"]["latitude"];
+                serverIPLon = (string)jsonGeo["location"]["longitude"];
+                
+                fServerIPLLSuccess = true;
+                
+                // Cache the IP result immediately
+                var newIpLoc = new LatLong(serverIPLat, serverIPLon);
+                m_ipAddrToLatLong[ipAddr] = newIpLoc;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching IP geo for {ipAddr}: {ex.Message}");
+            m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // Cache failure to prevent retry loops
+        }
+    }
+    else
+    {
+        // Cache empty result for short/invalid IPs
+        m_ipAddrToLatLong[ipAddr] = new LatLong("", "");
+    }
+
+    // 3. Decision Logic: Which location is best?
+    if (fServerIPLLSuccess)
+    {
+        if (fUserLLSuccess)
+        {
+            // If the IP and the User's manually entered city are on the same continent,
+            // we trust the User's manual entry (it's more specific/accurate).
+            char serverIPContinent = ContinentOfLatLong(serverIPLat, serverIPLon);
+            char userContinent = ContinentOfLatLong(userLat, userLon);
+            
+            if (serverIPContinent == userContinent)
+            {
+                var loc = new LatLong(userLat, userLon);
+                m_PlaceNameToLatLong[serverPlace.ToUpper()] = loc;
+                return loc;
+            }
+        }
+
+        // If server lookup failed, or user location didn't match continent, fall back to IP
+        if (!fServerLLSuccess)
+        {
+            return m_ipAddrToLatLong[ipAddr];
+        }
+    }
+
+    // 4. Default Fallback: Use Server Place
+    if (string.IsNullOrEmpty(serverLat) || string.IsNullOrEmpty(serverLon))
+    {
+        // Total failure case
+        return new LatLong("0", "0");
+    }
+
+    var serverLocation = new LatLong(serverLat, serverLon);
+    m_PlaceNameToLatLong[serverPlace.ToUpper()] = serverLocation;
+    return serverLocation;
+}        
     
         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
         protected void NotateWhoHere(string server, string who)
@@ -2304,10 +2458,13 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
 
 
         // --- Caching Fields for Preloaded Data ---
-        // These fields will store the file data and reload it every 65 seconds.
+        // These fields will store the file data and reload it every 15 MINUTES (900 seconds).
         private static PreloadedData m_cachedPreloadedData;
         private static DateTime m_lastDataLoadTime = DateTime.MinValue;
-        private const double CacheDurationSeconds = 65.0;
+        
+        // [FIX 1] Increased from 65.0 to 900.0 (15 minutes)
+        private const double CacheDurationSeconds = 300.0; 
+        
         private static readonly SemaphoreSlim _dataLoadLock = new SemaphoreSlim(1, 1);
 
 
@@ -2319,7 +2476,7 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
             // 2. Fetch remote prediction data
             await UpdatePredictionsIfNeededAsync();
 
-            // 3. Get cached data, refreshing if older than 65 seconds
+            // 3. Get cached data, refreshing if older than 900 seconds
             var preloadedData = await GetCachedPreloadedDataAsync();
 
             // 4. Process all servers and clients to build the internal list
@@ -2335,23 +2492,21 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
         }
 
         //################################################################################
-        // NEW CACHING HELPER METHOD
+        // NEW CACHING HELPER METHOD (With Manual GC Injection)
         //################################################################################
 
         /// <summary>
-        /// Gets the preloaded data, refreshing it from disk if the cache is older than 65 seconds.
+        /// Gets the preloaded data, refreshing it from disk if the cache is older than 900 seconds.
         /// </summary>
-        // 1. Signature changed to 'async Task<...>'
         private async Task<PreloadedData> GetCachedPreloadedDataAsync()
         {
-            // First, check without a lock (fast path, unchanged)
+            // First, check without a lock (fast path)
             if (DateTime.Now <= m_lastDataLoadTime.AddSeconds(CacheDurationSeconds))
             {
                 return m_cachedPreloadedData;
             }
 
             // Cache is expired, so acquire the async-friendly semaphore
-            // 2. Replaced 'lock' with 'await WaitAsync'
             await _dataLoadLock.WaitAsync();
             try
             {
@@ -2360,17 +2515,30 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
                 {
                     Console.WriteLine($"Cache expired ({CacheDurationSeconds}s). Reloading all data files...");
 
-                    // 3. Call the ASYNC version of your load method
-                    // (We will need to create this method next)
+                    // 1. Load the data (High memory pressure event)
                     m_cachedPreloadedData = await LoadPreloadedDataAsync();
 
                     m_lastDataLoadTime = DateTime.Now;
                     Console.WriteLine("Data file reload complete.");
+
+                    // [FIX 2] FORCE MANUAL GARBAGE COLLECTION
+                    // We just created millions of string objects parsing CSVs. 
+                    // We force the cleanup NOW, while the thread is already paused, 
+                    // to prevent the OS from thrashing Swap later during a user request.
+                    Console.WriteLine("Performing manual Garbage Collection to prevent swap thrashing...");
+                    
+                    // Compact the Large Object Heap (LOH) to reduce fragmentation
+                    System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                    
+                    // Force a full blocking collection (Gen 2, Forced, Blocking, Compacting)
+                    GC.Collect(2, GCCollectionMode.Forced, true, true);
+                    GC.WaitForPendingFinalizers();
+                    
+                    Console.WriteLine("Garbage Collection complete. Memory stabilized.");
                 }
             }
             finally
             {
-                // 4. Release the semaphore
                 _dataLoadLock.Release();
             }
 
@@ -2939,6 +3107,7 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
             return evenSmarterCity;
         }
 
+/*
         /// <summary>
         /// Builds the HTML card for a server with multiple users.
         /// </summary>
@@ -3006,6 +3175,99 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
 
             return newline.ToString();
         }
+        */
+
+private async Task<string> BuildMultiUserServerCardAsync(ServersForMe s, List<Client> filteredUsers, string evenSmarterCity)
+{
+    string serverAddress = s.serverIpAddress + ":" + s.serverPort;
+
+    // --- 1. Timeout/Suppression & "Just Gathered" Detection ---
+    int iTimeoutPeriod = s.name.ToLower().Contains("priv") ? (4 * 60) : (8 * 60);
+    bool fSuppress = true;
+    
+    // LOGIC MATCH: We want to know if *everyone* is new (< 14 mins).
+    // This matches GetNewJamFlag exactly.
+    bool allJustGathered = true; 
+
+    foreach (var user in filteredUsers)
+    {
+        double duration = DurationHereInMins(serverAddress, GetHash(user.name, user.country, user.instrument));
+        
+        // Suppress check: If anyone has been here a while, the server is active
+        if (duration < iTimeoutPeriod)
+        {
+            fSuppress = false;
+        }
+
+        // Gathered check: If ANYONE has been here >= 14 mins, it's NOT a "New Jam"
+        if (duration >= 14.0) 
+        {
+            allJustGathered = false;
+        }
+    }
+
+    if (fSuppress) return ""; // Skip inactive servers
+    // -------------------------------------------------------------
+
+    var newline = new System.Text.StringBuilder();
+
+    string newJamFlag = GetNewJamFlag(s, filteredUsers);
+    string smartcity = SmartCity(evenSmarterCity, filteredUsers.ToArray());
+    string smartNations = SmartNations(filteredUsers.ToArray(), s.country);
+    string listenNow = await GetListenHtmlAsync(s);
+    string liveSnippet = (listenNow.Length == 0) ? await GetSnippetHtmlAsync(serverAddress) : "";
+    string htmlForVideoUrl = GetVideoHtml(serverAddress);
+    string titleToShow = GetSongTitleHtml(s.serverIpAddress + "-" + s.serverPort);
+    string leaversHtml = GetLeaversHtml(s);
+    string soonHtml = GetSoonHtml(serverAddress);
+    string activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
+
+    newline.Append($"<div id=\"{serverAddress}\" {BackgroundByZone(s.zone)}><center>");
+
+    if (s.name.Length > 0)
+    {
+        string name = s.name.Contains("CBVB") ? s.name + " (Regional)" : s.name;
+        
+        // --- 2. APPLY PULSE IF "JUST GATHERED" ---
+        if (allJustGathered)
+        {
+            newline.Append($"<span class='just-arrived'>{System.Web.HttpUtility.HtmlEncode(name)}</span><br>");
+        }
+        else
+        {
+            newline.Append(System.Web.HttpUtility.HtmlEncode(name) + "<br>");
+        }
+        // -----------------------------------------
+    }
+
+    if (smartcity.Length > 0) newline.Append("<b>" + smartcity + "</b><br>");
+
+    newline.Append($"<font size='-1'>{s.category.Replace("Genre ", "").Replace(" ", "&nbsp;")}</font><br>");
+    
+    if (newJamFlag.Length > 0) newline.Append(newJamFlag + "<br>");
+    
+    if (activeJitsi.Length > 0) newline.Append($"<b><a target='_blank' href='{activeJitsi}'>Jitsi Video</a></b>");
+    if (NoticeNewbs(serverAddress)) newline.Append(LocalizedText("(New server.)", "(新伺服器)", "(เซิร์ฟเวอร์ใหม่)", "(neuer Server)", "(Nuovo server.)") + "<br>");
+
+    newline.Append(liveSnippet);
+    newline.Append(listenNow);
+    newline.Append(htmlForVideoUrl);
+    newline.Append(titleToShow);
+    newline.Append("</center><hr>");
+    newline.Append(s.who); 
+    newline.Append(leaversHtml);
+
+    if (smartcity != smartNations)
+    {
+        newline.Append($"<center><font size='-2'>{smartNations.Trim()}</font></center>");
+    }
+
+    if (soonHtml.Length > 0) newline.Append($"<center>{soonHtml}</center>");
+
+    newline.Append("</div>");
+
+    return newline.ToString();
+}        
 
         /// <summary>
         /// Builds the HTML card for a server with only one (filtered) user.
@@ -3017,26 +3279,26 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
 
             string userHash = GetHash(firstUser.name, firstUser.country, firstUser.instrument);
             string serverAddress = $"{s.serverIpAddress}:{s.serverPort}"; // Moved up for access
+            double howLong = DurationHereInMins(serverAddress, userHash);
 
             // --- GUID and Timeout Check ---
+            
+            // 1. CHECK: Are they a "Stranger" (Unverified)?
             if (!goodGuids.Contains(userHash))
             {
-                // NEW: Grace Period Logic
-                // If they are unknown ("Nobody"), give them 15 minutes of fame.
-                // After 15 minutes, if they still aren't "Good" (Verified), hide them.
-                double howLong = DurationHereInMins(serverAddress, userHash);
-                
-                // Note: -1 means "just arrived/not tracked yet", so we treat that as 0
-                if (howLong > 15.0) 
+                // Grace Period: Strangers now get 60 minutes of fame (up from 15).
+                if (howLong > 60.0) 
                 {
+                    Console.WriteLine($"DIAGNOSTIC: Hiding Stranger '{firstUser.name}' on {s.name}. Time: {howLong:F1}m (> 60m limit).");
                     return ""; 
                 }
             }
 
-            const int maxDurationMinutes = 6 * 60; // 6 hours (For "Good" users)
-            if (DurationHereInMins(serverAddress, userHash) > maxDurationMinutes)
+            // 2. CHECK: Are they loitering too long (Verified or Not)?
+            const int maxDurationMinutes = 6 * 60; // 6 hours
+            if (howLong > maxDurationMinutes)
             {
-                return ""; // Sat there for 6 hours
+                return ""; // Silently hide loiterers > 6h
             }
             // --- End Check ---
 
@@ -3174,6 +3436,8 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
             return "";
         }
 
+
+/*
         private async Task<string> GetSnippetHtmlAsync(string serverAddress)
         {
             string DIR = "";
@@ -3219,6 +3483,47 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
 
             return "";
         }
+        */
+
+private async Task<string> GetSnippetHtmlAsync(string serverAddress)
+{
+    string DIR = "";
+#if WINDOWS
+    DIR = "C:\\Users\\User\\JamFan22\\JamFan22\\wwwroot\\mp3s\\";
+#else
+    DIR = "/root/JamFan22/JamFan22/wwwroot/mp3s/";
+#endif
+
+    // --- FIX: LOCAL FILE CHECK INSTEAD OF HTTP REQUEST ---
+    // Why call the internet to check a file on our own disk?
+    // This removes the 100s timeout and the "Connection Refused" errors.
+    
+    string silPath = System.IO.Path.Combine(DIR, serverAddress + ".sil");
+    if (System.IO.File.Exists(silPath))
+    {
+        return "(Silent)";
+    }
+
+    // --- END FIX ---
+
+    // Check for local .mp3 file (This part was already correct)
+    try
+    {
+        // Use simpler File.Exists check first to avoid overhead
+        string mp3Path = System.IO.Path.Combine(DIR, serverAddress + ".mp3");
+        if (System.IO.File.Exists(mp3Path))
+        {
+            m_snippetsDeployed++;
+            return $"<audio class='playa' controls style='width: 150px;' src='mp3s/{serverAddress}.mp3' />";
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error checking local mp3s: {ex.Message}");
+    }
+
+    return "";
+}        
 
         private string GetVideoHtml(string serverAddress)
         {
@@ -4165,6 +4470,7 @@ return (120 + rand.Next(-9,9)).ToString();
                 }
                 */
 
+/*
         // ADD THIS METHOD (The new async version of 'RightNow')
         public async Task<string> GetRightNowAsync()
         {
@@ -4199,6 +4505,64 @@ return (120 + rand.Next(-9,9)).ToString();
                 m_serializerMutex.Release();
             }
         }
+        */
+
+// ---------------------------------------------------------
+        // NEW THROTTLING FIELDS 
+        // ---------------------------------------------------------
+        private static DateTime _lastGeoCheck = DateTime.MinValue;
+        private static readonly object _geoCheckLock = new object();
+
+        // ---------------------------------------------------------
+        // REPLACES 'GetRightNowAsync'
+        // ---------------------------------------------------------
+        public async Task<string> GetRightNowAsync()
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            // 1. THROTTLE CHECK (No Lock Yet)
+            bool shouldFetchGeo = false;
+            string ipAddress = GetClientIpAddress();
+
+            if (!string.IsNullOrEmpty(ipAddress) && !userIpCachedItems.ContainsKey(ipAddress))
+            {
+                lock (_geoCheckLock)
+                {
+                    if (DateTime.Now > _lastGeoCheck.AddSeconds(2))
+                    {
+                        _lastGeoCheck = DateTime.Now;
+                        shouldFetchGeo = true;
+                    }
+                }
+            }
+
+            // 2. NETWORK CALL (No Lock Yet)
+            MyUserGeoCandy geoData = null;
+            if (shouldFetchGeo)
+            {
+                geoData = await GetOrAddUserGeoDataAsync(ipAddress);
+            }
+
+            // 3. MAIN LOCK (Fast CPU Work)
+            await m_serializerMutex.WaitAsync();
+            try
+            {
+                if (geoData != null)
+                {
+                    UpdateUserStatistics(ipAddress, geoData);
+                    m_TwoLetterNationCode = geoData.countryCode2;
+                }
+                
+                // CALLS THE WORKER METHOD HERE
+                return await GetGutsRightNow(); 
+            }
+            finally
+            {
+                stopwatch.Stop();
+                AdjustPerformanceDelta(stopwatch.Elapsed);
+                m_serializerMutex.Release();
+            }
+        }        
 
 public string RightNowForView { get; private set; }
 
@@ -4226,111 +4590,119 @@ public string RightNowForView { get; private set; }
                 return "\"" + likelyGuidOfUser + "\";";
         }
 
-
-        public async Task<string> GuidFromIpAsync(string ipAddress)
+public async Task<string> GuidFromIpAsync(string ipAddress)
         {
             string ipClean = ipAddress.Replace("::ffff:", "").Trim();
 
             // --- 1. Harvest Active GUIDs from Live Memory ---
-            // We use a HashSet for O(1) lookup speed later.
             HashSet<string> activeGuids = new HashSet<string>();
-            var keys = LastReportedList.Keys.ToList(); // Snapshot keys for thread safety
+            var keys = LastReportedList.Keys.ToList();
 
             foreach (var key in keys)
             {
-                // OPTIMIZATION: Try to use the deserialized cache first to save CPU
-                if (!m_deserializedCache.TryGetValue(key, out var servers))
+                if (m_deserializedCache.TryGetValue(key, out var servers))
                 {
-                    // Fallback to raw JSON if cache missing
+                    if (servers != null)
+                        foreach (var server in servers)
+                            if (server.clients != null)
+                                foreach (var client in server.clients)
+                                    activeGuids.Add(GetHash(client.name, client.country, client.instrument));
+                }
+                else
+                {
                     if (LastReportedList.TryGetValue(key, out string json))
                     {
-                        try { servers = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(json); }
+                        try 
+                        { 
+                            var manualServers = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(json);
+                            foreach (var server in manualServers)
+                                if (server.clients != null)
+                                    foreach (var client in server.clients)
+                                        activeGuids.Add(GetHash(client.name, client.country, client.instrument));
+                        }
                         catch { continue; }
                     }
                 }
+            }
 
-                if (servers != null)
+            // --- 2. Live Scan of CSV Data (With Robust File Sharing) ---
+            var guidMaxSignals = new Dictionary<string, int>();
+            string filePath = "join-events.csv";
+
+            if (System.IO.File.Exists(filePath))
+            {
+                try 
                 {
-                    foreach (var server in servers)
+                    // FIX: Use FileStream with FileShare.ReadWrite to prevent IOExceptions
+                    // if rsync/scp/python is writing to the file at the exact same moment.
+                    using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var sr = new StreamReader(fs))
                     {
-                        if (server.clients != null)
+                        string line;
+                        while ((line = await sr.ReadLineAsync()) != null)
                         {
-                            foreach (var client in server.clients)
+                            // Fast skip if IP isn't in the line at all
+                            if (!line.Contains(ipClean)) continue;
+
+                            var parts = line.Split(',');
+
+                            if (parts.Length > 12)
                             {
-                                activeGuids.Add(GetHash(client.name, client.country, client.instrument));
+                                // Column 11 is the Client IP:Port
+                                string clientIpPort = parts[11].Trim();
+
+                                // Match: StartsWith handles the Port suffix correctly
+                                if (clientIpPort.StartsWith(ipClean + ":"))
+                                {
+                                    string candidateGuid = parts[2].Trim(); // GUID is Column 2
+                                    
+                                    if (int.TryParse(parts[12], out int signal))
+                                    {
+                                        if (!guidMaxSignals.ContainsKey(candidateGuid))
+                                            guidMaxSignals[candidateGuid] = signal;
+                                        else if (signal > guidMaxSignals[candidateGuid])
+                                            guidMaxSignals[candidateGuid] = signal;
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-
-            // --- 2. Access the Preloaded CSV Data from RAM ---
-            // This ensures we are NOT reading from disk (0ms latency here)
-            var preloadedData = await GetCachedPreloadedDataAsync();
-            string[] lines = preloadedData.JoinEventsLines;
-
-            // --- 3. Parse Candidates ---
-            var candidates = new List<(string Guid, int Signal)>();
-
-            foreach (var line in lines)
-            {
-                // MICRO-OPTIMIZATION: Check .Contains before splitting string
-                // String.Split is expensive; we only want to do it if the IP is actually there.
-                if (!line.Contains(ipClean)) continue;
-
-                var parts = line.Split(',');
-
-                // We need at least up to column 12 (Golden Bitfield)
-                if (parts.Length > 12)
+                catch (IOException ex)
                 {
-                    // Column 11 is IP
-                    if (parts[11].Trim().Contains(ipClean))
-                    {
-                        string candidateGuid = parts[2].Trim(); // Column 2 is GUID
-
-                        // Column 12 is Signal Strength (Golden Bitfield)
-                        if (int.TryParse(parts[12], out int signal))
-                        {
-                            candidates.Add((candidateGuid, signal));
-                        }
-                    }
+                    // If we still can't read it (rare lock), just log and move on. Don't crash the server.
+                    Console.WriteLine($"[GuidFromIpAsync] File contention error: {ex.Message}");
                 }
             }
 
-            // --- 4. Sort by Signal Strength (High to Low) ---
-            var sortedMatches = candidates
-                .OrderByDescending(x => x.Signal)
-                .Select(x => x.Guid);
+            // --- 3. Find the Best Active Candidate ---
+            var sortedCandidates = guidMaxSignals.OrderByDescending(x => x.Value);
 
-            // --- 5. Return the first Historical Match that is Active Now ---
-            foreach (var guid in sortedMatches)
+            string bestActiveGuid = null;
+            int bestActiveSignal = -1;
+
+            foreach (var kvp in sortedCandidates)
             {
-                if (activeGuids.Contains(guid))
+                if (activeGuids.Contains(kvp.Key))
                 {
-                    return guid;
+                    bestActiveGuid = kvp.Key;
+                    bestActiveSignal = kvp.Value;
+                    break; 
                 }
             }
 
-            return null;
+            if (bestActiveGuid == null) return null;
+
+            // --- 4. Apply "Weak Active vs Strong History" Veto Rule ---
+            if (bestActiveSignal < 3)
+            {
+                bool strongHistoryExists = guidMaxSignals.Values.Any(signal => signal >= 3);
+                if (strongHistoryExists) return null;
+            }
+
+            return bestActiveGuid;
         }
-
-        /*
-        //[Route("{daysForward}")]
-        @page "item"
-        [HttpGet]
-        public IActionResult Get(int daysForward)
-        {
-            var rng = new Random();
-            return new JsonResult( new string (daysForward.ToString() + "noob")) ; //  "yeah";
-                /* "new JsonResult(new WeatherForecast
-            {
-                Date = DateTime.Now.AddDays(daysForward),
-                TemperatureC = rng.Next(-20, 55),
-                Summary = Summaries[rng.Next(Summaries.Length)]
-            });
-                */
-
-
+        
         public string PrettyTimeTilString(int iMins)
         {
             if (iMins < 10)
