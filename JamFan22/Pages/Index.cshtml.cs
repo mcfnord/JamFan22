@@ -4539,56 +4539,67 @@ public async Task<string> GetGutsRightNow()
         // ---------------------------------------------------------
         // REPLACES 'GetRightNowAsync'
         // ---------------------------------------------------------
-public async Task<string> GetRightNowAsync()
-{
-    // NO LOCKS HERE (Lock is held by OnGetAsync)
-    try
-    {
-        // 1. Throttle & Geo Logic
-        bool shouldFetchGeo = false;
-        string ipAddress = GetClientIpAddress();
+        // 1. NEW CACHE: Thread-safe, stores Code + Expiration
+        // "ConcurrentDictionary" handles locking for us automatically.
+        private static System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache
+            = new System.Collections.Concurrent.ConcurrentDictionary<string, (string, DateTime)>();
 
-        if (!string.IsNullOrEmpty(ipAddress) && !userIpCachedItems.ContainsKey(ipAddress))
+        public async Task<string> GetRightNowAsync()
         {
-            lock (_geoCheckLock)
+            try
             {
-                if (DateTime.Now > _lastGeoCheck.AddSeconds(2))
+                string ipAddress = GetClientIpAddress();
+                string UserNationCode = "US";
+                if (!string.IsNullOrEmpty(ipAddress))
                 {
-                    _lastGeoCheck = DateTime.Now;
-                    shouldFetchGeo = true;
+                    // 2. CHECK CACHE (Valid for 48 Hours)
+                    if (_countryCodeCache.TryGetValue(ipAddress, out var cached) && DateTime.Now < cached.Expiry)
+                    {
+                        UserNationCode = cached.Code;
+                    }
+                    else
+                    {
+                        // 3. FETCH FROM "OTHER" ENDPOINT (ip-api.com)
+                        // We assume this is effectively the "GetOrAdd" logic inlined for simplicity
+                        try
+                        {
+                            // Use the shared httpClient you defined earlier
+                            // Note: ip-api.com is rate limited to 45 requests per minute.
+                            string url = $"http://ip-api.com/json/{ipAddress}";
+                            string response = await httpClient.GetStringAsync(url);
+
+                            var json = JObject.Parse(response);
+                            string code = (string)json["countryCode"]; // ip-api uses "countryCode" (e.g. "US", "IT")
+
+                            if (!string.IsNullOrEmpty(code))
+                            {
+                                // Update the instance property (Fixes the Italian bug)
+                                UserNationCode = code;
+
+                                // Save to cache with 48 hour expiration
+                                _countryCodeCache[ipAddress] = (code, DateTime.Now.AddHours(48));
+
+                                Console.WriteLine($"[Geo Updated] {ipAddress} is {code}. Cached for 48h.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Geo lookup failed: {ex.Message}. Keeping default 'US'.");
+                        }
+                    }
                 }
+
+                // 4. Return Page Content
+                return await GetGutsRightNow();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in GetRightNowAsync: {ex.Message}");
+                return "";
             }
         }
 
-        MyUserGeoCandy geoData = null;
-        if (shouldFetchGeo)
-        {
-            geoData = await GetOrAddUserGeoDataAsync(ipAddress);
-        }
-
-    if (geoData != null)
-        {
-            UpdateUserStatistics(ipAddress, geoData);
-            m_TwoLetterNationCode = geoData.countryCode2;
-        }
-        else
-        {
-            Console.WriteLine($"[GEO DIAGNOSTIC] Update skipped for {ipAddress}. " +
-                              $"Throttled/Cached: {!shouldFetchGeo}. " +
-                              $"Current Nation Stuck At: {m_TwoLetterNationCode}");
-        }
-
-        // 2. CALL THE METHOD WE JUST RESTORED
-        return await GetGutsRightNow(); 
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error in GetRightNowAsync: {ex.Message}");
-        return "";
-    }
-}
-
-public string RightNowForView { get; private set; }
+        public string RightNowForView { get; private set; }
 
 // --- Caching Fields for Census Data (1M+ Lines) ---
         // Definition includes Instrument to prevent CS0102 errors
