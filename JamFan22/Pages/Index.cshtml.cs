@@ -94,16 +94,43 @@ namespace JamFan22.Pages
 
         // REPLACE your 'public void OnGet()' or 'public IActionResult OnGet()'
         // with this 'public async Task<IActionResult> OnGetAsync()'
-        public async Task<IActionResult> OnGetAsync()
+public async Task<IActionResult> OnGetAsync()
+{
+    // 1. Start the stopwatch to measure total request cost
+    var sw = Stopwatch.StartNew();
+
+    // 2. Severe Serialization: Wait here. 
+    // This creates a single-file line. Only one user passes this point at a time.
+    await m_serializerMutex.WaitAsync();
+    
+    try
+    {
+        // 3. Perform the heavy lifting while we hold the "conch shell"
+        // We call the methods directly. We will REMOVE the locks inside these methods
+        // in the next steps to avoid deadlocks.
+        IpHashForView = await GetIPDerivedHashAsync();
+
+        RightNowForView = await GetRightNowAsync();
+
+        ShowServerByIPPortForView = await GetShowServerByIPPortAsync();
+    }
+    finally
+    {
+        // 4. Release the lock immediately so the next user in line can proceed
+        m_serializerMutex.Release();
+        
+        sw.Stop();
+
+        // 5. Diagnostic: If a request takes > 500ms, log it.
+        // This tells you exactly which "occasional processes" are clogging the CPU.
+        if (sw.ElapsedMilliseconds > 500)
         {
-            IpHashForView = await GetIPDerivedHashAsync();
-
-            RightNowForView = await GetRightNowAsync();
-
-            ShowServerByIPPortForView = await GetShowServerByIPPortAsync();
-
-            return Page();
+            Console.WriteLine($"[SLOW REQUEST] Serialization Duration: {sw.ElapsedMilliseconds}ms");
         }
+    }
+
+    return Page();
+}
 
         public static Dictionary<string, string> JamulusListURLs = new Dictionary<string, string>()
         {
@@ -555,7 +582,7 @@ public static string GetHash(string name, string country, string instrument)
                             // --- ADD THIS 'try' BLOCK ---
                             try
                             {
-                                Console.WriteLine("DIAGNOSTIC: Starting 21-day cull logic...");
+                                Console.WriteLine("Starting 21-day cull logic...");
 
                                 foreach (var item in m_timeTogetherUpdated)
                                 {
@@ -570,7 +597,7 @@ public static string GetHash(string name, string country, string instrument)
                                 }
                                 
                                 // If you see this log, my hypothesis is WRONG
-                                Console.WriteLine("DIAGNOSTIC: Cull logic completed successfully.");
+                                Console.WriteLine("Cull logic completed successfully.");
                                 m_timeTogether = newTimeTogether;
                                 m_timeTogetherUpdated = newTimeTogetherUpdated;
                             }
@@ -2468,28 +2495,6 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
         private static readonly SemaphoreSlim _dataLoadLock = new SemaphoreSlim(1, 1);
 
 
-        public async Task<string> GetGutsRightNow()
-        {
-            // 1. Initialize state
-            InitializeGutsRequest();
-
-            // 2. Fetch remote prediction data
-            await UpdatePredictionsIfNeededAsync();
-
-            // 3. Get cached data, refreshing if older than 900 seconds
-            var preloadedData = await GetCachedPreloadedDataAsync();
-
-            // 4. Process all servers and clients to build the internal list
-            await ProcessServerListsAsync(preloadedData);
-
-            // 5. Sort the processed servers by distance
-            IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
-
-            // 6. Generate the final HTML from the sorted list
-            string output = await GenerateServerListHtmlAsync(sortedByDistanceAway, preloadedData);
-
-            return output;
-        }
 
         //################################################################################
         // NEW CACHING HELPER METHOD (With Manual GC Injection)
@@ -3289,7 +3294,7 @@ private async Task<string> BuildMultiUserServerCardAsync(ServersForMe s, List<Cl
                 // Grace Period: Strangers now get 60 minutes of fame (up from 15).
                 if (howLong > 60.0) 
                 {
-                    Console.WriteLine($"DIAGNOSTIC: Hiding Stranger '{firstUser.name}' on {s.name}. Time: {howLong:F1}m (> 60m limit).");
+                    Console.WriteLine($"Hiding Stranger '{firstUser.name}' on {s.name}. Time: {howLong:F1}m (> 60m limit).");
                     return ""; 
                 }
             }
@@ -4224,36 +4229,28 @@ private async Task<string> GetSnippetHtmlAsync(string serverAddress)
         // 2. ADD THIS NEW ASYNC METHOD
         // This is the non-blocking version of your old property.
         // It correctly uses 'await WaitAsync' and 'Release'.
-        public async Task<string> GetShowServerByIPPortAsync()
-        {
-            // This is the new, non-blocking 'await'
-            await m_serializerMutex.WaitAsync();
-            try
-            {
-                string ret = "<table><tr><th>Server<th>Server Address</tr>\n";
+public async Task<string> GetShowServerByIPPortAsync()
+{
+    // REMOVED: await m_serializerMutex.WaitAsync();
+    // REMOVED: try { ... } finally { Release } wrappers
 
-                // Your original logic is unchanged.
-                // Using .ToList() here is good as it copies the list
-                // so you can release the lock quickly.
-                foreach (var s in m_allMyServers.OrderBy(x => x.name).ToList())
-                {
-                    ret += "<tr><td>" + s.name + "<td>" +
-                           s.serverIpAddress +
-                           ":" +
-                           s.serverPort +
-                           "</tr>\n";
-                }
-                ret += "</table>\n";
+    // Just strictly do the work:
+    StringBuilder ret = new StringBuilder("<table><tr><th>Server<th>Server Address</tr>\n");
 
-                return ret;
-            }
-            finally
-            {
-                // This is the new, non-blocking 'Release'
-                m_serializerMutex.Release();
-            }
-        }
-    
+    // We can safely read m_allMyServers because OnGetAsync ensures we are the only reader
+    foreach (var s in m_allMyServers.OrderBy(x => x.name).ToList())
+    {
+        ret.Append("<tr><td>" + s.name + "<td>" +
+                s.serverIpAddress +
+                ":" +
+                s.serverPort +
+                "</tr>\n");
+    }
+    ret.Append("</table>\n");
+
+    return ret.ToString();
+}
+
 
         static int m_conditionsDelta = 0;
 
@@ -4507,6 +4504,32 @@ return (120 + rand.Next(-9,9)).ToString();
         }
         */
 
+
+// 
+public async Task<string> GetGutsRightNow()
+{
+    // 1. Initialize state for this request
+    InitializeGutsRequest();
+
+    // 2. Fetch remote prediction data (if needed)
+    await UpdatePredictionsIfNeededAsync();
+
+    // 3. Get cached data (Servers, Blocklists, etc.), refreshing if older than 5 mins
+    var preloadedData = await GetCachedPreloadedDataAsync();
+
+    // 4. Process all servers and clients to build the internal list (m_allMyServers)
+    await ProcessServerListsAsync(preloadedData);
+
+    // 5. Sort the processed servers by distance
+    // (This works because m_allMyServers was populated by step 4)
+    IEnumerable<ServersForMe> sortedByDistanceAway = m_allMyServers.OrderBy(svr => svr.distanceAway);
+
+    // 6. Generate the final HTML from the sorted list
+    string output = await GenerateServerListHtmlAsync(sortedByDistanceAway, preloadedData);
+
+    return output;
+}
+
 // ---------------------------------------------------------
         // NEW THROTTLING FIELDS 
         // ---------------------------------------------------------
@@ -4516,85 +4539,267 @@ return (120 + rand.Next(-9,9)).ToString();
         // ---------------------------------------------------------
         // REPLACES 'GetRightNowAsync'
         // ---------------------------------------------------------
-        public async Task<string> GetRightNowAsync()
+public async Task<string> GetRightNowAsync()
+{
+    // NO LOCKS HERE (Lock is held by OnGetAsync)
+    try
+    {
+        // 1. Throttle & Geo Logic
+        bool shouldFetchGeo = false;
+        string ipAddress = GetClientIpAddress();
+
+        if (!string.IsNullOrEmpty(ipAddress) && !userIpCachedItems.ContainsKey(ipAddress))
         {
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-            // 1. THROTTLE CHECK (No Lock Yet)
-            bool shouldFetchGeo = false;
-            string ipAddress = GetClientIpAddress();
-
-            if (!string.IsNullOrEmpty(ipAddress) && !userIpCachedItems.ContainsKey(ipAddress))
+            lock (_geoCheckLock)
             {
-                lock (_geoCheckLock)
+                if (DateTime.Now > _lastGeoCheck.AddSeconds(2))
                 {
-                    if (DateTime.Now > _lastGeoCheck.AddSeconds(2))
-                    {
-                        _lastGeoCheck = DateTime.Now;
-                        shouldFetchGeo = true;
-                    }
+                    _lastGeoCheck = DateTime.Now;
+                    shouldFetchGeo = true;
                 }
             }
+        }
 
-            // 2. NETWORK CALL (No Lock Yet)
-            MyUserGeoCandy geoData = null;
-            if (shouldFetchGeo)
-            {
-                geoData = await GetOrAddUserGeoDataAsync(ipAddress);
-            }
+        MyUserGeoCandy geoData = null;
+        if (shouldFetchGeo)
+        {
+            geoData = await GetOrAddUserGeoDataAsync(ipAddress);
+        }
 
-            // 3. MAIN LOCK (Fast CPU Work)
-            await m_serializerMutex.WaitAsync();
-            try
-            {
-                if (geoData != null)
-                {
-                    UpdateUserStatistics(ipAddress, geoData);
-                    m_TwoLetterNationCode = geoData.countryCode2;
-                }
-                
-                // CALLS THE WORKER METHOD HERE
-                return await GetGutsRightNow(); 
-            }
-            finally
-            {
-                stopwatch.Stop();
-                AdjustPerformanceDelta(stopwatch.Elapsed);
-                m_serializerMutex.Release();
-            }
-        }        
+    if (geoData != null)
+        {
+            UpdateUserStatistics(ipAddress, geoData);
+            m_TwoLetterNationCode = geoData.countryCode2;
+        }
+        else
+        {
+            Console.WriteLine($"[GEO DIAGNOSTIC] Update skipped for {ipAddress}. " +
+                              $"Throttled/Cached: {!shouldFetchGeo}. " +
+                              $"Current Nation Stuck At: {m_TwoLetterNationCode}");
+        }
+
+        // 2. CALL THE METHOD WE JUST RESTORED
+        return await GetGutsRightNow(); 
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error in GetRightNowAsync: {ex.Message}");
+        return "";
+    }
+}
 
 public string RightNowForView { get; private set; }
 
-        // 1. Converted from a 'string' property to an 'async Task<string>' method
-        public async Task<string> GetIPDerivedHashAsync()
-        {
-            string ipAddress = GetClientIpAddress();
+// --- Caching Fields for Census Data (1M+ Lines) ---
+        // Definition includes Instrument to prevent CS0102 errors
+        private static Dictionary<string, (string City, string Nation, string Instrument)> _censusCache = null;
+        private static DateTime _censusCacheTime = DateTime.MinValue;
+        private static readonly SemaphoreSlim _censusLock = new SemaphoreSlim(1, 1);
+
+public async Task<string> GetIPDerivedHashAsync()
+{
+    string ipAddress = GetClientIpAddress();
 #if WINDOWS
-        // Testing on windows doesn't give real data so I do this.
-        ipAddress = "97.186.6.197";
+    // Debugging override
+    ipAddress = "97.186.6.197"; 
 #endif
-            // 2. This is the fix: 'await' the async method
-            var likelyGuidOfUser = await GuidFromIpAsync(ipAddress); // Might be null!
+    
+    // 1. GATHER INTEL
+    var candidatesTask = GuidFromIpAsync(ipAddress);
+    var geoTask = GetOrAddUserGeoDataAsync(ipAddress); 
+    var asnTask = AsnOfThisIpAsync(ipAddress); 
+    var blockListTask = GetCachedPreloadedDataAsync(); 
+    
+    await Task.WhenAll(candidatesTask, geoTask, asnTask, blockListTask);
+    
+    var candidates = candidatesTask.Result;
+    var geo = geoTask.Result;
+    string rawAsn = asnTask.Result ?? "";
+    var blockData = blockListTask.Result;
 
-            if (null != likelyGuidOfUser)
+    // 2. ANALYZE THREATS
+    string shortAsn = rawAsn.Split(' ')[0]; 
+    bool isBlocked = blockData.BlockedASNs.Contains(shortAsn);
+
+    // 3. PRINT DIAGNOSTICS
+    if (candidates.Count > 0 || isBlocked)
+    {
+        // A. SORT CANDIDATES
+        var sortedCandidates = candidates.OrderByDescending(c => c.IsOnline)
+                                         .ThenByDescending(c => c.Signal)
+                                         .ThenByDescending(c => c.Timestamp)
+                                         .ToList();
+
+        var bestMatch = sortedCandidates.FirstOrDefault();
+        string inferredIdentity = "Unknown";
+        string matchReason = "Insufficient Data";
+
+        bool veto = false;
+        bool overrideTriggered = false;
+
+        // B. CALCULATE DECISION (For Display)
+        
+        // CHECK: IRON-CLAD OVERRIDE (Diamond Bunny Logic)
+        if (bestMatch != default && bestMatch.IsOnline && bestMatch.Signal < 2)
+        {
+            var heavyHitter = candidates.Where(c => !c.IsOnline && c.Signal >= 28)
+                                        .OrderByDescending(c => c.Timestamp)
+                                        .FirstOrDefault();
+            
+            if (heavyHitter != default)
             {
-                Console.WriteLine(likelyGuidOfUser + " is the likely guid of " + ipAddress);
-                if (m_guidNamePairs.ContainsKey(likelyGuidOfUser))
-                    Console.WriteLine("  AKA: " + m_guidNamePairs[likelyGuidOfUser]);
+                bestMatch = heavyHitter;
+                matchReason = $"OVERRIDE: Weak Online (Sig 0) replaced by Iron-Clad Regular (Sig {heavyHitter.Signal})";
+                inferredIdentity = !string.IsNullOrWhiteSpace(heavyHitter.Name) ? heavyHitter.Name : "No Name";
+                overrideTriggered = true; 
             }
-
-            if (null == likelyGuidOfUser)
-                return "null;";
-            else
-                return "\"" + likelyGuidOfUser + "\";";
         }
 
-public async Task<string> GuidFromIpAsync(string ipAddress)
+        if (!overrideTriggered)
+        {
+            // Standard Veto Checks
+            if (bestMatch != default && bestMatch.IsOnline && bestMatch.Signal == 0 && 
+                candidates.Any(c => !c.IsOnline && c.Signal >= 28)) 
+            {
+                matchReason = "VETO: Online (Sig 0) vs Heavy Offline (Sig 28+).";
+                inferredIdentity = "None (Vetoed)";
+                veto = true;
+            }
+            else if (bestMatch != default && bestMatch.Signal < 3 && candidates.Any(c => c.Signal >= 3))
+            {
+                matchReason = "VETO: Weak match vs Strong History.";
+                inferredIdentity = "None (Vetoed)";
+                veto = true;
+            }
+            else if (candidates.Count > 4 && bestMatch != default && bestMatch.Signal == 0)
+            {
+                matchReason = "VETO: Crowded IP.";
+                inferredIdentity = "None (Ambiguous)";
+                veto = true;
+            }
+        }
+
+        if (!veto && !overrideTriggered && bestMatch != default)
+        {
+            inferredIdentity = !string.IsNullOrWhiteSpace(bestMatch.Name) ? bestMatch.Name : "No Name";
+            matchReason = bestMatch.IsOnline ? "Active (ONLINE)" : "Most Recent (Offline)";
+        }
+
+        // C. CONSOLE OUTPUT - EXECUTIVE SUMMARY
+        string primaryLoc = (geo != null) ? $"{geo.city}, {geo.countryCode2}" : "Unknown";
+        Console.WriteLine("________________________________________________________________________________");
+        Console.WriteLine($"Client IP:       {ipAddress}");
+        Console.WriteLine($"   GeoLoc:       {primaryLoc}");
+        Console.WriteLine($"   Network:       {rawAsn}");
+        
+        if (isBlocked)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"   WARNING:       MATCHES BLOCKED NETWORK ({shortAsn})");
+            Console.ResetColor();
+        }
+
+        Console.WriteLine("");
+        Console.WriteLine($"   => MATCH:      {inferredIdentity}");
+        Console.WriteLine($"   => REASON:     {matchReason}");
+        Console.WriteLine("");
+
+        // D. CONSOLE OUTPUT - THE CANDIDATE TABLE (Restored!)
+        if (candidates.Count > 0)
+        {
+            Console.WriteLine($"{"TIME",-8} {"SIG",-4} {"STATUS",-8} {"GUID",-6} {"INSTRUMENT",-16} IDENTITY");
+
+            foreach (var c in sortedCandidates) 
+            {
+                string time = c.Timestamp.ToString();
+                string sig = c.Signal.ToString();
+                string guidFragment = c.Guid.Length > 5 ? c.Guid.Substring(c.Guid.Length - 5) : c.Guid;
+                
+                string name = c.Name;
+                string locRaw = string.IsNullOrEmpty(c.City) && string.IsNullOrEmpty(c.Nation) 
+                    ? "-" 
+                    : $"{c.City}, {c.Nation}";
+                string identity = $"{name} [{locRaw}]";
+                
+                string inst = string.IsNullOrEmpty(c.Instrument) ? "-" : c.Instrument;
+                if (inst.Length > 15) inst = inst.Substring(0, 13) + "..";
+
+                Console.Write($" {time,-8} {sig,-4} ");
+
+                if (c.IsOnline) 
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write($"{"ONLINE",-8} ");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    // Highlight Heavy Hitters (Yellow for >= 3)
+                    if (c.Signal >= 3) Console.ForegroundColor = ConsoleColor.Yellow;
+                    else Console.ForegroundColor = ConsoleColor.Gray;
+                    
+                    Console.Write($"{"OFFLINE",-8} ");
+                    Console.ResetColor();
+                }
+
+                Console.WriteLine($"{guidFragment,-6} {inst,-16} {identity}");
+            }
+            Console.WriteLine("");
+        }
+        else
+        {
+            Console.WriteLine("   (No historical GUID matches found for this IP)");
+        }
+    }
+
+    // 4. THE DECIDER (RETURN LOGIC)
+    var onlineCandidate = candidates.FirstOrDefault(c => c.IsOnline);
+
+    // --- IRON-CLAD OVERRIDE (Sig 28) ---
+    if (onlineCandidate != default && onlineCandidate.Signal < 2)
+    {
+        var heavyHitters = candidates.Where(c => !c.IsOnline && c.Signal >= 28)
+                                     .OrderByDescending(c => c.Timestamp)
+                                     .ToList();
+
+        if (heavyHitters.Any())
+        {
+            return "\"" + heavyHitters.First().Guid + "\";";
+        }
+    }
+
+    // --- STANDARD LOGIC ---
+    if (onlineCandidate != default)
+    {
+        // Veto if Heavy Offline exists
+        if (onlineCandidate.Signal == 0 && candidates.Any(c => !c.IsOnline && c.Signal >= 28)) return "null;";
+        // Veto if Strong History exists
+        if (onlineCandidate.Signal < 3 && candidates.Any(c => c.Signal >= 3)) return "null;";
+        // Veto if Crowded
+        if (candidates.Count > 4 && onlineCandidate.Signal == 0) return "null;";
+
+        return "\"" + onlineCandidate.Guid + "\";";
+    }
+    else
+    {
+        // Offline Fallback
+        var offlineWinner = candidates.OrderByDescending(c => c.Signal)
+                                      .ThenByDescending(c => c.Timestamp)
+                                      .FirstOrDefault();
+
+        if (offlineWinner != default && offlineWinner.Signal > 0) 
+            return "\"" + offlineWinner.Guid + "\";";
+    }
+
+    return "null;"; 
+}
+
+        // Return Type: List of candidates (Guid, Name, City, Nation, Instrument, Signal, IsOnline, Timestamp)
+        public async Task<List<(string Guid, string Name, string City, string Nation, string Instrument, int Signal, bool IsOnline, long Timestamp)>> GuidFromIpAsync(string ipAddress)
         {
             string ipClean = ipAddress.Replace("::ffff:", "").Trim();
 
-            // --- 1. Harvest Active GUIDs from Live Memory ---
+            // 1. Harvest Active GUIDs
             HashSet<string> activeGuids = new HashSet<string>();
             var keys = LastReportedList.Keys.ToList();
 
@@ -4608,196 +4813,184 @@ public async Task<string> GuidFromIpAsync(string ipAddress)
                                 foreach (var client in server.clients)
                                     activeGuids.Add(GetHash(client.name, client.country, client.instrument));
                 }
-                else
+                else if (LastReportedList.TryGetValue(key, out string json))
                 {
-                    if (LastReportedList.TryGetValue(key, out string json))
-                    {
-                        try 
-                        { 
-                            var manualServers = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(json);
-                            foreach (var server in manualServers)
-                                if (server.clients != null)
-                                    foreach (var client in server.clients)
-                                        activeGuids.Add(GetHash(client.name, client.country, client.instrument));
-                        }
-                        catch { continue; }
+                    try 
+                    { 
+                        var manualServers = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(json);
+                        foreach (var server in manualServers)
+                            if (server.clients != null)
+                                foreach (var client in server.clients)
+                                    activeGuids.Add(GetHash(client.name, client.country, client.instrument));
                     }
+                    catch { continue; }
                 }
             }
 
-            // --- 2. Live Scan of CSV Data (With Robust File Sharing) ---
+            // 2. Live Scan of CSV Data
             var guidMaxSignals = new Dictionary<string, int>();
-            string filePath = "join-events.csv";
+            var guidNames = new Dictionary<string, string>(); 
+            var guidRecency = new Dictionary<string, long>();
+            var guidTimestamp = new Dictionary<string, long>();
+            
+            string joinPath = "join-events.csv";
+            long lineIndex = 0;
 
-            if (System.IO.File.Exists(filePath))
+            if (System.IO.File.Exists(joinPath))
             {
                 try 
                 {
-                    // FIX: Use FileStream with FileShare.ReadWrite to prevent IOExceptions
-                    // if rsync/scp/python is writing to the file at the exact same moment.
-                    using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var fs = new FileStream(joinPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                     using (var sr = new StreamReader(fs))
                     {
                         string line;
                         while ((line = await sr.ReadLineAsync()) != null)
                         {
-                            // Fast skip if IP isn't in the line at all
+                            lineIndex++;
                             if (!line.Contains(ipClean)) continue;
 
                             var parts = line.Split(',');
-
                             if (parts.Length > 12)
                             {
-                                // Column 11 is the Client IP:Port
-                                string clientIpPort = parts[11].Trim();
-
-                                // Match: StartsWith handles the Port suffix correctly
+                                string clientIpPort = parts[11].Trim(); 
                                 if (clientIpPort.StartsWith(ipClean + ":"))
                                 {
-                                    string candidateGuid = parts[2].Trim(); // GUID is Column 2
+                                    string candidateGuid = parts[2].Trim();
+                                    string rawName = parts[3].Trim();
+                                    string decodedName = System.Web.HttpUtility.UrlDecode(rawName);
                                     
+                                    long.TryParse(parts[0], out long ts);
+
                                     if (int.TryParse(parts[12], out int signal))
                                     {
+                                        guidRecency[candidateGuid] = lineIndex; 
+                                        guidTimestamp[candidateGuid] = ts;
+
                                         if (!guidMaxSignals.ContainsKey(candidateGuid))
+                                        {
                                             guidMaxSignals[candidateGuid] = signal;
-                                        else if (signal > guidMaxSignals[candidateGuid])
-                                            guidMaxSignals[candidateGuid] = signal;
+                                            guidNames[candidateGuid] = decodedName;
+                                        }
+                                        else 
+                                        {
+                                            if (signal > guidMaxSignals[candidateGuid])
+                                                guidMaxSignals[candidateGuid] = signal;
+                                            
+                                            guidNames[candidateGuid] = decodedName;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-                catch (IOException ex)
-                {
-                    // If we still can't read it (rare lock), just log and move on. Don't crash the server.
-                    Console.WriteLine($"[GuidFromIpAsync] File contention error: {ex.Message}");
-                }
+                catch (IOException ex) { Console.WriteLine($"[GuidFromIpAsync] Join Read Error: {ex.Message}"); }
             }
 
-            // --- 3. Find the Best Active Candidate ---
-            var sortedCandidates = guidMaxSignals.OrderByDescending(x => x.Value);
+            // 3. Scan Census Data via Cache
+            // IMPORTANT: Ensure you have the updated GetCensusCacheAsync below!
+            var richCache = await GetCensusCacheAsync();
 
-            string bestActiveGuid = null;
-            int bestActiveSignal = -1;
+            // 4. Build & Sort
+            var results = new List<(string Guid, string Name, string City, string Nation, string Instrument, int Signal, bool IsOnline, long Timestamp)>();
 
-            foreach (var kvp in sortedCandidates)
+            foreach (var kvp in guidMaxSignals)
             {
-                if (activeGuids.Contains(kvp.Key))
+                string guid = kvp.Key;
+                int signal = kvp.Value;
+                string name = guidNames.ContainsKey(guid) ? guidNames[guid] : "Unknown";
+                bool isOnline = activeGuids.Contains(guid);
+                long recency = guidRecency.ContainsKey(guid) ? guidRecency[guid] : 0;
+                long ts = guidTimestamp.ContainsKey(guid) ? guidTimestamp[guid] : 0;
+                
+                string city = "";
+                string nation = "";
+                string inst = "";
+
+                if (richCache.TryGetValue(guid, out var info))
                 {
-                    bestActiveGuid = kvp.Key;
-                    bestActiveSignal = kvp.Value;
-                    break; 
-                }
-            }
-
-            if (bestActiveGuid == null) return null;
-
-            // --- 4. Apply "Weak Active vs Strong History" Veto Rule ---
-            if (bestActiveSignal < 3)
-            {
-                bool strongHistoryExists = guidMaxSignals.Values.Any(signal => signal >= 3);
-                if (strongHistoryExists) return null;
-            }
-
-            return bestActiveGuid;
-        }
-        
-        public string PrettyTimeTilString(int iMins)
-        {
-            if (iMins < 10)
-                return "<font size='-1'>(Soon)</font>";
-
-            if (iMins < 60)
-                return "<font size='-1'>(" + iMins.ToString() + "&nbsp;minutes)</font>";
-
-            // divide by 60 and show one decimal place
-            double dHours = iMins / 60.0;
-            string sHours = dHours.ToString("0");
-            double fractional = dHours - (int)(dHours);
-            bool fPlus = (fractional > 0.1 ? true : false);
-            return "<font size='-1'>(" + sHours + (fPlus ? "+" : "") + "&nbsp;hour" + (dHours > 2 ? "s)" : ")") + "</font>";
-        }
-
-        public string Unbreakable(string s)
-        {
-            for(int i=0; i<10; i++)
-                s = s.Replace("  ", " ");
-            return s.Replace(" ", "&nbsp;");
-        }
-
-        public static JArray recommended;
-        public static int iMinuteOfSample = 0;
-
-
-/*
-        public string ComingUp
-        {
-            get
-            {
-                // if current minute isn't iMinuteOfSample, then re-sample
-                if (MinutesSince2023AsInt() != iMinuteOfSample)
-                {
-                    iMinuteOfSample = MinutesSince2023AsInt();
-
-                    string endpoint = "http://35.89.188.108/predicted.json";
-                    using var client = new HttpClient();
-                    System.Threading.Tasks.Task<string> task = client.GetStringAsync(endpoint);
-                    task.Wait();
-                    string s = task.Result;
-                    //                    s = s.Substring(1);
-                    //                    s = s.Substring(0, s.Length - 1);
-                    recommended = JArray.Parse(s);
+                    city = info.City;
+                    nation = info.Nation;
+                    inst = info.Instrument;
                 }
 
-if(null == recommended)
-{
-Console.WriteLine("Just failed to get prediction.") ;
-return "";
-}
+                results.Add((guid, name, city, nation, inst, signal, isOnline, ts));
+            }
 
-                if(null != recommended)
-                if (recommended.HasValues)
+            return results.OrderByDescending(x => x.IsOnline)
+                          .ThenByDescending(x => x.Signal)
+                          .ThenByDescending(x => x.Timestamp)
+                          .ToList();
+        }
+
+        // --- UPDATED CACHE LOADER (Includes Instrument) ---
+        private async Task<Dictionary<string, (string City, string Nation, string Instrument)>> GetCensusCacheAsync()
+        {
+            if (_censusCache != null && DateTime.Now < _censusCacheTime.AddMinutes(60))
+            {
+                return _censusCache;
+            }
+
+            await _censusLock.WaitAsync();
+            try
+            {
+                if (_censusCache != null && DateTime.Now < _censusCacheTime.AddMinutes(60))
                 {
-                    string output = 
-//                        "<h2>Soon</h2>" + 
-                        "<table border='0'>";
-                    //
+                    return _censusCache;
+                }
 
-                    for (int iEntry = 0; iEntry < recommended.Count; iEntry++)
+                Console.WriteLine("Loading Census Data (1M+ lines) into RAM Cache...");
+                var newCache = new Dictionary<string, (string City, string Nation, string Instrument)>();
+                string censusPath = "data/censusgeo.csv";
+
+                if (System.IO.File.Exists(censusPath))
+                {
+                    using (var fs = new FileStream(censusPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var sr = new StreamReader(fs))
                     {
-
-                        int iMins = recommended[iEntry]["MinutesUntil"].ToObject<int>();
-
-                        output += "<tr><td style='border-right: 1px solid gray; border-bottom: 1px solid gray'><p align='right'> ";
-
-                        if (System.Web.HttpUtility.UrlDecode(recommended[iEntry]["ServerName"].ToString()).Length > 0)
-                            output += "<u><b>" 
-                                + Unbreakable(System.Web.HttpUtility.UrlDecode(recommended[iEntry]["ServerName"].ToString())) + "</u></b><br>";
-
-                        output += PrettyTimeTilString(iMins);
-
-                        output += "</p><td style='border-bottom: 1px solid gray'>";
-
-                        int count = recommended[iEntry]["People"].Count();
-
-                        for (int iPos = 0; iPos < count; iPos++)
+                        string line;
+                        while ((line = await sr.ReadLineAsync()) != null)
                         {
-                            var person = recommended[iEntry]["People"][iPos];
-                            output += "<b>" + Unbreakable(System.Web.HttpUtility.UrlDecode(person["Name"].ToString())) + "</b>"
-                                + (person["Instrument"].ToString().Length > 0 ? "(" + Unbreakable(person["Instrument"].ToString()) + ")" : "");
-                            if (iPos < count - 1)
-                                output += ", ";
+                            var parts = line.Split(',');
+                            if (parts.Length >= 5)
+                            {
+                                string rowGuid = parts[0].Trim();
+                                string inst = parts[2].Trim(); 
+                                string city = System.Web.HttpUtility.UrlDecode(parts[3].Trim());
+                                string nation = System.Web.HttpUtility.UrlDecode(parts[4].Trim());
+
+                                if (newCache.TryGetValue(rowGuid, out var existing))
+                                {
+                                    if (!string.IsNullOrWhiteSpace(city))
+                                    {
+                                        newCache[rowGuid] = (city, nation, inst);
+                                    }
+                                }
+                                else
+                                {
+                                    newCache[rowGuid] = (city, nation, inst);
+                                }
+                            }
                         }
-                        output += "</tr>";
                     }
-                    output += "</table><br>";
-                    return output;
                 }
-                return "";
+                
+                Console.WriteLine($"Census Cache Loaded. {newCache.Count} unique profiles.");
+                _censusCache = newCache;
+                _censusCacheTime = DateTime.Now;
+                GC.Collect(2, GCCollectionMode.Forced, true, true);
             }
-            set { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetCensusCacheAsync] Error: {ex.Message}");
+                if (_censusCache == null) _censusCache = new Dictionary<string, (string City, string Nation, string Instrument)>();
+            }
+            finally
+            {
+                _censusLock.Release();
+            }
+
+            return _censusCache;
         }
-        */
     }
 }
