@@ -27,7 +27,7 @@ namespace JamFan22
         private static CacheItem<Dictionary<string, string>> _tooltipCache; 
         private static readonly object _cacheLock = new object();
         
-        // --- 24-Hour Blocklist Fields ---
+        // --- 23-Hour Blocklist Fields ---
         private static readonly ConcurrentDictionary<string, DateTime> _liveUserFirstSeen = new ConcurrentDictionary<string, DateTime>();
         private static readonly ConcurrentDictionary<string, byte> _sessionBlocklist = new ConcurrentDictionary<string, byte>();
         
@@ -241,7 +241,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                 _promotedGuidMap.TryRemove(leftGuid, out _);
             }
 
-            // --- 24-HOUR BLOCKLIST LOGIC ---
+            // --- 23-HOUR BLOCKLIST LOGIC ---
             var now = DateTime.UtcNow;
 
             foreach (var guid in rawLiveGuids)
@@ -259,7 +259,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                     }
 
                     string userInfo = $"{guid} ({name})";
-                    Console.WriteLine($"{userInfo,-60} is PERMANENTLY HIDDEN (live > 24h).");
+                    Console.WriteLine($"{userInfo,-60} is PERMANENTLY HIDDEN (live > 23h).");
                     continue; 
                 }
 
@@ -267,9 +267,9 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                 
                 if (_liveUserFirstSeen.TryGetValue(guid, out var firstSeenTime))
                 {
-                    if (now - firstSeenTime > TimeSpan.FromHours(24))
+                    if (now - firstSeenTime > TimeSpan.FromHours(23))
                     {
-                        Console.WriteLine($"{guid} has been live for over 24 hours. Adding to session blocklist.");
+                        Console.WriteLine($"{guid} has been live for over 23 hours. Adding to session blocklist.");
                         _sessionBlocklist.TryAdd(guid, 1);
                         _liveUserFirstSeen.TryRemove(guid, out _); 
                     }
@@ -534,8 +534,22 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
 
             var orderedRecords = records
                 .OrderBy(r => r.DistanceKm)
-                .GroupBy(r => $"{r.Name}|{r.Location?.city}|{r.Location?.regionName}")
-                .Select(g => g.FirstOrDefault(r => liveGuids.Contains(r.Guid)) ?? g.FirstOrDefault(r => r.IsPredicted) ?? g.First())
+                // FIX: Group by Name + Instrument only. 
+                // This merges "Stan K (CA)" and "Stan K (CO)" into one group.
+                .GroupBy(r => $"{r.Name?.Trim()}|{r.Instrument?.Trim()}")
+                .Select(g => 
+                {
+                    // Priority 1: If one of them is LIVE, show that one.
+                    var liveRecord = g.FirstOrDefault(r => liveGuids.Contains(r.Guid));
+                    if (liveRecord != null) return liveRecord;
+
+                    // Priority 2: If one is PREDICTED, show that one.
+                    var predictedRecord = g.FirstOrDefault(r => r.IsPredicted);
+                    if (predictedRecord != null) return predictedRecord;
+
+                    // Priority 3: Otherwise, show the one seen most recently.
+                    return g.OrderByDescending(r => r.LastSeen).First();
+                })
                 .ToList();
 
             const int minimumVisibleCount = 3;
