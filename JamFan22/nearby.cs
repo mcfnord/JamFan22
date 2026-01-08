@@ -532,14 +532,13 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
             // --- BUILD THE GRID ---
             sb.AppendLine("<div class='musician-grid'>");
 
-            var orderedRecords = records
-                .OrderBy(r => r.DistanceKm)
-                // FIX: Group by Name + Instrument only. 
-                // This merges "Stan K (CA)" and "Stan K (CO)" into one group.
-                .GroupBy(r => $"{r.Name?.Trim()}|{r.Instrument?.Trim()}")
-                .Select(g => 
-                {
-                    // Priority 1: If one of them is LIVE, show that one.
+var orderedRecords = records
+    .OrderBy(r => r.DistanceKm)
+    // CHANGE: Group by Name only. This merges multiple connections 
+    // for the same person (e.g., "Bass" client and "Stream" client).
+    .GroupBy(r => r.Name?.Trim(), StringComparer.OrdinalIgnoreCase) 
+    .Select(g => 
+    {                    // Priority 1: If one of them is LIVE, show that one.
                     var liveRecord = g.FirstOrDefault(r => liveGuids.Contains(r.Guid));
                     if (liveRecord != null) return liveRecord;
 
@@ -880,7 +879,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
             return cacheData;
         }
 
-        private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
+private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
         {
             var cachedData = GetMusicianDataFromCsv();
             var allGoldenGuids = cachedData.AllGoldenGuids;
@@ -894,10 +893,24 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                     continue;
                 }
 
+                // --- FILTER: Exclude names containing "lobby" ---
+                if (stats.MostRecentRecord.Name != null && 
+                    stats.MostRecentRecord.Name.IndexOf("lobby", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+                // --- NEW FILTER: Exclude unnamed Streamers ---
+                else if (string.IsNullOrWhiteSpace(stats.MostRecentRecord.Name) && 
+                         string.Equals(stats.MostRecentRecord.Instrument, "Streamer", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                // ------------------------------------------------
+
                 // --- NEW FILTER RULE ---
                 // Rule: Max Value <= 1 AND >= 88% are zeroes
                 bool hasLowCeiling = stats.MaxGoldenValue <= 1;
-                bool hasHighZeroRatio = (double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.943;
+                bool hasHighZeroRatio = stats.TotalEntries > 0 && ((double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.943);
 
                 if (hasLowCeiling && hasHighZeroRatio)
                 {
@@ -905,7 +918,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                     Console.WriteLine($"[FILTER] Excluded {guid} ({uName}). " +
                                       $"MaxGold: {stats.MaxGoldenValue}, " +
                                       $"Zeroes: {stats.ZeroGoldenCount}/{stats.TotalEntries} " +
-                                      $"({(double)stats.ZeroGoldenCount/stats.TotalEntries:P0})");
+                                      $"({(double)stats.ZeroGoldenCount / stats.TotalEntries:P0})");
                     continue; // Skip this user entirely
                 }
                 // -----------------------
@@ -943,7 +956,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                 .Where(r => r.DistanceKm < 5000)
                 .ToList();
         }
-            
+                    
         private async Task<HashSet<string>> GetLiveGuidsFromApiAsync()
         {
             var liveGuids = new HashSet<string>();
