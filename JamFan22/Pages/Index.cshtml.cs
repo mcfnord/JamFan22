@@ -81,6 +81,43 @@ namespace JamFan22.Pages
             }
         }
 
+// --- PASTE THIS AT THE TOP OF THE CLASS ---
+private static readonly SemaphoreSlim _logLock = new SemaphoreSlim(1, 1);
+// This cache makes sure we don't query ip-api.com for the same user twice in 48 hours
+private static System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache 
+    = new System.Collections.Concurrent.ConcurrentDictionary<string, (string, DateTime)>();        
+
+
+// --- PASTE THIS HELPER METHOD ANYWHERE ---
+/*
+private async Task LogVisitAsync(string ip, string countryCode)
+{
+    // FILTER: Only log if the country is Thailand ("TH")
+    if (countryCode != "TH") return;
+
+    // Format: "2025-12-31 14:00:05, 192.168.1.5, TH"
+    string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}, {ip}, {countryCode}{Environment.NewLine}";
+
+    // Thread-safe write
+    await _logLock.WaitAsync();
+    try
+    {
+        await System.IO.File.AppendAllTextAsync(LogFilePath, logLine);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Logging failed: {ex.Message}");
+    }
+    finally
+    {
+        _logLock.Release();
+    }
+}
+*/
+
+
+
+
         private readonly ILogger<IndexModel> _logger;
 
         public IndexModel(ILogger<IndexModel> logger)
@@ -3014,12 +3051,13 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
                 Console.WriteLine($"Failed to load lounges.json: {ex.Message}");
             }
 
-            // Add hardcoded lounges
+            // Add hardcoded lounges. Listen only appears when an obby or blank name is present
             m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
-            m_connectedLounges["https://openjam.klinkanha.com/"] = "43.208.146.31:22124";
-            m_connectedLounges["https://icecast.voixtel.net.br:8000/stream"] = "189.126.207.3:22124";
+            // m_connectedLounges["https://openjam.klinkanha.com/"] = "43.208.146.31:22124"; // now in lounges.json
+            // m_connectedLounges["https://icecast.voixtel.net.br:8000/stream"] = "189.126.207.3:22124"; // no longer active?
             m_connectedLounges["http://1.onj.me:32123/"] = "139.162.251.38:22124";
             m_connectedLounges["http://3.onj.me:8000/jamulus4"] = "69.164.213.250:22124";
+            m_connectedLounges["https://StudioD.live"] = "	24.199.127.71:22224";
         }
 
 
@@ -4541,63 +4579,64 @@ public async Task<string> GetGutsRightNow()
         // ---------------------------------------------------------
         // 1. NEW CACHE: Thread-safe, stores Code + Expiration
         // "ConcurrentDictionary" handles locking for us automatically.
-        private static System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache
-            = new System.Collections.Concurrent.ConcurrentDictionary<string, (string, DateTime)>();
+//        private static System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache
+//            = new System.Collections.Concurrent.ConcurrentDictionary<string, (string, DateTime)>();
 
-        public async Task<string> GetRightNowAsync()
+// --- REPLACE YOUR EXISTING 'GetRightNowAsync' WITH THIS ---
+public async Task<string> GetRightNowAsync()
+{
+    try
+    {
+        string ipAddress = GetClientIpAddress();
+        string UserNationCode = "US"; // Default if lookup fails
+
+        if (!string.IsNullOrEmpty(ipAddress))
         {
-            try
+            // 1. CHECK CACHE (Is this user in RAM?)
+            if (_countryCodeCache.TryGetValue(ipAddress, out var cached) && DateTime.Now < cached.Expiry)
             {
-                string ipAddress = GetClientIpAddress();
-                string UserNationCode = "US";
-                if (!string.IsNullOrEmpty(ipAddress))
+                UserNationCode = cached.Code;
+            }
+            else
+            {
+                // 2. NEW USER (Fetch from API)
+                try
                 {
-                    // 2. CHECK CACHE (Valid for 48 Hours)
-                    if (_countryCodeCache.TryGetValue(ipAddress, out var cached) && DateTime.Now < cached.Expiry)
+                    string url = $"http://ip-api.com/json/{ipAddress}";
+                    // We use the shared 'httpClient' you already have defined
+                    string response = await httpClient.GetStringAsync(url);
+                    
+                    // Parse the JSON to get the Country Code
+                    var json = Newtonsoft.Json.Linq.JObject.Parse(response);
+                    string code = (string)json["countryCode"];
+
+                    if (!string.IsNullOrEmpty(code))
                     {
-                        UserNationCode = cached.Code;
-                    }
-                    else
-                    {
-                        // 3. FETCH FROM "OTHER" ENDPOINT (ip-api.com)
-                        // We assume this is effectively the "GetOrAdd" logic inlined for simplicity
-                        try
-                        {
-                            // Use the shared httpClient you defined earlier
-                            // Note: ip-api.com is rate limited to 45 requests per minute.
-                            string url = $"http://ip-api.com/json/{ipAddress}";
-                            string response = await httpClient.GetStringAsync(url);
-
-                            var json = JObject.Parse(response);
-                            string code = (string)json["countryCode"]; // ip-api uses "countryCode" (e.g. "US", "IT")
-
-                            if (!string.IsNullOrEmpty(code))
-                            {
-                                // Update the instance property (Fixes the Italian bug)
-                                UserNationCode = code;
-
-                                // Save to cache with 48 hour expiration
-                                _countryCodeCache[ipAddress] = (code, DateTime.Now.AddHours(48));
-
-                                Console.WriteLine($"[Geo Updated] {ipAddress} is {code}. Cached for 48h.");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Geo lookup failed: {ex.Message}. Keeping default 'US'.");
-                        }
+                        UserNationCode = code;
+                        // Save to RAM for 48 hours
+                        _countryCodeCache[ipAddress] = (code, DateTime.Now.AddHours(48));
                     }
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Geo lookup failed: {ex.Message}");
+                }
+            }
 
-                // 4. Return Page Content
-                return await GetGutsRightNow();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in GetRightNowAsync: {ex.Message}");
-                return "";
-            }
+            // 3. LOG TO DISK (Fire and Forget)
+            // The method itself now checks for "TH" before writing.
+//            _ = LogVisitAsync(ipAddress, UserNationCode);
         }
+
+        // 4. Return the HTML content
+        return await GetGutsRightNow();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error in GetRightNowAsync: {ex.Message}");
+        return "";
+    }
+}
 
         public string RightNowForView { get; private set; }
 
