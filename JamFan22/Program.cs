@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseKestrel(serverOptions =>
 {
     //    serverOptions.ListenAnyIP(80);
-    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("keyOct25.pfx", "jamfan"));
+    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("keyJan26.pfx", "jamfan"));
 });
 //*/
 
@@ -34,7 +34,20 @@ if (!app.Environment.IsDevelopment())
 }
 
 // app.UseHttpsRedirection();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.Context.Request.Path.Value.EndsWith("asn-ip-client-blocks.txt", StringComparison.OrdinalIgnoreCase))
+        {
+            var logger = ctx.Context.RequestServices.GetRequiredService<ILogger<Program>>();
+            
+            // Log the access, IP address, or User Agent
+            logger.LogInformation("asn-ip-client-blocks.txt accessed by {IP}", 
+                ctx.Context.Connection.RemoteIpAddress);
+        }
+    }
+});
 
 app.UseRouting();
 
