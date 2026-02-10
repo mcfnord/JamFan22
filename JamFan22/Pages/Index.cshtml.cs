@@ -753,10 +753,84 @@ public static string GetHash(string name, string country, string instrument)
         }
     );
 
-        // DELETE your old RefreshThreadTask and REPLACE it with this entire method
-        public static async Task RefreshThreadTask()
+public static async Task RefreshThreadTask()
         {
-            while (true) // This was your 'JUST_TRY_AGAIN' loop
+            // --- LOCAL HELPER: Generates "livestatus.json" ---
+            async Task GenerateLiveStatusJsonAsync(Dictionary<string, Task<string>> serverStates)
+            {
+                // Structure: Key = IP:Port, Value = Object { name, clients[] }
+                var liveStatus = new Dictionary<string, object>();
+
+                foreach (var kvp in serverStates)
+                {
+                    try
+                    {
+                        string json = await kvp.Value;
+
+                        // Unwrap Python API wrapper if present
+                        if (json.TrimStart().StartsWith("{"))
+                        {
+                            try
+                            {
+                                using (JsonDocument doc = JsonDocument.Parse(json))
+                                {
+                                    if (doc.RootElement.TryGetProperty("servers_data", out var serversData))
+                                    {
+                                        json = serversData.GetRawText();
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+
+                        var servers = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(json);
+                        if (servers == null) continue;
+
+                        foreach (var server in servers)
+                        {
+                            if (server.clients == null || server.clients.Length == 0) continue;
+
+                            string serverKey = $"{server.ip}:{server.port}";
+                            var guids = new List<string>();
+
+                            foreach (var client in server.clients)
+                            {
+                                // Calculate GUID hash
+                                string hash = GetHash(client.name, client.country, client.instrument);
+                                guids.Add(hash);
+                            }
+
+                            if (guids.Count > 0)
+                            {
+                                // STRICT SCHEMA: Only Name and GUIDs
+                                liveStatus[serverKey] = new
+                                {
+                                    name = server.name,
+                                    clients = guids
+                                };
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore individual list failures
+                    }
+                }
+
+                try
+                {
+                    // Overwrite the file atomically
+                    string jsonOutput = System.Text.Json.JsonSerializer.Serialize(liveStatus);
+                    await System.IO.File.WriteAllTextAsync("wwwroot/livestatus.json", jsonOutput);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to write livestatus.json: {ex.Message}");
+                }
+            }
+            // -------------------------------------------------
+
+            while (true)
             {
                 bool fMissingSamplePresent = false;
 
@@ -764,12 +838,19 @@ public static string GetHash(string name, string country, string instrument)
                 {
                     var serverStates = new Dictionary<string, Task<string>>();
 
+                    // 1. Start all downloads in parallel
                     foreach (var key in JamulusListURLs.Keys)
                     {
-                        // Use the new shared static client
                         serverStates.Add(key, s_refreshClient.GetStringAsync(JamulusListURLs[key]));
                     }
 
+                    // 2. Wait for all downloads to complete
+                    await Task.WhenAll(serverStates.Values);
+
+                    // 3. GENERATE THE LIVE STATUS FILE IMMEDIATELY
+                    await GenerateLiveStatusJsonAsync(serverStates);
+
+                    // 4. Process data for internal lists (Legacy Logic)
                     DateTime query_started = DateTime.Now;
                     foreach (var key in JamulusListURLs.Keys)
                     {
@@ -778,84 +859,70 @@ public static string GetHash(string name, string country, string instrument)
                         {
                             newReportedList = await serverStates[key];
 
-                            // --- NEW FIX: Unwrap the Python API response ---
-                            // The new API returns { "servers_data": [ ... ] }, but we just want [ ... ]
-                            try 
+                            // Handle Python API Wrapper for internal processing too
+                            if (newReportedList.TrimStart().StartsWith("{"))
                             {
-                                // Only attempt if it looks like a JSON object (starts with {)
-                                if (newReportedList.TrimStart().StartsWith("{"))
+                                try
                                 {
                                     using (JsonDocument doc = JsonDocument.Parse(newReportedList))
                                     {
                                         if (doc.RootElement.TryGetProperty("servers_data", out var serversData))
                                         {
-                                            // Overwrite the string with JUST the array part
                                             newReportedList = serversData.GetRawText();
                                         }
                                     }
                                 }
+                                catch { }
                             }
-                            catch (Exception) 
-                            { 
-                                // If parsing fails, ignore and treat as legacy/raw format
-                            }
-                            // --- END NEW FIX ---
 
                             if (newReportedList[0] == 'C')
                             {
                                 Console.WriteLine("Indication of data failure: " + newReportedList);
-                                await Task.Delay(1000); 
-                                continue; 
+                                await Task.Delay(1000);
+                                continue;
                             }
                         }
                         catch (Exception ex)
                         {
                             Console.WriteLine($"Exception handling {key}: {ex.Message}");
-                            await Task.Delay(1000); // Non-blocking delay
-                            break; // Breaks to the outer 'while(true)' loop
+                            await Task.Delay(1000);
+                            break; 
                         }
 
                         if (newReportedList[0] != 'C')
                         {
-                            // FIXED: Replaced 'WaitOne'
                             await m_serializerMutex.WaitAsync();
                             try
                             {
                                 if (newReportedList != "CRC mismatch in received message")
                                 {
-                                    // OPTIMIZATION: If we have data and it hasn't changed, do nothing.
                                     if (LastReportedList.ContainsKey(key) && LastReportedList[key] == newReportedList)
                                     {
-                                        // Data is identical to cache; skip joiner detection and assignment
+                                        // Data unchanged
                                     }
                                     else
                                     {
-                                        // Data is new or has changed
                                         if (LastReportedList.ContainsKey(key))
                                         {
                                             DetectJoiners(LastReportedList[key], newReportedList);
                                         }
                                         LastReportedList[key] = newReportedList;
                                     }
-                                }                                
+                                }
                                 else
                                 {
                                     Console.WriteLine("CRC mismatch in received message");
-                                    await Task.Delay(1000); // Non-blocking delay
-                                    break; // Breaks to the outer 'while(true)' loop
+                                    await Task.Delay(1000);
+                                    break;
                                 }
                             }
                             finally
                             {
-                                // FIXED: Replaced 'ReleaseMutex'
                                 m_serializerMutex.Release();
                             }
                         }
-                    } // end foreach (var key in JamulusListURLs.Keys)
+                    } 
 
-//                    Console.WriteLine("Refreshing all seven directories took " + (DateTime.Now - query_started).TotalMilliseconds + "ms");
-
-                    // FIXED: Replaced 'WaitOne'
                     await m_serializerMutex.WaitAsync();
                     try
                     {
@@ -883,26 +950,22 @@ public static string GetHash(string name, string country, string instrument)
                             string currentJson = LastReportedList[key];
                             List<JamulusServers> serversOnList = null;
 
-                            // CPU SAVER: Only deserialize if the JSON string content has changed
                             if (m_jsonCacheSource.TryGetValue(key, out var cachedJson) && cachedJson == currentJson)
                             {
-                                // Use the cached object (Fast!)
                                 serversOnList = m_deserializedCache[key];
                             }
                             else
                             {
-                                // Data changed (or first run): Deserialize and update cache
                                 serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(currentJson);
                                 m_deserializedCache[key] = serversOnList;
                                 m_jsonCacheSource[key] = currentJson;
                             }
+
                             foreach (var server in serversOnList)
                             {
                                 int people = server.clients?.Length ?? 0;
-                                if (people < 1)
-                                    continue;
+                                if (people < 1) continue;
 
-                                // FIXED: Replaced 'File.AppendAllText' with 'await File.AppendAllTextAsync'
                                 await System.IO.File.AppendAllTextAsync("data/server.csv",
                                     server.ip + ":" + server.port + ","
                                     + System.Web.HttpUtility.UrlEncode(server.name) + ","
@@ -914,13 +977,11 @@ public static string GetHash(string name, string country, string instrument)
                                 {
                                     string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
 
-                                    // FIXED: Replaced 'File.AppendAllText'
                                     await System.IO.File.AppendAllTextAsync("data/census.csv", MinutesSince2023() + ","
                                         + stringHashOfGuy + ","
                                         + server.ip + ":" + server.port
                                         + Environment.NewLine);
 
-                                    // FIXED: Replaced 'File.AppendAllText'
                                     await System.IO.File.AppendAllTextAsync("data/censusgeo.csv",
                                         stringHashOfGuy + ","
                                         + System.Web.HttpUtility.UrlEncode(guy.name) + ","
@@ -929,7 +990,6 @@ public static string GetHash(string name, string country, string instrument)
                                         + System.Web.HttpUtility.UrlEncode(guy.country)
                                         + Environment.NewLine);
 
-                                    // ... (all your dictionary logic is synchronous and fine) ...
                                     if (false == m_userServerViewTracker.ContainsKey(stringHashOfGuy))
                                         m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
                                     m_userServerViewTracker[stringHashOfGuy].Add(server.ip + ":" + server.port);
@@ -951,8 +1011,7 @@ public static string GetHash(string name, string country, string instrument)
                                     {
                                         if (false == m_userConnectDurationPerUser.ContainsKey(stringHashOfGuy))
                                             m_userConnectDurationPerUser[stringHashOfGuy] = new Dictionary<string, TimeSpan>();
-                                        if (otherguy == guy)
-                                            continue;
+                                        if (otherguy == guy) continue;
 
                                         string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
                                         var theGuyUser = m_userConnectDurationPerUser[stringHashOfGuy];
@@ -964,41 +1023,17 @@ public static string GetHash(string name, string country, string instrument)
                                         if (false == m_everywhereWeHaveMet.ContainsKey(us))
                                             m_everywhereWeHaveMet[us] = new HashSet<string>();
                                         m_everywhereWeHaveMet[us].Add(server.ip + ":" + server.port);
-                                    }
 
-                                    if (durationBetweenSamples.TotalSeconds > 0)
-                                    {
-                                        foreach (var otherguy in server.clients)
+                                        if (durationBetweenSamples.TotalSeconds > 0)
                                         {
-
-
-                                
-                                
-                                            string stringHashOfOtherGuy = GetHash(otherguy.name, otherguy.country, otherguy.instrument);
                                             if (stringHashOfGuy != stringHashOfOtherGuy)
                                             {
-                                                string us = CanonicalTwoHashes(stringHashOfGuy, stringHashOfOtherGuy); 
-                                                
-                                                // --- DIAGNOSTIC INJECTION START ---
                                                 if (false == alreadyPushed.Contains(us))
                                                 {
-                                                    // Check if this key is known. 
-                                                    if (m_timeTogether != null && !m_timeTogether.ContainsKey(us))
-                                                    {
-                                                        Console.WriteLine($"★ NEW 2-GUID KEY CREATED: {guy.name} + {otherguy.name}");
-                                                        Console.WriteLine($"   On Server: {server.name} ({server.city})");
-                                                        Console.WriteLine($"   Key: {us}");
-                                                        Console.WriteLine("--------------------------------------------------");
-                                                    }
-
                                                     alreadyPushed.Add(us);
                                                     ReportPairTogether(us, durationBetweenSamples);
                                                 }
-                                                // --- DIAGNOSTIC INJECTION END ---
                                             }
-
-
-
                                         }
                                     }
                                 }
@@ -1017,25 +1052,19 @@ public static string GetHash(string name, string country, string instrument)
                     }
                     finally
                     {
-                        // FIXED: Replaced 'ReleaseMutex'
                         m_serializerMutex.Release();
                     }
 
-                    // Force a fixed 5 second delay
-                    int secs = 5; 
-                    
-                    // Optional: Keep the error retry logic if you want
-                    if (fMissingSamplePresent) secs = 2; 
-
+                    int secs = 5;
+                    if (fMissingSamplePresent) secs = 2;
                     await Task.Delay(secs * 1000);
                 }
                 catch (Exception ex)
                 {
-                    // Catch any unexpected exceptions from the loop
                     Console.WriteLine($"FATAL ERROR in RefreshThreadTask: {ex.Message}. Restarting loop in 30s.");
-                    await Task.Delay(30000); // Wait 30s before restarting the whole loop
+                    await Task.Delay(30000);
                 }
-            } // end while(true)
+            }
         }
   
         /*
@@ -2469,6 +2498,7 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
      using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
      {
      // Use the static shared httpClient and await the non-blocking call
+Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
      string st = await httpClient.GetStringAsync("http://ip-api.com/json/" + clientIP, cts.Token);
      JObject json = JObject.Parse(st);
      m_ipapiOutputs[clientIP] = json;
@@ -2493,6 +2523,8 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
         RE_SAMPLE:
             if (false == m_ArnOfIpGoodUntil.ContainsKey(ip))
             {
+		Console.WriteLine("2 Requesting: http://ip-api.com/json/" + ip);
+
                 string endpoint = "http://ip-api.com/json/" + ip;
                 using var client = new HttpClient();
 
@@ -3131,6 +3163,8 @@ public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
                     try
                     {
                         var client = new HttpClient();
+Console.WriteLine("3 Requesting: http://ip-api.com/json/" + ipAddress);
+
                         string st = await client.GetStringAsync("http://ip-api.com/json/" + ipAddress);
                         m_ipapiOutputs[ipAddress] = JObject.Parse(st);
                     }
@@ -3265,7 +3299,20 @@ private async Task<string> BuildMultiUserServerCardAsync(ServersForMe s, List<Cl
     string soonHtml = GetSoonHtml(serverAddress);
     string activeJitsi = FindActiveJitsiOfJSvr(serverAddress);
 
-    newline.Append($"<div id=\"{serverAddress}\" {BackgroundByZone(s.zone)}><center>");
+    // --- LAYOUT FIX: Ensure parent has position:relative so the Eye can be absolute ---
+    string divStyle = BackgroundByZone(s.zone);
+    if (string.IsNullOrEmpty(divStyle)) divStyle = " style=\"position:relative;\"";
+    else divStyle = divStyle.Replace("style=\"", "style=\"position:relative; ");
+
+    newline.Append($"<div id=\"{serverAddress}\"{divStyle}><center>");
+
+    // --- ADDED: Eye Emoji (Absolute Position to prevent text shifting) ---
+    newline.Append($"<a href='https://jamulus.live/jamgroup-map.html?server={serverAddress}' " +
+                    $"target='_blank' " +
+                    $"style='position:absolute; right:5px; top:5px; z-index:10; text-decoration:none; font-size:1.5em; cursor:pointer; opacity:0; transition:opacity 0.2s;' " +
+                    $"onmouseover=\"this.style.opacity='1'\" " +
+                    $"onmouseout=\"this.style.opacity='0'\">👀</a>");
+    // -----------------------------------------------------
 
     if (s.name.Length > 0)
     {
@@ -4602,7 +4649,9 @@ public async Task<string> GetRightNowAsync()
                 // 2. NEW USER (Fetch from API)
                 try
                 {
+
                     string url = $"http://ip-api.com/json/{ipAddress}";
+Console.WriteLine("4 requesting " + url);
                     // We use the shared 'httpClient' you already have defined
                     string response = await httpClient.GetStringAsync(url);
                     
