@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jammer Time-Size Map</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { background-color: #0d0d0d; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        
+        #ui-layer { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        h1 { margin: 0; font-size: 14px; color: #555; letter-spacing: 1px; text-transform: uppercase; }
+
+        #graph-container { width: 100vw; height: 100vh; }
+        
+        .link { fill: none; stroke-linecap: round; transition: opacity 0.5s; }
+        
+        .node { cursor: pointer; user-select: none; }
+        
+        .node text { 
+            font-family: 'Segoe UI', sans-serif;
+            paint-order: stroke;
+            stroke: #0d0d0d; 
+            stroke-width: 4px; 
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            transition: fill 0.2s;
+        }
+        
+        .node-name { font-weight: 800; }
+        .node:hover .node-name { fill: #fff !important; }
+        
+        .node-inst { 
+            font-weight: 400; 
+            fill: #777 !important; 
+            stroke: none !important; 
+            letter-spacing: 0.5px;
+        }
+
+        .is-center .node-name { 
+            fill: #FFD700 !important; 
+            filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.5));
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <h1 id="status">Loading...</h1>
+</div>
+<div id="graph-container"></div>
+
+<script>
+    const WIDTH = window.innerWidth;
+    const HEIGHT = window.innerHeight;
+    const DATA_FILE = "jammer-map.json";
+
+    let allNodes = []; 
+    let simulation = null;
+
+    const darkThemePalette = [
+        "#00d2ff", "#ff4081", "#ae63e4", "#00e676", 
+        "#ff9100", "#3d5afe", "#f44336", "#26c6da"
+    ];
+    const colorScale = d3.scaleOrdinal(darkThemePalette);
+
+    const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", e => container.attr("transform", e.transform));
+    const svg = d3.select("#graph-container").append("svg")
+        .attr("width", WIDTH).attr("height", HEIGHT)
+        .call(zoom).on("dblclick.zoom", null);
+        
+    const container = svg.append("g");
+    const linkGroup = container.append("g").attr("class", "links");
+    const nodeGroup = container.append("g").attr("class", "nodes");
+
+    d3.json(DATA_FILE).then(data => {
+        if (!Array.isArray(data) && data.nodes) {
+            const nodeMap = {};
+            data.nodes.forEach(n => {
+                nodeMap[n.id] = { ...n, total_seconds: 0, connections: {} };
+            });
+            data.links.forEach(l => {
+                const s = l.source.id || l.source;
+                const t = l.target.id || l.target;
+                const w = l.weight || 0;
+                if(nodeMap[s] && nodeMap[t]) {
+                    nodeMap[s].connections[t] = w; nodeMap[s].total_seconds += w;
+                    nodeMap[t].connections[s] = w; nodeMap[t].total_seconds += w;
+                }
+            });
+            allNodes = Object.values(nodeMap);
+        } else { allNodes = data; }
+
+        const params = new URLSearchParams(window.location.search);
+        let startGuid = params.get("guid");
+        if (!startGuid && allNodes.length) {
+            startGuid = allNodes.sort((a,b) => b.total_seconds - a.total_seconds)[0].id;
+        }
+        renderCluster(startGuid);
+    });
+
+    function renderCluster(centerGuid) {
+        const centerNode = allNodes.find(n => n.id === centerGuid);
+        if (!centerNode) return;
+
+        document.getElementById("status").innerText = "Focus: " + decodeName(centerNode.name);
+
+        const localNodes = [];
+        const localLinks = [];
+        const neighborSet = new Set();
+        
+        let maxWeight = 1;
+        let minWeight = 99999999;
+        const neighbors = [];
+
+        Object.entries(centerNode.connections).forEach(([nid, w]) => {
+            const n = allNodes.find(x => x.id === nid);
+            if (n) {
+                if (w > maxWeight) maxWeight = w;
+                if (w < minWeight) minWeight = w;
+                neighbors.push({ ...n, weight: w });
+                neighborSet.add(nid);
+            }
+        });
+
+        localNodes.push({ ...centerNode, fx: WIDTH/2, fy: HEIGHT/2, isCenter: true });
+
+        neighbors.forEach(n => {
+            localNodes.push({ ...n, isCenter: false });
+            localLinks.push({ 
+                source: centerGuid, target: n.id, weight: n.weight, type: "spoke" 
+            });
+        });
+
+        neighbors.forEach(n1 => {
+            Object.keys(n1.connections).forEach(n2id => {
+                if (neighborSet.has(n2id)) {
+                    if (n1.id < n2id) {
+                        localLinks.push({
+                            source: n1.id, target: n2id, weight: 1, type: "peer"
+                        });
+                    }
+                }
+            });
+        });
+
+        if (simulation) simulation.stop();
+
+        // Font scale
+        const fontSizeScale = d3.scaleLog()
+            .domain([minWeight, maxWeight])
+            .range([8, 45]); 
+
+        const strokeWidthScale = d3.scaleLog()
+            .domain([minWeight, maxWeight])
+            .range([0.5, 4]);
+
+        const links = linkGroup.selectAll("line").data(localLinks, d => d.source + "-" + d.target);
+        links.exit().remove();
+        const linksEnter = links.enter().append("line").attr("class", "link");
+        
+        linksEnter.merge(links)
+            .attr("stroke", "#555") 
+            .attr("stroke-width", d => {
+                const w = strokeWidthScale(d.weight || minWeight);
+                return d.type === "spoke" ? w * 0.6 : w;
+            }) 
+            .attr("opacity", d => (d.weight > maxWeight * 0.1) ? 0.6 : 0.3);      
+
+        const nodes = nodeGroup.selectAll("g").data(localNodes, d => d.id);
+        nodes.exit().transition().duration(200).style("opacity", 0).remove();
+
+        const nodesEnter = nodes.enter().append("g")
+            .call(d3.drag().on("start", dragstart).on("drag", dragging).on("end", dragend))
+            .on("click", (e, d) => {
+                if(!d.isCenter) {
+                    const url = new URL(window.location);
+                    url.searchParams.set("guid", d.id);
+                    window.history.pushState({}, "", url);
+                    renderCluster(d.id);
+                }
+            });
+
+        nodesEnter.append("text")
+            .attr("class", "node-name")
+            .text(d => decodeName(d.name))
+            .attr("fill", d => d.color || colorScale(d.name)) 
+            .attr("dy", "0em");
+
+        nodesEnter.append("text")
+            .attr("class", "node-inst")
+            .text(d => decodeName(d.instrument).toUpperCase())
+            .attr("dy", "1.1em");
+
+        const allNodesSel = nodesEnter.merge(nodes)
+            .attr("class", d => d.isCenter ? "node is-center" : "node");
+
+        allNodesSel.select(".node-name")
+            .attr("font-size", d => d.isCenter ? 55 : fontSizeScale(d.weight || minWeight));
+            
+        allNodesSel.select(".node-inst")
+                .attr("font-size", d => d.isCenter ? 14 : Math.max(8, fontSizeScale(d.weight || minWeight) * 0.4));
+
+        svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+
+        // --- BALANCED PHYSICS ---
+        simulation = d3.forceSimulation(localNodes)
+            // 1. GRAVITY: Pull everyone to the center
+            .force("radial", d3.forceRadial(
+                d => d.isCenter ? 0 : 30, // Target radius 30px
+                WIDTH/2, 
+                HEIGHT/2
+            ).strength(0.8)) 
+            
+            // 2. REPULSION: Push strangers apart (Restored!)
+            // We use -100 for center (keep clear) and -30 for everyone else
+            .force("charge", d3.forceManyBody().strength(d => d.isCenter ? -120 : -30)) 
+
+            // 3. LINKS: Hold friends together
+            // We reduced the distance to 10px to fight against the repulsion
+            .force("link", d3.forceLink(localLinks).id(d => d.id)
+                .distance(10)
+                .strength(0.5) 
+            )
+
+            // 4. COLLISION: Prevent text overlap
+            .force("collide", d3.forceCollide().radius(d => {
+                const size = d.isCenter ? 55 : fontSizeScale(d.weight || minWeight);
+                const len = (d.name || "").length;
+                return (len * size * 0.22) + 2; 
+            }).strength(1).iterations(3)); 
+
+        simulation.on("end", () => { window.simulationFinished = true; });
+
+        simulation.on("tick", () => {
+            linksEnter.merge(links)
+                .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+            allNodesSel.attr("transform", d => `translate(${d.x},${d.y})`);
+        });
+    }
+
+    function decodeName(s) { try{return decodeURIComponent(s.replace(/\+/g, ' '))}catch{return s} }
+    function dragstart(e, d) { if(!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+    function dragging(e, d) { d.fx = e.x; d.fy = e.y; }
+    function dragend(e, d) { if(!e.active) simulation.alphaTarget(0); if(!d.isCenter){d.fx = null; d.fy = null;} }
+    window.onpopstate = () => renderCluster(new URLSearchParams(window.location.search).get("guid"));
+</script>
+</body>
+</html>
