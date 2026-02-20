@@ -753,7 +753,7 @@ public static string GetHash(string name, string country, string instrument)
         }
     );
 
-public static async Task RefreshThreadTask()
+public static async Task RefreshThreadTask(CancellationToken stoppingToken)
         {
             // --- LOCAL HELPER: Generates "livestatus.json" ---
             async Task GenerateLiveStatusJsonAsync(Dictionary<string, Task<string>> serverStates)
@@ -821,7 +821,7 @@ public static async Task RefreshThreadTask()
                 {
                     // Overwrite the file atomically
                     string jsonOutput = System.Text.Json.JsonSerializer.Serialize(liveStatus);
-                    await System.IO.File.WriteAllTextAsync("wwwroot/livestatus.json", jsonOutput);
+                    await System.IO.File.WriteAllTextAsync("wwwroot/livestatus.json", jsonOutput, stoppingToken);
                 }
                 catch (Exception ex)
                 {
@@ -830,7 +830,7 @@ public static async Task RefreshThreadTask()
             }
             // -------------------------------------------------
 
-            while (true)
+            while (!stoppingToken.IsCancellationRequested)
             {
                 bool fMissingSamplePresent = false;
 
@@ -841,7 +841,7 @@ public static async Task RefreshThreadTask()
                     // 1. Start all downloads in parallel
                     foreach (var key in JamulusListURLs.Keys)
                     {
-                        serverStates.Add(key, s_refreshClient.GetStringAsync(JamulusListURLs[key]));
+                        serverStates.Add(key, s_refreshClient.GetStringAsync(JamulusListURLs[key], stoppingToken));
                     }
 
                     // 2. Wait for all downloads to complete
@@ -878,20 +878,20 @@ public static async Task RefreshThreadTask()
                             if (newReportedList[0] == 'C')
                             {
                                 Console.WriteLine("Indication of data failure: " + newReportedList);
-                                await Task.Delay(1000);
+                                await Task.Delay(1000, stoppingToken);
                                 continue;
                             }
                         }
                         catch (Exception ex)
                         {
                             Console.WriteLine($"Exception handling {key}: {ex.Message}");
-                            await Task.Delay(1000);
+                            await Task.Delay(1000, stoppingToken);
                             break; 
                         }
 
                         if (newReportedList[0] != 'C')
                         {
-                            await m_serializerMutex.WaitAsync();
+                            await m_serializerMutex.WaitAsync(stoppingToken);
                             try
                             {
                                 if (newReportedList != "CRC mismatch in received message")
@@ -912,7 +912,7 @@ public static async Task RefreshThreadTask()
                                 else
                                 {
                                     Console.WriteLine("CRC mismatch in received message");
-                                    await Task.Delay(1000);
+                                    await Task.Delay(1000, stoppingToken);
                                     break;
                                 }
                             }
@@ -923,9 +923,10 @@ public static async Task RefreshThreadTask()
                         }
                     } 
 
-                    await m_serializerMutex.WaitAsync();
+                    await m_serializerMutex.WaitAsync(stoppingToken);
                     try
                     {
+                        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
                         TimeSpan durationBetweenSamples = (null != LastReportedListGatheredAt)
                             ? DateTime.Now.Subtract((DateTime)LastReportedListGatheredAt)
                             : new TimeSpan();
@@ -944,6 +945,10 @@ public static async Task RefreshThreadTask()
                         }
 
                         HashSet<string> alreadyPushed = new HashSet<string>();
+
+                        StringBuilder serverCsvBuilder = new StringBuilder();
+                        StringBuilder censusCsvBuilder = new StringBuilder();
+                        StringBuilder censusGeoCsvBuilder = new StringBuilder();
 
                         foreach (var key in JamulusListURLs.Keys)
                         {
@@ -966,8 +971,7 @@ public static async Task RefreshThreadTask()
                                 int people = server.clients?.Length ?? 0;
                                 if (people < 1) continue;
 
-                                await System.IO.File.AppendAllTextAsync("data/server.csv",
-                                    server.ip + ":" + server.port + ","
+                                serverCsvBuilder.Append(server.ip + ":" + server.port + ","
                                     + System.Web.HttpUtility.UrlEncode(server.name) + ","
                                     + System.Web.HttpUtility.UrlEncode(server.city) + ","
                                     + System.Web.HttpUtility.UrlEncode(server.country)
@@ -977,13 +981,12 @@ public static async Task RefreshThreadTask()
                                 {
                                     string stringHashOfGuy = GetHash(guy.name, guy.country, guy.instrument);
 
-                                    await System.IO.File.AppendAllTextAsync("data/census.csv", MinutesSince2023() + ","
+                                    censusCsvBuilder.Append(MinutesSince2023() + ","
                                         + stringHashOfGuy + ","
                                         + server.ip + ":" + server.port
                                         + Environment.NewLine);
 
-                                    await System.IO.File.AppendAllTextAsync("data/censusgeo.csv",
-                                        stringHashOfGuy + ","
+                                    censusGeoCsvBuilder.Append(stringHashOfGuy + ","
                                         + System.Web.HttpUtility.UrlEncode(guy.name) + ","
                                         + guy.instrument + ","
                                         + System.Web.HttpUtility.UrlEncode(guy.city) + ","
@@ -1040,6 +1043,19 @@ public static async Task RefreshThreadTask()
                             }
                         }
 
+                        if (serverCsvBuilder.Length > 0)
+                            await System.IO.File.AppendAllTextAsync("data/server.csv", serverCsvBuilder.ToString(), stoppingToken);
+                        if (censusCsvBuilder.Length > 0)
+                            await System.IO.File.AppendAllTextAsync("data/census.csv", censusCsvBuilder.ToString(), stoppingToken);
+                        if (censusGeoCsvBuilder.Length > 0)
+                            await System.IO.File.AppendAllTextAsync("data/censusgeo.csv", censusGeoCsvBuilder.ToString(), stoppingToken);
+
+                        stopwatch.Stop();
+                        if (stopwatch.ElapsedMilliseconds > 100)
+                        {
+                            Console.WriteLine($"[DIAGNOSTIC] Background data processing and CSV disk writes took {stopwatch.ElapsedMilliseconds}ms while holding m_serializerMutex lock.");
+                        }
+
                         foreach (var key in JamulusListURLs.Keys)
                         {
                             var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
@@ -1057,12 +1073,16 @@ public static async Task RefreshThreadTask()
 
                     int secs = 5;
                     if (fMissingSamplePresent) secs = 2;
-                    await Task.Delay(secs * 1000);
+                    await Task.Delay(secs * 1000, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"FATAL ERROR in RefreshThreadTask: {ex.Message}. Restarting loop in 30s.");
-                    await Task.Delay(30000);
+                    Console.WriteLine($"ERROR in RefreshThreadTask: {ex.Message}. Restarting loop in 30s.");
+                    await Task.Delay(30000, stoppingToken);
                 }
             }
         }

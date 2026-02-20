@@ -23,6 +23,9 @@ builder.WebHost.UseKestrel(serverOptions =>
 // Add services to the container.
 builder.Services.AddRazorPages();
 
+builder.Services.AddHostedService<JamFan22.Services.JamulusListRefreshService>();
+builder.Services.AddHostedService<JamFan22.Services.JammerHarvestService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -219,19 +222,6 @@ app.MapGet("/halos/", async (HttpContext context) =>
     ret += "]";
     return ret;
 });
-
-// This task appears to be a long-running *synchronous* loop.
-// Running it on a dedicated Thread is correct to avoid ThreadPool starvation.
-// Thread trd = new Thread(new ThreadStart(JamFan22.Pages.IndexModel.RefreshThreadTask));
-Task.Run(() => JamFan22.Pages.IndexModel.RefreshThreadTask());
-
-// This task is async. Task.Run is the correct way to start it on the
-// ThreadPool. The original 'new Thread' wrapper was unnecessary.
-_ = Task.Run(JamFan22.harvest.HarvestLoop2025);
-
-
-// Use non-blocking delay for app startup instead of Thread.Sleep
-await Task.Delay(6000); // let the thread get revved up first
 
 app.Run();
 

@@ -130,13 +130,13 @@ namespace JamFan22
 
         static Dictionary<string, string> m_lastLineMap = new Dictionary<string, string>(); // Tracks last lines ingested per server
 
-        public static async Task HarvestLoop2025()
+        public static async Task HarvestLoop2025(CancellationToken stoppingToken)
         {
-            Thread.Sleep(60 * 1000);
+            await Task.Delay(60 * 1000, stoppingToken);
 
             HttpClient httpClient = new HttpClient();
 
-            while (true)
+            while (!stoppingToken.IsCancellationRequested)
             {
                 /*
                 foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
@@ -150,10 +150,10 @@ namespace JamFan22
                         try
                         {
                             // Attempt to GET the URL content
-                            HttpResponseMessage response = await httpClient.GetAsync(url);
+                            HttpResponseMessage response = await httpClient.GetAsync(url, stoppingToken);
                             if (response.IsSuccessStatusCode)
                             {
-                                string content = await response.Content.ReadAsStringAsync();
+                                string content = await response.Content.ReadAsStringAsync(stoppingToken);
                                 string lastLine = content.Trim().Split('\n').LastOrDefault();
 
                                 if (lastLine != null)
@@ -173,7 +173,7 @@ namespace JamFan22
                     }
                 }
                 */
-                Thread.Sleep(5000);
+                await Task.Delay(5000, stoppingToken);
                 // Console.WriteLine("HarvestLoop2025 slept five seconds, harvesting again.");
             }
         }
