@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JammerMap</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { background-color: #0d0d0d; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        
+        #ui-layer { position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 10; }
+        h1 { margin: 0; font-size: 14px; color: #555; letter-spacing: 1px; text-transform: uppercase; }
+        
+        #hint { 
+            color: #aaa; 
+            font-size: 11px; 
+            margin-top: 4px; 
+            height: 1.2em; 
+            font-weight: 600; 
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+
+        #graph-container { 
+            width: 100vw; 
+            height: 100vh; 
+            cursor: grab; 
+            opacity: 0; 
+            transition: opacity 0.6s ease-out;
+        }
+        #graph-container:active { cursor: grabbing; }
+        
+        .link { fill: none; stroke-linecap: round; }
+        .node { cursor: pointer; user-select: none; }
+        
+        /* Base text style - No stroke here to avoid phantom lines on names */
+        .node text { 
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: 700;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            transition: fill 0.5s ease;
+        }
+        
+        .node-name { fill: #fff; } 
+        
+        /* GOLD STYLE */
+        .is-center .node-name { 
+            fill: #DAA520 !important;      
+            stroke: #000000 !important;    
+            stroke-width: 6px !important;
+            paint-order: stroke fill;
+            font-weight: 900 !important;
+            filter: drop-shadow(0px 0px 8px rgba(218, 165, 32, 0.4)); 
+        }
+
+        /* INSTRUMENT STYLE - Smaller Font, Thinner Outline */
+        .node-inst { 
+            font-weight: 600; 
+            
+            fill: #888 !important; 
+            
+            /* Reduced to 1.5px to match smaller font size */
+            stroke: #0d0d0d !important; 
+            stroke-width: 1.5px !important;
+            
+            paint-order: stroke fill;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <h1 id="status">Loading...</h1>
+    <div id="hint"></div>
+</div>
+<div id="graph-container"></div>
+
+<script>
+    let WIDTH = window.innerWidth;
+    let HEIGHT = window.innerHeight;
+    
+    // CONFIG
+    const HISTORICAL_FILE = "jammer-map.json";
+    const LIVE_ENDPOINT = "livestatus.json"; 
+    const POLL_INTERVAL = 3 * 60 * 1000; 
+
+    let allNodes = []; 
+    let simulation = null;
+    let pollTimer = null;
+    let isLiveMode = false;
+    let currentCoreIds = []; 
+
+    const svg = d3.select("#graph-container").append("svg")
+        .attr("width", WIDTH).attr("height", HEIGHT);
+        
+    const container = svg.append("g");
+    const linkGroup = container.append("g").attr("class", "links");
+    const nodeGroup = container.append("g").attr("class", "nodes");
+
+    const zoom = d3.zoom()
+        .scaleExtent([0.1, 8])
+        .on("zoom", (e) => container.attr("transform", e.transform));
+
+    svg.call(zoom).on("dblclick.zoom", null);
+
+    // --- INITIALIZATION ---
+    d3.json(HISTORICAL_FILE).then(data => {
+        let rawNodes = Array.isArray(data) ? data : data.nodes || [];
+        allNodes = rawNodes.filter(n => n.name && n.name.trim().length > 0);
+        allNodes.forEach(n => {
+            const days = (n.days_ago !== undefined) ? n.days_ago : 0;
+            n.isInactive = days > 45; 
+        });
+        handleUrlParams();
+    });
+
+    // --- NAVIGATION ---
+    function handleUrlParams() {
+        if (pollTimer) clearInterval(pollTimer);
+        const params = new URLSearchParams(window.location.search);
+        const serverAddr = params.get("server");
+        const rawGuids = params.get("guids");
+
+        if (serverAddr && !rawGuids) {
+            isLiveMode = true;
+            fetchLiveStatus(serverAddr);
+            pollTimer = setInterval(() => fetchLiveStatus(serverAddr), POLL_INTERVAL);
+        } else {
+            isLiveMode = false;
+            let startGuids = rawGuids ? rawGuids.split(",").map(s => s.trim()) : [];
+            if (!startGuids.length && allNodes.length) {
+                startGuids = [allNodes.sort((a,b) => b.total_seconds - a.total_seconds)[0].id];
+            }
+            renderCluster(startGuids);
+        }
+    }
+
+    function fetchLiveStatus(serverKey) {
+        d3.json(`${LIVE_ENDPOINT}?t=${Date.now()}`).then(globalStatus => {
+            if (!globalStatus || typeof globalStatus !== 'object') return;
+            const serverData = globalStatus[serverKey];
+            if (serverData && Array.isArray(serverData.clients) && serverData.clients.length > 0) {
+                const displayName = serverData.name ? decodeURIComponent(serverData.name.replace(/\+/g, ' ')) : serverKey;
+                document.getElementById("status").innerText = "LIVE: " + displayName;
+                renderCluster(serverData.clients);
+            } else {
+                document.getElementById("status").innerText = "LIVE: Server empty or offline (" + serverKey + ")";
+                updateGraph([], [], 1, 1);
+            }
+        });
+    }
+
+    function renderCluster(centerIds) {
+        currentCoreIds = centerIds;
+        const focusNodes = allNodes.filter(n => centerIds.includes(n.id));
+        const focusSet = new Set(focusNodes.map(n => n.id));
+
+        if (focusNodes.length === 0 && !isLiveMode) {
+            document.getElementById("status").innerText = "No matching personas found.";
+            return;
+        }
+
+        if (!isLiveMode) {
+            const names = focusNodes.map(n => decodeName(n.name)).join(" + ");
+            document.getElementById("status").innerText = names.length > 50 ? names.substring(0, 50) + "..." : names;
+        }
+
+        const localNodes = [];
+        const localLinks = [];
+        const addedNodeIds = new Set();
+        let maxWeight = 1, minWeight = 99999999;
+
+        const addNode = (n, isCenter) => {
+            if (addedNodeIds.has(n.id)) return;
+            const xSpread = WIDTH * 0.05; 
+            const ySpread = HEIGHT * 0.05;
+            localNodes.push({ 
+                ...n, 
+                hiddenHue: Math.floor(Math.random() * 360),
+                x: (WIDTH/2) + (Math.random()*xSpread - xSpread/2), 
+                y: (HEIGHT/2) + (Math.random()*ySpread - ySpread/2), 
+                isCenter 
+            });
+            addedNodeIds.add(n.id);
+        };
+
+        const neighborMap = new Map(); 
+        focusNodes.forEach(centerNode => {
+            addNode(centerNode, true); 
+            Object.entries(centerNode.connections).forEach(([nid, w]) => {
+                if (w > maxWeight) maxWeight = w;
+                if (w < minWeight) minWeight = w;
+                const neighbor = allNodes.find(x => x.id === nid);
+                if (neighbor) {
+                    if (focusSet.has(nid)) {
+                        if (centerNode.id < nid) localLinks.push({ source: centerNode.id, target: nid, weight: w, type: "core" });
+                    } else {
+                        localLinks.push({ source: centerNode.id, target: nid, weight: w, type: "spoke" });
+                        neighborMap.set(nid, neighbor);
+                    }
+                }
+            });
+        });
+
+        neighborMap.forEach(node => addNode(node, false));
+        neighborMap.forEach((n1, id1) => {
+            Object.keys(n1.connections).forEach(id2 => {
+                if (addedNodeIds.has(id2) && !focusSet.has(id2) && id1 < id2) {
+                     localLinks.push({ source: id1, target: id2, weight: 1, type: "peer" });
+                }
+            });
+        });
+
+        const goldNodes = localNodes.filter(n => n.isCenter);
+        let hostId = null, maxConns = -1;
+        currentCoreIds.forEach(id => {
+            const node = allNodes.find(n => n.id === id);
+            if (node) {
+                const count = Object.keys(node.connections).filter(k => currentCoreIds.includes(k)).length;
+                if (count > maxConns) { maxConns = count; hostId = id; }
+            }
+        });
+
+        goldNodes.forEach(gold => {
+            const hasCoreLink = localLinks.some(l => (l.source === gold.id || l.target === gold.id) && l.type === "core");
+            if (!hasCoreLink) {
+                let bestFriendId = Object.keys(gold.connections)
+                    .filter(id => currentCoreIds.includes(id) && id !== gold.id)
+                    .sort((a, b) => gold.connections[b] - gold.connections[a])[0];
+                if (!bestFriendId && hostId && hostId !== gold.id) bestFriendId = hostId; 
+                if (bestFriendId) localLinks.push({ source: gold.id, target: bestFriendId, type: "bridge", weight: 1 });
+            }
+        });
+
+        updateGraph(localNodes, localLinks, minWeight, maxWeight);
+    }
+
+    function updateGraph(nodesData, linksData, minW, maxW) {
+        d3.select("#graph-container").style("opacity", 0);
+
+        if (simulation) simulation.stop();
+
+        const weights = nodesData.filter(d => !d.isCenter).map(d => d.weight || 0).sort((a,b) => a - b);
+        let p90 = maxW;
+        if (weights.length > 0) p90 = weights[Math.floor(weights.length * 0.9)];
+
+        const smallScale = d3.scaleLinear().domain([minW, p90]).range([10, 14]);
+        const strokeWidthScale = d3.scaleLog().domain([minW || 1, maxW || 1]).range([1, 4]);
+
+        const links = linkGroup.selectAll("line").data(linksData, d => (d.source.id || d.source) + "-" + (d.target.id || d.target));
+        links.exit().remove();
+        const linksEnter = links.enter().append("line").attr("class", "link");
+        const allLinksSel = linksEnter.merge(links)
+            .attr("stroke", d => (d.type === "core" || d.type === "bridge") ? "#DAA520" : "#444") 
+            .attr("stroke-width", d => {
+                if (d.type === "core" || d.type === "bridge") return 4;
+                return d.type === "peer" ? 0.5 : strokeWidthScale(d.weight || minW) * 0.8;
+            }) 
+            .attr("opacity", d => d.type === "core" || d.type === "bridge" ? 0.9 : 0.4);      
+
+        const nodes = nodeGroup.selectAll("g").data(nodesData, d => d.id);
+        nodes.exit().remove();
+        const nodesEnter = nodes.enter().append("g")
+            .on("click", nodeClick)
+            .on("mouseenter", (e, d) => d3.select("#hint").text("Click to Explore • Ctrl-Click to Add/Remove"))
+            .on("mouseleave", (e, d) => d3.select("#hint").text(""));
+
+        nodesEnter.append("text").attr("class", "node-name").attr("dy", "0em");
+        nodesEnter.append("text").attr("class", "node-inst").attr("dy", "1.1em");
+
+        const allNodesSel = nodesEnter.merge(nodes)
+            .attr("class", d => d.isCenter ? "node is-center" : (d.isInactive ? "node inactive" : "node"));
+
+        allNodesSel.sort((a, b) => a.isCenter - b.isCenter);
+
+        // --- PHYSICS: CONDENSED ---
+        simulation = d3.forceSimulation(nodesData)
+            .force("x", d3.forceX(WIDTH / 2).strength(0.8)) 
+            .force("y", d3.forceY(HEIGHT / 2).strength(0.8))
+            .force("charge", d3.forceManyBody().strength(d => d.isCenter ? -80 : -1))
+            .force("link", d3.forceLink(linksData).id(d => d.id)
+                .distance(1) 
+                .strength(d => d.type === "core" ? 0.8 : 1)) 
+            .force("collide", d3.forceCollide().radius(d => {
+                const len = (d.name || "").length;
+                if (d.isCenter) return (len * 4.0) + 20; 
+                if ((d.weight || 0) >= p90) return (len * 3.5) + 15;
+                return (len * 3.0) + 8; 
+            }).strength(1).iterations(3)); 
+            
+        simulation.stop();
+        
+        for (let i = 0; i < 350; ++i) simulation.tick();
+        refineColors(nodesData, linksData, 20);
+
+        allNodesSel.select(".node-name")
+            .text(d => decodeName(d.name))
+            .style("fill", d => {
+                if (d.isInactive) return "#666";
+                return `hsl(${d.hiddenHue}, 70%, 60%)`; 
+            })
+            .style("stroke", "none") 
+            .attr("font-size", d => {
+                if (d.isCenter) return 22;           
+                if ((d.weight || 0) >= p90) return 20; 
+                return smallScale(d.weight || minW);   
+            });
+
+        // Instrument text is handled by CSS .node-inst
+        allNodesSel.select(".node-inst")
+            .text(d => {
+                const inst = d.instrument;
+                if (!inst || inst === "-" || inst.toUpperCase() === "UNKNOWN") return "";
+                return decodeName(inst);
+            })
+            // Updated Font Sizing (Smaller)
+            .attr("font-size", d => {
+                if (d.isCenter) return 9; // Was 10
+                if ((d.weight || 0) >= p90) return 8; // Was 9
+                // Was 7 / 0.6 -> Now 6 / 0.5
+                return Math.max(6, smallScale(d.weight || minW) * 0.5);
+            });
+
+        allLinksSel
+            .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+        
+        allNodesSel.attr("transform", d => `translate(${d.x},${d.y})`);
+
+        if (nodesData.length > 0) {
+            const minX = d3.min(nodesData, d => d.x);
+            const maxX = d3.max(nodesData, d => d.x);
+            const minY = d3.min(nodesData, d => d.y);
+            const maxY = d3.max(nodesData, d => d.y);
+            
+            const graphW = maxX - minX;
+            const graphH = maxY - minY;
+            const midX = (minX + maxX) / 2;
+            const midY = (minY + maxY) / 2;
+            
+            const scale = 0.85 / Math.max(graphW / WIDTH, graphH / HEIGHT);
+            
+            const transform = d3.zoomIdentity
+                .translate(WIDTH / 2, HEIGHT / 2)
+                .scale(scale)
+                .translate(-midX, -midY);
+            
+            svg.call(zoom.transform, transform);
+        }
+
+        d3.select("#graph-container").style("opacity", 1);
+    }
+
+    function refineColors(nodes, links, iterations) {
+        const adj = {};
+        nodes.forEach(n => adj[n.id] = []);
+        links.forEach(l => {
+            adj[l.source.id].push({ node: l.target, weight: l.weight || 1 });
+            adj[l.target.id].push({ node: l.source, weight: l.weight || 1 });
+        });
+
+        const allWeights = links.map(l => l.weight || 1).sort((a, b) => a - b);
+        const medianWeight = allWeights[Math.floor(allWeights.length * 0.5)] || 1;
+        const repulsionThreshold = medianWeight; 
+        const loopCount = 8; 
+
+        for (let i = 0; i < loopCount; i++) {
+            nodes.forEach(node => {
+                if (node.isCenter) return; 
+
+                const neighbors = adj[node.id];
+                if (!neighbors || neighbors.length === 0) return;
+
+                neighbors.sort((a, b) => {
+                    const distA = Math.hypot(node.x - a.node.x, node.y - a.node.y);
+                    const distB = Math.hypot(node.x - b.node.x, node.y - b.node.y);
+                    return distB - distA; 
+                });
+
+                neighbors.forEach(nObj => {
+                    const neighbor = nObj.node;
+                    const w = nObj.weight;
+                    let current = node.hiddenHue;
+                    let target = neighbor.hiddenHue;
+                    let diff = target - current;
+                    while (diff < -180) diff += 360;
+                    while (diff > 180) diff -= 360;
+                    let nudge = 0;
+
+                    if (w < repulsionThreshold) {
+                        nudge = -diff * 0.4; 
+                    } else {
+                        nudge = diff * 0.03;
+                    }
+                    node.hiddenHue = current + nudge;
+                    if (node.hiddenHue < 0) node.hiddenHue += 360;
+                    if (node.hiddenHue > 360) node.hiddenHue -= 360;
+                });
+            });
+        }
+    }
+
+    window.addEventListener("resize", () => {
+        WIDTH = window.innerWidth;
+        HEIGHT = window.innerHeight;
+        svg.attr("width", WIDTH).attr("height", HEIGHT);
+        if (simulation) {
+            simulation.force("x", d3.forceX(WIDTH / 2).strength(0.8));
+            simulation.force("y", d3.forceY(HEIGHT / 2).strength(0.8));
+            simulation.alpha(0.3).restart();
+        }
+    });
+
+    function nodeClick(e, d) {
+        if (e.defaultPrevented) return;
+        const url = new URL(window.location);
+        let list = [];
+        if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+            list = [...currentCoreIds];
+            if (list.includes(d.id)) { list = list.filter(id => id !== d.id); } 
+            else { list.push(d.id); }
+        } else { list = [d.id]; }
+
+        if (isLiveMode) {
+            isLiveMode = false;
+            if (pollTimer) clearInterval(pollTimer);
+            document.getElementById("status").style.color = "#fff"; 
+        }
+
+        url.searchParams.delete("server"); 
+        url.searchParams.set("guids", list.join(","));
+        window.history.pushState({}, "", url);
+        handleUrlParams();
+    }
+
+    function decodeName(s) { try{return decodeURIComponent(s.replace(/\+/g, ' '))}catch{return s} }
+    window.onpopstate = () => handleUrlParams(); 
+</script>
+</body>
+</html>
