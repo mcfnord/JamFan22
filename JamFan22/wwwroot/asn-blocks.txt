@@ -1,0 +1,13 @@
+AS212238 Datacamp Limited
+AS9009 M247 Europe SRL
+AS13213 UK-2 Limited
+AS60068 Datacamp Limited
+AS208172 Proton AG
+AS199218 Proton AG
+AS16509 Amazon.com, Inc.
+AS396982 Google LLC
+AS14061 DigitalOcean, LLC
+AS31898 Oracle Corporation
+AS147049 PacketHub S.A.
+AS63949 Akamai Connected Cloud
+AS8075 Microsoft Corporation
