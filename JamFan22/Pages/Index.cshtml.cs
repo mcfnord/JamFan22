@@ -2733,12 +2733,18 @@ Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
         /// </summary>
         private async Task ProcessServerListsAsync(PreloadedData data)
         {
+            Console.WriteLine($"[DEBUG] ProcessServerListsAsync started. LastReportedList keys: {string.Join(", ", LastReportedList.Keys)}");
+            int totalProcessed = 0;
+            int totalAdded = 0;
+
             foreach (var key in LastReportedList.Keys)
             {
                 var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
+                Console.WriteLine($"[DEBUG] Processing {key}: {serversOnList.Count} servers.");
 
                 foreach (var server in serversOnList)
                 {
+                    totalProcessed++;
                     int people = server.clients?.GetLength(0) ?? 0;
 
                     if (ShouldSkipServer(server, people))
@@ -2769,8 +2775,10 @@ Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
                         key, server.ip, server.port, server.name, server.city, serverCountry,
                         dist, zone, clientResult.WhoHtml, server.clients, people, (int)server.maxclients
                     ));
+                    totalAdded++;
                 }
             }
+            Console.WriteLine($"[DEBUG] ProcessServerListsAsync finished. Processed: {totalProcessed}, Added: {totalAdded}");
         }
 
         /// <summary>
