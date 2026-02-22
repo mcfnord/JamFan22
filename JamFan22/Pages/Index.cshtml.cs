@@ -3,6 +3,8 @@
 // testing
 
 // using IPGeolocation;
+using JamFan22.Models;
+using JamFan22.Services;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http;
@@ -32,41 +34,6 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace JamFan22.Pages
 {
-    public class JamulusServers
-    {
-        public long numip { get; set; }
-        public long port { get; set; }
-        public string? country { get; set; }
-        public long maxclients { get; set; }
-        public long perm { get; set; }
-        public string name { get; set; }
-        public string ipaddrs { get; set; }
-        public string city { get; set; }
-        public string ip { get; set; }
-        public long ping { get; set; }
-        public Os ps { get; set; }
-        public string version { get; set; }
-        public string versionsort { get; set; }
-        public long nclients { get; set; }
-        public long index { get; set; }
-        public Client[] clients { get; set; }
-        public long port2 { get; set; }
-    }
-
-    public class Client
-    {
-        public long chanid { get; set; }
-        public string country { get; set; }
-        public string instrument { get; set; }
-        public string skill { get; set; }
-        public string name { get; set; }
-        public string city { get; set; }
-    }
-
-    public enum Os { Linux, MacOs, Windows };
-
-
-
     public class IndexModel : PageModel
     {
         public static bool IsDebuggingOnWindows
@@ -119,10 +86,12 @@ private async Task LogVisitAsync(string ip, string countryCode)
 
 
         private readonly ILogger<IndexModel> _logger;
+        private readonly GeolocationService _geoService;
 
-        public IndexModel(ILogger<IndexModel> logger)
+        public IndexModel(ILogger<IndexModel> logger, GeolocationService geoService)
         {
             _logger = logger;
+            _geoService = geoService;
         }
 
         //public void OnGet()         {         }
@@ -1344,125 +1313,6 @@ public static async Task RefreshThreadTask(CancellationToken stoppingToken)
                 */
 
 
-        // 1. Signature changed:
-        // - Added 'async'
-        // - Returns 'Task<LatLong>' (assuming the class is 'LatLong')
-        // - Removed 'ref' parameters (NOT allowed in async methods)
-        protected async Task<LatLong> SmartGeoLocateAsync(string ip)
-        {
-            // Check cache first (using TryGetValue is safer)
-            if (m_ipAddrToLatLong.TryGetValue(ip, out var cached))
-            {
-                // 2. Return the cached object directly
-                // The compiler will wrap this in a completed Task
-                return cached;
-            }
-
-            // Not in cache, fetch it.
-            try
-            {
-                string ip4 = ip.Replace("::ffff:", "");
-                string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4 + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
-
-                // 3. Use 'await' and the SHARED 'httpClient'
-                // Do NOT use 'new HttpClient()' here!
-                string s = await httpClient.GetStringAsync(endpoint);
-
-                JObject jsonGeo = JObject.Parse(s);
-                double latitude = Convert.ToDouble(jsonGeo["location"]["latitude"]);
-                double longitude = Convert.ToDouble(jsonGeo["location"]["longitude"]);
-
-                // 4. Create, cache, and return the new object
-                var newLocation = new LatLong(latitude.ToString(), longitude.ToString());
-                m_ipAddrToLatLong[ip] = newLocation;
-
-                Console.WriteLine("A client IP has been cached: " + ip + " " + jsonGeo["city"] + " " + latitude + " " + longitude);
-
-                return newLocation;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Error getting geolocation for " + ip + ": " + e.Message);
-
-                // 5. Create, cache, and return an 'error' object
-                var errorLocation = new LatLong("0", "0");
-                m_ipAddrToLatLong[ip] = errorLocation;
-                return errorLocation;
-            }
-        }
-
-        //        protected static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
-
-
-        // 1. SIGNATURE CHANGE:
-        // Renamed to '...Async' and changed from 'int' to 'async Task<int>'
-        protected async Task<int> DistanceFromClientAsync(string lat, string lon)
-        {
-            var serverLatitude = float.Parse(lat);
-            var serverLongitude = float.Parse(lon);
-
-            string clientIP = HttpContext.Connection.RemoteIpAddress.ToString();
-            if ((clientIP.Length < 5) || clientIP.Contains("127.0.0.1"))
-            {
-                // ... (all your X-Forwarded-For logic is correct) ...
-                if (clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
-                {
-                    var xff = (string)HttpContext.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-                    if (null != xff)
-                    {
-                        if (false == xff.Contains("::ffff"))
-                            xff = "::ffff:" + xff;
-                        clientIP = xff;
-                    }
-                    else
-                    {
-                        clientIP = "24.18.55.230";
-                    }
-                }
-            }
-
-            // 2. 'someIp' VARIABLE FIX:
-            // Changed 'someIp' to 'clientIP', which is the correct variable
-            LatLong location = await SmartGeoLocateAsync(clientIP);
-
-            // You can now get the values from the returned object
-            double clientLatitude = double.Parse(location.lat);
-            double clientLongitude = double.Parse(location.lon);
-
-            // ... (all your distance calculation logic is correct) ...
-            const double EquatorialRadiusOfEarth = 6371D;
-            const double DegreesToRadians = (Math.PI / 180D);
-            var deltalat = (serverLatitude - clientLatitude) * DegreesToRadians;
-            var deltalong = (serverLongitude - clientLongitude) * DegreesToRadians;
-            var a = Math.Pow(
-                Math.Sin(deltalat / 2D), 2D) +
-                Math.Cos(clientLatitude * DegreesToRadians) *
-                Math.Cos(serverLatitude * DegreesToRadians) *
-                Math.Pow(Math.Sin(deltalong / 2D), 2D);
-            var c = 2D * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1D - a));
-            var d = EquatorialRadiusOfEarth * c;
-            return Convert.ToInt32(d);
-        }
-    
-        protected int Distance(double lat1, double lon1, double lat2, double lon2)
-        {
-            // https://www.simongilbert.net/parallel-haversine-formula-dotnetcore/
-            const double EquatorialRadiusOfEarth = 6371D;
-            const double DegreesToRadians = (Math.PI / 180D);
-            var deltalat = (lat2 - lat2) * DegreesToRadians;
-            var deltalong = (lon2 - lon1) * DegreesToRadians;
-            var a = Math.Pow(
-                Math.Sin(deltalat / 2D), 2D) +
-                Math.Cos(lat2 * DegreesToRadians) *
-                Math.Cos(lat1 * DegreesToRadians) *
-                Math.Pow(Math.Sin(deltalong / 2D), 2D);
-            var c = 2D * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1D - a));
-            var d = EquatorialRadiusOfEarth * c;
-            return Convert.ToInt32(d);
-
-        }
-
-
         /*
         protected int DistanceFromMe(string ipThem)
         {
@@ -1490,37 +1340,6 @@ public static async Task RefreshThreadTask(CancellationToken stoppingToken)
         }
         */
 
-        class ServersForMe
-        {
-            public ServersForMe(string cat, string ip, long port, string na, string ci, string cou, int distance, char earthZone, string w, Client[] originallyWho, int peoplenow, int maxpeople)
-            {
-                category = cat;
-                serverIpAddress = ip;
-                serverPort = port;
-                name = na;
-                city = ci;
-                country = cou;
-                distanceAway = distance;
-                zone = earthZone;
-                who = w;
-                whoObjectFromSourceData = originallyWho;
-                usercount = peoplenow;
-                maxusercount = maxpeople;
-            }
-            public string category;
-            public string serverIpAddress;
-            public long serverPort;
-            public string name;
-            public string city;
-            public string country;
-            public int distanceAway;
-            public char zone;
-            public string who;
-            public Client[] whoObjectFromSourceData; // just to get the hash to work later. the who string is decorated but this is just data.
-            public int usercount;
-            public int maxusercount;
-        }
-
         /*
         public string HighlightUserSearchTerms(string str)
         {
@@ -1535,405 +1354,6 @@ public static async Task RefreshThreadTask(CancellationToken stoppingToken)
         }
         */
 
-        public class LatLong
-        {
-            public LatLong(string la, string lo) { lat = la; lon = lo; }
-            public string lat;
-            public string lon;
-        }
-
-        protected static Dictionary<string, LatLong> m_PlaceNameToLatLong = new Dictionary<string, LatLong>();
-        public static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
-
-        /*
-        public static Dictionary<string, string> m_latFromDisclosedCityCountry = new Dictionary<string, string>();
-        public static Dictionary<string, string> m_lonFromDisclosedCityCountry = new Dictionary<string, string>();
-        */
-
-        static Dictionary<string, LatLong> m_openCageCache = new Dictionary<string, LatLong>();
-
-        // 1. Signature changed to async Task with a tuple result.
-        // 'ref' parameters are removed.
-        public static async Task<(bool Success, string Lat, string Lon)> CallOpenCageCachedAsync(string placeName)
-        {
-            if (m_openCageCache.ContainsKey(placeName))
-            {
-                var cachedLocation = m_openCageCache[placeName];
-                if (cachedLocation == null)
-                {
-                    // We cached a failure, so just return failure
-                    return (false, null, null);
-                }
-
-                // We cached a success, return the cached data
-                return (true, cachedLocation.lat, cachedLocation.lon);
-            }
-
-            // 2. Not in cache, so 'await' the async network call
-            var (success, lat, lon) = await CallOpenCageAsync(placeName);
-
-            if (success)
-            {
-                // 3. Cache the successful result
-                m_openCageCache[placeName] = new LatLong(lat, lon);
-                return (true, lat, lon);
-            }
-
-            // 4. Cache the failure as 'null' so we don't ask again
-            m_openCageCache[placeName] = null;
-            return (false, null, null);
-        }
-
-
-        // 1. Signature changed to return an async Task with a ValueTuple
-        // This replaces 'bool' and the 'ref' parameters.
-        public static async Task<(bool Success, string Lat, string Lon)> CallOpenCageAsync(string placeName)
-        {
-            // 2. Early returns are now tuples
-            if (placeName.Length < 3)
-                return (false, null, null);
-            if (placeName == "MOON")
-                return (false, null, null);
-            if (false == Regex.IsMatch(placeName, "[a-zA-Z]"))
-                return (false, null, null);
-
-            // 6. Add try/catch for network operations
-            try
-            {
-                string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
-                string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
-
-                // 3. Use the shared 'httpClient' and 'await'
-                string s = await httpClient.GetStringAsync(endpoint);
-
-                JObject latLongJson = JObject.Parse(s);
-                if (latLongJson["results"].HasValues)
-                {
-                    string typeOfMatch = (string)latLongJson["results"][0]["components"]["_type"];
-                    if (("neighbourhood" == typeOfMatch) ||
-                        ("village" == typeOfMatch) ||
-                        ("city" == typeOfMatch) ||
-                        ("county" == typeOfMatch) ||
-                        ("municipality" == typeOfMatch) ||
-                        ("administrative" == typeOfMatch) ||
-                        ("state" == typeOfMatch) ||
-                        ("boundary" == typeOfMatch) ||
-                        ("country" == typeOfMatch))
-                    {
-                        // 4. Declare local variables and return them
-                        string lat = (string)latLongJson["results"][0]["geometry"]["lat"];
-                        string lon = (string)latLongJson["results"][0]["geometry"]["lng"];
-                        // m_PlaceNameToLatLong[placeName.ToUpper()] = new LatLong(lat, lon);
-                        return (true, lat, lon);
-                    }
-                }
-
-                // 5. No match found
-                return (false, null, null);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error calling OpenCage for {placeName}: {ex.Message}");
-                return (false, null, null);
-            }
-        }
-
-/*
-        // 1. Signature changed: No 'ref' params, returns a 'Task<LatLong>'
-        public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPlace, string ipAddr)
-        {
-            ipAddr = ipAddr.Trim();
-            serverPlace = serverPlace.Trim();
-            userPlace = userPlace.Trim();
-
-            System.Diagnostics.Debug.Assert(serverPlace.ToUpper() == serverPlace);
-            System.Diagnostics.Debug.Assert(userPlace.ToUpper() == userPlace);
-
-            // ... (Your cache flushing logic remains unchanged) ...
-            var rng = new Random();
-            if (0 == rng.Next(20000))
-            {
-                Console.WriteLine("Want to flush cached lat-longs, but they are even more scarce now, so only if things are not full-tilt.");
-                if (m_secondsPause > 20)
-                {
-                    Console.WriteLine("Detected relative slowdown and flushed.");
-                    m_PlaceNameToLatLong.Clear();
-                    m_ipAddrToLatLong.Clear();
-                }
-            }
-
-            // 2. Cache checks now return the LatLong object directly.
-            if (m_PlaceNameToLatLong.TryGetValue(serverPlace, out var cachedServerPlace))
-            {
-                return cachedServerPlace;
-            }
-
-            if (m_PlaceNameToLatLong.TryGetValue(userPlace, out var cachedUserPlace))
-            {
-                return cachedUserPlace;
-            }
-
-            if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp))
-            {
-                return cachedIp;
-            }
-
-            // --- All checks below are now async ---
-
-            bool fServerLLSuccess = false;
-            string serverLat = "";
-            string serverLon = "";
-
-            if (serverPlace.Length > 1 && serverPlace != "yourCity")
-            {
-                // 3. Await the async call. Renamed tuple vars for clarity.
-                var serverResult = await CallOpenCageAsync(serverPlace);
-                if (serverResult.Success)
-                {
-                    serverLat = serverResult.Lat;
-                    serverLon = serverResult.Lon;
-                    Console.WriteLine("Used server location: " + serverPlace);
-                    fServerLLSuccess = true;
-                }
-            }
-
-            bool fUserLLSuccess = false;
-            string userLat = "";
-            string userLon = "";
-
-            // 4. Await the second async call
-            var userResult = await CallOpenCageAsync(userPlace);
-            if (userResult.Success)
-            {
-                userLat = userResult.Lat;
-                userLon = userResult.Lon;
-                Console.WriteLine("Used user location: " + userPlace);
-                fUserLLSuccess = true;
-            }
-
-            bool fServerIPLLSuccess = false;
-            string serverIPLat = "";
-            string serverIPLon = "";
-
-            if (ipAddr.Length > 5)
-            {
-                // 5. This block is now fully async, uses the shared httpClient,
-                //    and has proper error handling.
-                try
-                {
-                    string ip4Addr = ipAddr.Replace("::ffff:", "");
-                    string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4Addr + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
-
-                    // 6. FIXED: Use shared 'httpClient' and 'await'
-                    string s = await httpClient.GetStringAsync(endpoint);
-
-                    JObject jsonGeo = JObject.Parse(s);
-                    serverIPLat = (string)jsonGeo["location"]["latitude"];
-                    serverIPLon = (string)jsonGeo["location"]["longitude"];
-
-                    fServerIPLLSuccess = true;
-                    var newIpLocation = new LatLong(serverIPLat, serverIPLon);
-                    m_ipAddrToLatLong[ipAddr] = newIpLocation;
-                    Console.WriteLine("AN IP geo has been cached: " + serverIPLat + " " + serverIPLon);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error fetching IP geolocation for {ipAddr}: {ex.Message}");
-                    m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // Cache failure
-                }
-            }
-            else
-            {
-                m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // Cache empty IP
-            }
-
-            // --- Final Logic: Decide which LatLong to return ---
-
-            if (fServerIPLLSuccess)
-            {
-                if (fUserLLSuccess)
-                {
-                    char serverIPContinent = ContinentOfLatLong(serverIPLat, serverIPLon);
-                    char userContinent = ContinentOfLatLong(userLat, userLon);
-                    if (serverIPContinent == userContinent)
-                    {
-                        // Action: Use User's Place
-                        var location = new LatLong(userLat, userLon);
-                        m_PlaceNameToLatLong[serverPlace.ToUpper()] = location;
-                        return location; // 7. Return the 'LatLong' object
-                    }
-                }
-
-                if (false == fServerLLSuccess)
-                {
-                    // Action: Use Server IP's location
-                    // (Already cached in m_ipAddrToLatLong, but we return it)
-                    return m_ipAddrToLatLong[ipAddr];
-                }
-            }
-
-            // Default Action: Use Server's Place
-            Debug.Assert(serverLat != null);
-            Debug.Assert(serverLon != null); // Original code had 'lat != null' twice
-
-            var serverLocation = new LatLong(serverLat, serverLon);
-            m_PlaceNameToLatLong[serverPlace.ToUpper()] = serverLocation;
-            return serverLocation;
-        }
-
-        */
-
-// ---------------------------------------------------------
-// NEW STATIC FIELDS (For the "Night Watchman" Flush Logic)
-// ---------------------------------------------------------
-private static DateTime _lastGeolocCacheFlush = DateTime.Now;
-private static DateTime _lastRequestTimestamp = DateTime.Now;
-private static readonly object _flushLock = new object();
-
-// ---------------------------------------------------------
-// THE REPLACEMENT METHOD
-// ---------------------------------------------------------
-public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPlace, string ipAddr)
-{
-    ipAddr = ipAddr.Trim();
-    serverPlace = serverPlace.Trim();
-    userPlace = userPlace.Trim();
-
-    // --- NEW SMART FLUSH LOGIC ---
-    // We track the gap between requests.
-    var now = DateTime.Now;
-    var timeSinceLastRequest = now - _lastRequestTimestamp;
-    _lastRequestTimestamp = now; // Update for the next person
-
-    // Logic: 
-    // 1. Has it been > 6 hours since we last flushed?
-    // 2. Was the server silent for > 30 seconds before this request? (True idle time)
-    
-    if (timeSinceLastRequest.TotalSeconds > 30 && 
-        (now - _lastGeolocCacheFlush).TotalHours > 6)
-    {
-        lock (_flushLock)
-        {
-            // Double-check inside lock
-            if ((now - _lastGeolocCacheFlush).TotalHours > 6)
-            {
-                Console.WriteLine($"[Cache Cleanup] Server silent for {timeSinceLastRequest.TotalSeconds:F1}s. Flushing Geolocation Cache.");
-                
-                m_PlaceNameToLatLong.Clear();
-                m_ipAddrToLatLong.Clear();
-                
-                _lastGeolocCacheFlush = now;
-            }
-        }
-    }
-    // -----------------------------
-
-    // 1. Check Cache First (Fast path)
-    if (m_PlaceNameToLatLong.TryGetValue(serverPlace.ToUpper(), out var cachedServerPlace)) return cachedServerPlace;
-    if (m_PlaceNameToLatLong.TryGetValue(userPlace.ToUpper(), out var cachedUserPlace)) return cachedUserPlace;
-    if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp)) return cachedIp;
-
-    // 2. Async Lookups (Slow path - done in parallel where possible)
-    bool fServerLLSuccess = false;
-    string serverLat = "", serverLon = "";
-
-    if (serverPlace.Length > 1 && serverPlace != "yourCity")
-    {
-        var result = await CallOpenCageAsync(serverPlace);
-        if (result.Success)
-        {
-            serverLat = result.Lat;
-            serverLon = result.Lon;
-            fServerLLSuccess = true;
-        }
-    }
-
-    bool fUserLLSuccess = false;
-    string userLat = "", userLon = "";
-
-    var userResult = await CallOpenCageAsync(userPlace);
-    if (userResult.Success)
-    {
-        userLat = userResult.Lat;
-        userLon = userResult.Lon;
-        fUserLLSuccess = true;
-    }
-
-    bool fServerIPLLSuccess = false;
-    string serverIPLat = "", serverIPLon = "";
-
-    if (ipAddr.Length > 5)
-    {
-        try
-        {
-            string ip4Addr = ipAddr.Replace("::ffff:", "");
-            string endpoint = $"https://api.geoapify.com/v1/ipinfo?ip={ip4Addr}&apiKey={GEOAPIFY_MYSTERY_STRING}";
-            
-            // Use a short timeout so we don't hang if GeoApify is slow
-            using (var cts = new System.Threading.CancellationTokenSource(2000))
-            {
-                string s = await httpClient.GetStringAsync(endpoint, cts.Token);
-                JObject jsonGeo = JObject.Parse(s);
-                
-                serverIPLat = (string)jsonGeo["location"]["latitude"];
-                serverIPLon = (string)jsonGeo["location"]["longitude"];
-                
-                fServerIPLLSuccess = true;
-                
-                // Cache the IP result immediately
-                var newIpLoc = new LatLong(serverIPLat, serverIPLon);
-                m_ipAddrToLatLong[ipAddr] = newIpLoc;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error fetching IP geo for {ipAddr}: {ex.Message}");
-            m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); // Cache failure to prevent retry loops
-        }
-    }
-    else
-    {
-        // Cache empty result for short/invalid IPs
-        m_ipAddrToLatLong[ipAddr] = new LatLong("", "");
-    }
-
-    // 3. Decision Logic: Which location is best?
-    if (fServerIPLLSuccess)
-    {
-        if (fUserLLSuccess)
-        {
-            // If the IP and the User's manually entered city are on the same continent,
-            // we trust the User's manual entry (it's more specific/accurate).
-            char serverIPContinent = ContinentOfLatLong(serverIPLat, serverIPLon);
-            char userContinent = ContinentOfLatLong(userLat, userLon);
-            
-            if (serverIPContinent == userContinent)
-            {
-                var loc = new LatLong(userLat, userLon);
-                m_PlaceNameToLatLong[serverPlace.ToUpper()] = loc;
-                return loc;
-            }
-        }
-
-        // If server lookup failed, or user location didn't match continent, fall back to IP
-        if (!fServerLLSuccess)
-        {
-            return m_ipAddrToLatLong[ipAddr];
-        }
-    }
-
-    // 4. Default Fallback: Use Server Place
-    if (string.IsNullOrEmpty(serverLat) || string.IsNullOrEmpty(serverLon))
-    {
-        // Total failure case
-        return new LatLong("0", "0");
-    }
-
-    var serverLocation = new LatLong(serverLat, serverLon);
-    m_PlaceNameToLatLong[serverPlace.ToUpper()] = serverLocation;
-    return serverLocation;
-}        
-    
         // Here we note who s.who is, because we care how long a person has been on a server. Nothing more than that for now.
         protected void NotateWhoHere(string server, string who)
         {
@@ -2394,58 +1814,6 @@ public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPla
 
 
 
-
-        char ContinentOfLatLong(string lat, string lon)
-        {
-            double latD = Convert.ToDouble(lat);
-            double lonD = Convert.ToDouble(lon);
-
-            char zone = 'X';
-
-            // hardcode with the latitude and longitude of New York City
-            double latNA = 40.7128;
-            double longNA = -74.0060;
-            int distFromNA = Distance(latNA, longNA, latD, lonD);
-            // hardcode with latiutde and longitude of Moscow
-            double latEU = 55.7558;
-            double longEU = 37.6173;
-            int distFromEU = Distance(latEU, longEU, latD, lonD);
-            // hardcode with latitude and longitude of Okinowa
-            double latAS = 26.2125;
-            double longAS = 127.6800;
-            int distFromAS = Distance(latAS, longAS, latD, lonD);
-            // hardcode with lat long of Manaus
-            double latSA = 4.57;
-            double longSA = -74.0217;
-            int distFromSA = Distance(latSA, longSA, latD, lonD);
-
-            if (distFromNA < distFromEU)
-                if (distFromNA < distFromAS)
-                    if (distFromNA < distFromSA)
-                    {
-                        if (latD < 25.0) // i don't know why, my formula just sux
-                            zone = 'S';
-                        else
-                            zone = 'N';
-                    }
-
-            if (distFromEU < distFromNA)
-                if (distFromEU < distFromAS)
-                    if (distFromEU < distFromSA)
-                        zone = 'E';
-
-            if (distFromAS < distFromNA)
-                if (distFromAS < distFromEU)
-                    if (distFromAS < distFromSA)
-                        zone = 'A';
-
-            if (distFromSA < distFromNA)
-                if (distFromSA < distFromEU)
-                    if (distFromSA < distFromAS)
-                        zone = 'S';
-
-            return zone;
-        }
 
         // Switching to 2 second cache cuz i'm concerned this request is bottlenecking us
 
@@ -3045,7 +2413,7 @@ Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
         private async Task<(int dist, char zone)> CalculateServerDistanceAndZoneAsync(string place, string usersPlace, string serverIp)
         {
             // 2. Call the new async method and await its 'LatLong' result
-            LatLong location = await PlaceToLatLonAsync(place.ToUpper(), usersPlace.ToUpper(), serverIp);
+            LatLong location = await _geoService.PlaceToLatLonAsync(place.ToUpper(), usersPlace.ToUpper(), serverIp);
 
             // 3. Initialize local variables
             int dist = 0;
@@ -3055,9 +2423,9 @@ Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
             if (location != null && (location.lat.Length > 1 || location.lon.Length > 1))
             {
                 // This is the changed line
-                dist = await DistanceFromClientAsync(location.lat, location.lon);
+                dist = await _geoService.DistanceFromClientAsync(location.lat, location.lon);
 
-                zone = ContinentOfLatLong(location.lat, location.lon);
+                zone = _geoService.ContinentOfLatLong(location.lat, location.lon);
             }
             
             // 5. Return the tuple result

@@ -23,6 +23,10 @@ builder.WebHost.UseKestrel(serverOptions =>
 // Add services to the container.
 builder.Services.AddRazorPages();
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<JamFan22.Services.GeolocationService>();
+
 builder.Services.AddHostedService<JamFan22.Services.JamulusListRefreshService>();
 builder.Services.AddHostedService<JamFan22.Services.JammerHarvestService>();
 
@@ -81,7 +85,7 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                 // find the user's city-nation.
                 foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
                 {
-                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Pages.JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
                     foreach (var server in serversOnList)
                     {
                         if (server.clients != null)
@@ -95,12 +99,10 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                                     {
                                         // try to get a lat-long from the city-country
                                         
-                                        // ***** THIS IS THE FIX *****
-                                        // We now 'await' the new async method and check the 'success' boolean
-                                        var (success, lat, lon) = await JamFan22.Pages.IndexModel.CallOpenCageCachedAsync(guy.city + ", " + guy.country);
+                                        var geoService = context.RequestServices.GetRequiredService<JamFan22.Services.GeolocationService>();
+                                        var (success, lat, lon) = await geoService.CallOpenCageCachedAsync(guy.city + ", " + guy.country);
                                         
                                         if (true == success)
-                                        // ***** END OF FIX *****
                                         {
                                             // assoc this lat-lon with this ip address
                                             string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
@@ -120,7 +122,7 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
                                             if (null != ipaddr)
                                             {
                                                 // We use the 'lat' and 'lon' variables returned from the async call
-                                                JamFan22.Pages.IndexModel.m_ipAddrToLatLong[ipaddr] = new JamFan22.Pages.IndexModel.LatLong(lat, lon);
+                                                JamFan22.Services.GeolocationService.m_ipAddrToLatLong[ipaddr] = new JamFan22.Models.LatLong(lat, lon);
 
                                                 Console.Write("From " + ipaddr + " ");
                                                 Console.Write(result + " / ");

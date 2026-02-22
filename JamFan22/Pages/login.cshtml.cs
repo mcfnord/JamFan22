@@ -21,7 +21,7 @@ namespace JamFan21.Pages
                 var globe = JamFan22.Pages.IndexModel.LastReportedList;
                 foreach (var key in globe.Keys)
                 {
-                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Pages.JamulusServers>>(globe[key]);
+                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(globe[key]);
                     foreach (var server in serversOnList)
                     {
                         if (server.clients != null)
