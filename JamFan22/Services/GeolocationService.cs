@@ -31,36 +31,80 @@ namespace JamFan22.Services
             _httpContextAccessor = httpContextAccessor;
         }
 
+        private static readonly System.Threading.SemaphoreSlim _ipApiSemaphore = new System.Threading.SemaphoreSlim(1, 1);
+        private static DateTime _lastIpApiCall = DateTime.MinValue;
+        public static Dictionary<string, (LatLong Location, DateTime Expiry)> m_ipApiCache48 = new Dictionary<string, (LatLong, DateTime)>();
+
+        private async Task<LatLong> GetIpApiLatLonAsync(string ip)
+        {
+            if (string.IsNullOrEmpty(ip) || ip.Length < 5) return new LatLong("0", "0");
+            
+            string ip4 = ip.Replace("::ffff:", "");
+            
+            if (m_ipApiCache48.TryGetValue(ip4, out var cached))
+            {
+                if (DateTime.Now < cached.Expiry)
+                    return cached.Location;
+            }
+
+            await _ipApiSemaphore.WaitAsync();
+            try
+            {
+                if (m_ipApiCache48.TryGetValue(ip4, out var cachedDoubleCheck))
+                {
+                    if (DateTime.Now < cachedDoubleCheck.Expiry)
+                        return cachedDoubleCheck.Location;
+                }
+
+                var timeSinceLast = DateTime.Now - _lastIpApiCall;
+                if (timeSinceLast.TotalSeconds < 1.5)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1.5) - timeSinceLast);
+                }
+
+                string endpoint = "http://ip-api.com/json/" + ip4;
+                _lastIpApiCall = DateTime.Now;
+
+                using (var cts = new System.Threading.CancellationTokenSource(2000))
+                {
+                    string s = await _httpClient.GetStringAsync(endpoint, cts.Token);
+                    JObject jsonGeo = JObject.Parse(s);
+                    if (jsonGeo["status"]?.ToString() == "success")
+                    {
+                        var loc = new LatLong(jsonGeo["lat"].ToString(), jsonGeo["lon"].ToString());
+                        m_ipApiCache48[ip4] = (loc, DateTime.Now.AddHours(48));
+                        return loc;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching IP geo for {ip}: {ex.Message}");
+            }
+            finally
+            {
+                _ipApiSemaphore.Release();
+            }
+            
+            return new LatLong("0", "0");
+        }
+
         public async Task<LatLong> SmartGeoLocateAsync(string ip)
         {
             if (m_ipAddrToLatLong.TryGetValue(ip, out var cached))
                 return cached;
 
-            try
+            var loc = await GetIpApiLatLonAsync(ip);
+            
+            if (loc.lat != "0" || loc.lon != "0") 
             {
-                string ip4 = ip.Replace("::ffff:", "");
-                string endpoint = "https://api.geoapify.com/v1/ipinfo?ip=" + ip4 + "&apiKey=" + GEOAPIFY_MYSTERY_STRING;
-
-                string s = await _httpClient.GetStringAsync(endpoint);
-
-                JObject jsonGeo = JObject.Parse(s);
-                double latitude = Convert.ToDouble(jsonGeo["location"]["latitude"]);
-                double longitude = Convert.ToDouble(jsonGeo["location"]["longitude"]);
-
-                var newLocation = new LatLong(latitude.ToString(), longitude.ToString());
-                m_ipAddrToLatLong[ip] = newLocation;
-
-                Console.WriteLine("A client IP has been cached: " + ip + " " + jsonGeo["city"] + " " + latitude + " " + longitude);
-
-                return newLocation;
+                m_ipAddrToLatLong[ip] = loc;
+                return loc;
             }
-            catch (Exception e)
-            {
-                Console.WriteLine("Error getting geolocation for " + ip + ": " + e.Message);
-                var errorLocation = new LatLong("0", "0");
-                m_ipAddrToLatLong[ip] = errorLocation;
-                return errorLocation;
-            }
+            
+            var errorLocation = new LatLong("0", "0");
+            m_ipAddrToLatLong[ip] = errorLocation;
+            return errorLocation;
         }
 
         public async Task<int> DistanceFromClientAsync(string lat, string lon)
@@ -159,82 +203,11 @@ namespace JamFan22.Services
             if (m_PlaceNameToLatLong.TryGetValue(userPlace.ToUpper(), out var cachedUserPlace)) return cachedUserPlace;
             if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp)) return cachedIp;
 
-            bool fServerLLSuccess = false;
-            string serverLat = "", serverLon = "";
-
-            if (serverPlace.Length > 1 && serverPlace != "yourCity")
-            {
-                var result = await CallOpenCageAsync(serverPlace);
-                if (result.Success)
-                {
-                    serverLat = result.Lat;
-                    serverLon = result.Lon;
-                    fServerLLSuccess = true;
-                }
-            }
-
-            bool fUserLLSuccess = false;
-            string userLat = "", userLon = "";
-            var userResult = await CallOpenCageAsync(userPlace);
-            if (userResult.Success)
-            {
-                userLat = userResult.Lat;
-                userLon = userResult.Lon;
-                fUserLLSuccess = true;
-            }
-
-            bool fServerIPLLSuccess = false;
-            string serverIPLat = "", serverIPLon = "";
-
-            if (ipAddr.Length > 5)
-            {
-                try
-                {
-                    string ip4Addr = ipAddr.Replace("::ffff:", "");
-                    string endpoint = $"https://api.geoapify.com/v1/ipinfo?ip={ip4Addr}&apiKey={GEOAPIFY_MYSTERY_STRING}";
-                    
-                    using (var cts = new System.Threading.CancellationTokenSource(2000))
-                    {
-                        string s = await _httpClient.GetStringAsync(endpoint, cts.Token);
-                        JObject jsonGeo = JObject.Parse(s);
-                        serverIPLat = (string)jsonGeo["location"]["latitude"];
-                        serverIPLon = (string)jsonGeo["location"]["longitude"];
-                        fServerIPLLSuccess = true;
-                        m_ipAddrToLatLong[ipAddr] = new LatLong(serverIPLat, serverIPLon);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error fetching IP geo for {ipAddr}: {ex.Message}");
-                    m_ipAddrToLatLong[ipAddr] = new LatLong("", ""); 
-                }
-            }
-            else
-            {
-                m_ipAddrToLatLong[ipAddr] = new LatLong("", "");
-            }
-
-            if (fServerIPLLSuccess)
-            {
-                if (fUserLLSuccess)
-                {
-                    char serverIPContinent = ContinentOfLatLong(serverIPLat, serverIPLon);
-                    char userContinent = ContinentOfLatLong(userLat, userLon);
-                    if (serverIPContinent == userContinent)
-                    {
-                        var loc = new LatLong(userLat, userLon);
-                        m_PlaceNameToLatLong[serverPlace.ToUpper()] = loc;
-                        return loc;
-                    }
-                }
-                if (!fServerLLSuccess) return m_ipAddrToLatLong[ipAddr];
-            }
-
-            if (string.IsNullOrEmpty(serverLat) || string.IsNullOrEmpty(serverLon)) return new LatLong("0", "0");
-
-            var serverLocation = new LatLong(serverLat, serverLon);
-            m_PlaceNameToLatLong[serverPlace.ToUpper()] = serverLocation;
-            return serverLocation;
+            // Entirely rely on ip-api.com for server location, ignoring stated city.
+            LatLong loc = await GetIpApiLatLonAsync(ipAddr);
+            m_ipAddrToLatLong[ipAddr] = loc;
+            
+            return loc;
         }
 
         public async Task<(bool Success, string Lat, string Lon)> CallOpenCageAsync(string placeName)
