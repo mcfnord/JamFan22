@@ -23,7 +23,7 @@ namespace JamFan22.Services
         private static DateTime _lastRequestTimestamp = DateTime.Now;
         private static readonly object _flushLock = new object();
 
-        private const string GEOAPIFY_MYSTERY_STRING = "4fc3b2001d984815a8a691e37a28064c"; // Placeholder: Verify correct key
+        private static readonly string GEOAPIFY_MYSTERY_STRING = System.IO.File.Exists("secretGeoApifykey.txt") ? System.IO.File.ReadAllText("secretGeoApifykey.txt").Trim() : "";
 
         public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
         {
