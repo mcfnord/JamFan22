@@ -551,6 +551,21 @@ var orderedRecords = records
                 })
                 .ToList();
 
+            int lastActiveIndex = -1;
+            for (int i = orderedRecords.Count - 1; i >= 0; i--)
+            {
+                if (liveGuids.Contains(orderedRecords[i].Guid) || orderedRecords[i].IsPredicted)
+                {
+                    lastActiveIndex = i;
+                    break;
+                }
+            }
+            int keepCount = Math.Max(3, lastActiveIndex + 1);
+            if (keepCount < orderedRecords.Count)
+            {
+                orderedRecords = orderedRecords.Take(keepCount).ToList();
+            }
+
             const int minimumVisibleCount = 3;
             const double distanceThresholdKm = 3000;
             var nearbyRecords = new List<MusicianRecord>();

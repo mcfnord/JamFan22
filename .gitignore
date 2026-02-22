@@ -1,0 +1,29 @@
+# .NET
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+*.sln.docstates
+
+# App Data/State (Production)
+*.json
+*.csv
+*.txt
+*.output
+*.log
+predicted.csv
+secretGeoApifykey.txt
+keyJan26.pfx
+
+# Except for files that are part of the repo (if any)
+!appsettings.json
+!appsettings.Development.json
+!JamFan22.sln
+!JamFan22.csproj
+!tooltips.json
+!guidNamePairs.json
+!timeTogether.json
+!timeTogetherLastUpdates.json

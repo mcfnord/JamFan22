@@ -14,8 +14,21 @@ var builder = WebApplication.CreateBuilder(args);
 ///* removed for localhost usage.
 builder.WebHost.UseKestrel(serverOptions =>
 {
-    //    serverOptions.ListenAnyIP(80);
-    serverOptions.ListenAnyIP(443, listenOptions => listenOptions.UseHttps("keyJan26.pfx", "jamfan"));
+    var port = 443;
+    var portStr = Environment.GetEnvironmentVariable("PORT");
+    if (!string.IsNullOrEmpty(portStr) && int.TryParse(portStr, out int p))
+    {
+        port = p;
+    }
+
+    if (port == 443)
+    {
+        serverOptions.ListenAnyIP(port, listenOptions => listenOptions.UseHttps("keyJan26.pfx", "jamfan"));
+    }
+    else
+    {
+        serverOptions.ListenAnyIP(port);
+    }
 });
 //*/
 
