@@ -169,9 +169,10 @@ namespace JamFan22.Services
 
             int minDist = Math.Min(distFromNA, Math.Min(distFromEU, Math.Min(distFromAS, distFromSA)));
 
-            if (minDist == distFromNA) return 'A';
+            if (minDist == distFromNA) return 'N'; // Changed to 'N' for North America
             if (minDist == distFromEU) return 'E';
-            if (minDist == distFromAS) return 'S';
+            if (minDist == distFromAS) return 'A'; // Changed to 'A' for Asia
+            if (minDist == distFromSA) return 'S'; // Added 'S' for South America
             return 'O';
         }
 
@@ -200,7 +201,7 @@ namespace JamFan22.Services
             }
 
             if (m_PlaceNameToLatLong.TryGetValue(serverPlace.ToUpper(), out var cachedServerPlace)) return cachedServerPlace;
-            if (m_PlaceNameToLatLong.TryGetValue(userPlace.ToUpper(), out var cachedUserPlace)) return cachedUserPlace;
+            // Removed the userPlace fallback that was spoofing server locations
             if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp)) return cachedIp;
 
             // Entirely rely on ip-api.com for server location, ignoring stated city.

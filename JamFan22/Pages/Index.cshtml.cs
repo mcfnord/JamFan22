@@ -1792,27 +1792,26 @@ public static async Task RefreshThreadTask(CancellationToken stoppingToken)
         }
 
 
-
-        string BackgroundByZone(char zone)
+string BackgroundByZone(char zone)
         {
-            switch (zone) // #D9F9F9 is default
+            switch (zone) 
             {
                 case 'E':
-                    return " style=\"background: #AFFFC6\"";
+                    return " style=\"background: #AFFFC6\""; // Europe (Mint Green)
 
                 case 'N':
-                    return " style=\"background: #C1F1FF\"";
+                    return " style=\"background: #C1F1FF\""; // North America (Light Blue)
 
                 case 'A':
-                    return " style=\"background: #E7FFFF\"";
+                    // Pushed to a truer, brighter pale yellow (removes the warm/red tint)
+                    return " style=\"background: #FFF0AA\""; 
 
                 case 'S':
-                    return " style=\"background: #F9EAEA\"";
+                    // Shifted completely away from pink into a soft lilac/purple
+                    return " style=\"background: #E8D8F8\""; 
             }
             return "";
-        }
-
-
+        }        
 
 
         // Switching to 2 second cache cuz i'm concerned this request is bottlenecking us
@@ -2151,8 +2150,16 @@ Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
                     var (place, usersPlace, serverCountry) = GetServerAndUserLocation(server, clientResult.UserCountries);
 
                     // Get distance and zone (NOW ASYNC)
-                    // This is the changed line:
                     var (dist, zone) = await CalculateServerDistanceAndZoneAsync(place, usersPlace, server.ip);
+
+                    // --- CULTURAL OVERRIDE ---
+                    // Force Mexico and Central America to use the South American UI color ('S')
+                    string[] latAmOverrides = { "Mexico", "Guatemala", "Belize", "Honduras", "El Salvador", "Nicaragua", "Costa Rica", "Panama" };
+                    if (latAmOverrides.Contains(serverCountry, StringComparer.OrdinalIgnoreCase))
+                    {
+                        zone = 'S'; 
+                    }
+                    // -------------------------
 
                     // Apply distance boost for solo users
                     dist = CalculateBoostedDistance(server, dist, clientResult.FirstUserHash);
