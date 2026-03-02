@@ -551,6 +551,20 @@ var orderedRecords = records
                 })
                 .ToList();
 
+            while (orderedRecords.Count > 0)
+            {
+                var first = orderedRecords[0];
+                bool isLive = liveGuids.Contains(first.Guid);
+                if (!isLive && !first.IsPredicted && (DateTime.UtcNow - first.LastSeen).TotalMinutes > 30)
+                {
+                    orderedRecords.RemoveAt(0);
+                }
+                else
+                {
+                    break;
+                }
+            }
+
             int lastActiveIndex = -1;
             for (int i = orderedRecords.Count - 1; i >= 0; i--)
             {

@@ -3,13 +3,10 @@
 ## Development Workflow
 - **All code changes** must occur in a non-main branch.
 - **Never modify files** on the `main` branch directly.
-- Only merge into `main` after changes have been verified to work.
 
 ## Running the Application
-This application is run and managed as a systemd service. 
+This application is run and managed as a systemd service named jamfan22.
 - **Do not** use `dotnet run` directly.
-- **Do** use `systemctl restart jamfan22` to apply changes and restart the application.
-- **Do** use `systemctl status jamfan22` to check the status.
 
 ## Testing a Branch Live
 To test changes on a branch safely while the production instance runs undisturbed:
@@ -18,4 +15,8 @@ To test changes on a branch safely while the production instance runs undisturbe
 3. It takes a read-only snapshot of production data and copies it to the sandbox.
 4. It launches the test instance on port `5000` (e.g., `http://localhost:5000`), leaving all production data completely untouched.
 
-You can stop the test server at any time by pressing `Ctrl+C`.
+## Data File Handling & Token Efficiency
+- **NEVER** read entire `.json`, `.csv`, `.log`, or other large data files into context using `read_file` without explicit bounds.
+- **Always** use `grep_search` to find specific keys, values, or lines of interest within these files.
+- If sequential reading is strictly required, use `read_file` with strict `limit` (e.g., 50 lines) and `offset` parameters to paginate through the file.
+- Prioritize using terminal utilities (like `head`, `tail`, `jq`, or `awk` via `run_shell_command` with `--no-pager`) if complex data extraction or summarization is needed before bringing data into the context window.

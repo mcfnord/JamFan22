@@ -1,32 +1,30 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\mcfno\\source\\repos\\JamFan22\\JamFan22\\JamFan22.csproj": {}
+    "/root/JamFan22/JamFan22/JamFan22.csproj": {}
   },
   "projects": {
-    "C:\\Users\\mcfno\\source\\repos\\JamFan22\\JamFan22\\JamFan22.csproj": {
+    "/root/JamFan22/JamFan22/JamFan22.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\mcfno\\source\\repos\\JamFan22\\JamFan22\\JamFan22.csproj",
+        "projectUniqueName": "/root/JamFan22/JamFan22/JamFan22.csproj",
         "projectName": "JamFan22",
-        "projectPath": "C:\\Users\\mcfno\\source\\repos\\JamFan22\\JamFan22\\JamFan22.csproj",
-        "packagesPath": "C:\\Users\\mcfno\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\mcfno\\source\\repos\\JamFan22\\JamFan22\\obj\\",
+        "projectPath": "/root/JamFan22/JamFan22/JamFan22.csproj",
+        "packagesPath": "/root/.nuget/packages/",
+        "outputPath": "/root/JamFan22/JamFan22/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\mcfno\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "/root/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
-          "net6.0"
+          "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net6.0": {
-            "targetAlias": "net6.0",
+          "net9.0": {
+            "targetAlias": "net9.0",
             "projectReferences": {}
           }
         },
@@ -34,15 +32,25 @@
           "warnAsError": [
             "NU1605"
           ]
-        }
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
-        "net6.0": {
-          "targetAlias": "net6.0",
+        "net9.0": {
+          "targetAlias": "net9.0",
           "dependencies": {
             "IpGeoLocation.IpGeoLocation": {
               "target": "Package",
               "version": "[1.0.9, )"
+            },
+            "Microsoft.AspNetCore.Server.Kestrel.Https": {
+              "target": "Package",
+              "version": "[2.2.0, )"
             },
             "Newtonsoft.Json": {
               "target": "Package",
@@ -55,7 +63,8 @@
             "net47",
             "net471",
             "net472",
-            "net48"
+            "net48",
+            "net481"
           ],
           "assetTargetFallback": true,
           "warn": true,
@@ -67,7 +76,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\6.0.101\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/root/.dotnet/sdk/9.0.311/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

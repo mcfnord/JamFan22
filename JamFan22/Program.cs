@@ -35,6 +35,7 @@ builder.WebHost.UseKestrel(serverOptions =>
 
 // Add services to the container.
 builder.Services.AddRazorPages();
+builder.Services.AddSignalR();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
@@ -74,6 +75,7 @@ app.UseRouting();
 app.UseAuthorization();
 
 app.MapRazorPages();
+app.MapHub<JamFan22.ChatHub>("/chathub");
 
 
 app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext context) =>

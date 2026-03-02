@@ -15,6 +15,55 @@ namespace JamFan22.Pages
 {
     public partial class IndexModel : PageModel
     {
+        private static DateTime _backoffUntil = DateTime.MinValue;
+        private static int _currentBackoffMs = 1000;
+        private static readonly object _backoffLock = new object();
+
+        private static async Task<string> FetchWithBackoffAsync(HttpClient client, string url, CancellationToken cancellationToken = default)
+        {
+            lock (_backoffLock)
+            {
+                if (DateTime.Now < _backoffUntil)
+                {
+                    throw new Exception($"Rate limit active. Fast-failing request to {url} until {_backoffUntil}.");
+                }
+            }
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.GetAsync(url, cancellationToken);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                lock (_backoffLock)
+                {
+                    _backoffUntil = DateTime.Now.AddMilliseconds(_currentBackoffMs);
+                    _currentBackoffMs *= 2;
+                }
+                throw new Exception($"429 Too Many Requests exception for {url}. Backing off.", ex);
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                lock (_backoffLock)
+                {
+                    _backoffUntil = DateTime.Now.AddMilliseconds(_currentBackoffMs);
+                    _currentBackoffMs *= 2;
+                }
+                throw new Exception($"429 Too Many Requests for {url}. Backing off.");
+            }
+
+            response.EnsureSuccessStatusCode();
+
+            lock (_backoffLock)
+            {
+                _currentBackoffMs = 1000; // Reset on success
+            }
+
+            return await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+
         const string WholeMiddotString = " &#xB7; ";
 
         // This cache makes sure we don't query ip-api.com for the same user twice in 48 hours
@@ -47,7 +96,7 @@ namespace JamFan22.Pages
                 {
                     // Use the static shared httpClient and await the non-blocking call
                     Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
-                    string st = await httpClient.GetStringAsync("http://ip-api.com/json/" + clientIP, cts.Token);
+                    string st = await FetchWithBackoffAsync(httpClient, "http://ip-api.com/json/" + clientIP, cts.Token);
                     JObject json = JObject.Parse(st);
                     m_ipapiOutputs[clientIP] = json;
                     return json;
@@ -75,8 +124,19 @@ namespace JamFan22.Pages
                 string endpoint = "http://ip-api.com/json/" + ip;
                 using var client = new HttpClient();
 
-                // --- FIX: Await the async call instead of blocking ---
-                string st = await client.GetStringAsync(endpoint);
+                string st;
+                try
+                {
+                    // --- FIX: Await the async call instead of blocking ---
+                    st = await FetchWithBackoffAsync(client, endpoint);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ip-api.com ASN lookup failed for {ip}: {ex.Message}");
+                    m_ArnOfIp[ip] = null;
+                    m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(5);
+                    return null;
+                }
 
                 JObject jsonGeo = JObject.Parse(st);
                 Random rnd = new Random();
@@ -246,7 +306,7 @@ namespace JamFan22.Pages
                         var client = new HttpClient();
                         Console.WriteLine("3 Requesting: http://ip-api.com/json/" + ipAddress);
 
-                        string st = await client.GetStringAsync("http://ip-api.com/json/" + ipAddress);
+                        string st = await FetchWithBackoffAsync(client, "http://ip-api.com/json/" + ipAddress);
                         m_ipapiOutputs[ipAddress] = JObject.Parse(st);
                     }
                     catch (Exception ex)

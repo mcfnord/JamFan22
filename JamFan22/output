@@ -1,0 +1,605 @@
+Using launch settings from /root/JamFan22/JamFan22/Properties/launchSettings.json...
+Building...
+warn: Microsoft.AspNetCore.Server.Kestrel[0]
+      Overriding address(es) 'https://localhost:7098, http://localhost:5098'. Binding to endpoints defined via IConfiguration and/or UseKestrel() instead.
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: https://[::]:443
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Development
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: /root/JamFan22/JamFan22
+82213 pairs loaded.
+2 Requesting: http://ip-api.com/json/::ffff:24.17.80.236
+Cache expired (300s). Reloading all data files...
+Data file reload complete.
+Performing manual Garbage Collection to prevent swap thrashing...
+Garbage Collection complete. Memory stabilized.
+Loading Census Data (1M+ lines) into RAM Cache...
+Cached new location: Minnehaha, US
+Census Cache Loaded. 119263 unique profiles.
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     OVERRIDE: Weak Online (Sig 0) replaced by Iron-Clad Regular (Sig 28)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1632634  1    ONLINE   46fd5  -                No Name [philadelphia, United States]
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+4 requesting http://ip-api.com/json/::ffff:24.17.80.236
+Failed to update predictions: Response status code does not indicate success: 404 (Not Found).
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+A client IP has been cached: ::ffff:24.17.80.236 {
+  "names": {
+    "en": "Minnehaha"
+  },
+  "name": "Minnehaha"
+} 45.659 -122.627
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 21 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 18 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 7
+2 Requesting: http://ip-api.com/json/82.20.141.34
+2 Requesting: http://ip-api.com/json/117.20.68.126
+2 Requesting: http://ip-api.com/json/77.163.83.31
+2 Requesting: http://ip-api.com/json/57.131.34.123
+2 Requesting: http://ip-api.com/json/43.208.146.31
+3 Requesting: http://ip-api.com/json/43.208.146.31
+2 Requesting: http://ip-api.com/json/103.27.201.197
+2 Requesting: http://ip-api.com/json/154.215.14.108
+[SLOW REQUEST] Serialization Duration: 19872ms
+Starting 21-day cull logic...
+Removing 53f853dc9bd645f50d043637b23f8eeacfab1ba8c67c7c838db98d666f02a132 because it was last updated 01/30/2026 06:08:47
+Removing 3e180d5cac03c800001c6ea0611941984f43e639e0779f19257be072b7846fd5 because it was last updated 01/30/2026 06:02:32
+Removing 3490fdce05fb3b26584f30303848fb99386e0a2d203b37442ffc5c99d9cef323 because it was last updated 01/30/2026 06:05:51
+Removing 3490fdce05fb3b26584f30303848fb9953f853dc9bd645f50d043637b23f8eea because it was last updated 01/30/2026 06:41:56
+Removing e750857a5cb3dab13e7627ebdcd4f0ddf2d63ea12062f64c5b9bc48dfc2cacdd because it was last updated 01/30/2026 05:39:21
+Removing bbc664368dffe9e9ddbd1460dad03715c20749fa30927c5bbe272f77d140d211 because it was last updated 01/30/2026 05:35:04
+Removing bbc664368dffe9e9ddbd1460dad03715e385a3da5ad73d6a36da20e43def2581 because it was last updated 01/30/2026 05:35:04
+Removing 386e0a2d203b37442ffc5c99d9cef323bbc664368dffe9e9ddbd1460dad03715 because it was last updated 01/30/2026 05:35:04
+Removing c20749fa30927c5bbe272f77d140d211f8a01dff9bbf4ba7907173fb60765028 because it was last updated 01/30/2026 05:35:29
+Removing e385a3da5ad73d6a36da20e43def2581f8a01dff9bbf4ba7907173fb60765028 because it was last updated 01/30/2026 05:35:29
+Removing 386e0a2d203b37442ffc5c99d9cef323f8a01dff9bbf4ba7907173fb60765028 because it was last updated 01/30/2026 05:35:29
+Removing 8ec8196b16efcf4de5d1670871ed4f30e8e0657258b2a7ece31ae8264dc72f86 because it was last updated 01/30/2026 06:07:12
+Removing c61a647ecca5c15ee566153b99087c18e8e0657258b2a7ece31ae8264dc72f86 because it was last updated 01/30/2026 05:52:49
+Removing 4555536c1b155fa2b69445aba1297a0ac20749fa30927c5bbe272f77d140d211 because it was last updated 01/30/2026 05:56:03
+Removing 4555536c1b155fa2b69445aba1297a0ae385a3da5ad73d6a36da20e43def2581 because it was last updated 01/30/2026 05:56:03
+Removing 386e0a2d203b37442ffc5c99d9cef3234555536c1b155fa2b69445aba1297a0a because it was last updated 01/30/2026 05:56:03
+Removing 386e0a2d203b37442ffc5c99d9cef323ea223a9a1ce631a4c739bdea187ba667 because it was last updated 01/30/2026 05:53:35
+Removing 4555536c1b155fa2b69445aba1297a0aea223a9a1ce631a4c739bdea187ba667 because it was last updated 01/30/2026 05:53:35
+Removing 4555536c1b155fa2b69445aba1297a0a4f43e639e0779f19257be072b7846fd5 because it was last updated 01/30/2026 05:56:03
+Removing 7ba571d1e2838e28e248087489696c7cb0834ff98b7feb6b9dfea80b626cefd0 because it was last updated 01/30/2026 06:07:37
+Removing 3e180d5cac03c800001c6ea0611941987ba571d1e2838e28e248087489696c7c because it was last updated 01/30/2026 06:07:37
+Removing 0416111164c80d78e36fe88234f361777ba571d1e2838e28e248087489696c7c because it was last updated 01/30/2026 06:06:06
+Removing 910d6adaccfce5ab6fd67bd792fecf82b0834ff98b7feb6b9dfea80b626cefd0 because it was last updated 01/30/2026 06:05:01
+Removing 3e180d5cac03c800001c6ea061194198910d6adaccfce5ab6fd67bd792fecf82 because it was last updated 01/30/2026 06:05:01
+Removing 0416111164c80d78e36fe88234f36177910d6adaccfce5ab6fd67bd792fecf82 because it was last updated 01/30/2026 06:05:01
+Removing b0834ff98b7feb6b9dfea80b626cefd0d88a58fb5d89a0b245e61dea17966213 because it was last updated 01/30/2026 06:07:57
+Removing 3e180d5cac03c800001c6ea061194198d88a58fb5d89a0b245e61dea17966213 because it was last updated 01/30/2026 06:07:57
+Removing 90bda35d1ee0ebd2b5caa128ca047972b0834ff98b7feb6b9dfea80b626cefd0 because it was last updated 01/30/2026 06:08:17
+Removing 3e180d5cac03c800001c6ea06119419890bda35d1ee0ebd2b5caa128ca047972 because it was last updated 01/30/2026 06:08:17
+Removing b0834ff98b7feb6b9dfea80b626cefd0f1dd291c98e5665a0207c26b7d1366bb because it was last updated 01/30/2026 06:08:37
+Removing 3e180d5cac03c800001c6ea061194198f1dd291c98e5665a0207c26b7d1366bb because it was last updated 01/30/2026 06:08:37
+Removing 7ed6cdef23eda9e9c7e17a0a46a06f75b0834ff98b7feb6b9dfea80b626cefd0 because it was last updated 01/30/2026 06:09:23
+Removing 3e180d5cac03c800001c6ea0611941987ed6cdef23eda9e9c7e17a0a46a06f75 because it was last updated 01/30/2026 06:09:23
+Removing 006e5ed1e2ec53059acbbb69c140cf491a209ec541a3ccdb366b5adc1c919f9d because it was last updated 01/30/2026 06:12:21
+Removing 1a209ec541a3ccdb366b5adc1c919f9d3490fdce05fb3b26584f30303848fb99 because it was last updated 01/30/2026 06:12:21
+Removing 1a209ec541a3ccdb366b5adc1c919f9d3c5be6823787776b045d8b515f87b363 because it was last updated 01/30/2026 06:12:21
+Removing 1a209ec541a3ccdb366b5adc1c919f9d53f853dc9bd645f50d043637b23f8eea because it was last updated 01/30/2026 06:12:21
+Removing 573078a4f8b2188bb95582a2af77089ab0834ff98b7feb6b9dfea80b626cefd0 because it was last updated 01/30/2026 06:38:15
+Removing 3e180d5cac03c800001c6ea061194198573078a4f8b2188bb95582a2af77089a because it was last updated 01/30/2026 06:38:15
+Removing b0834ff98b7feb6b9dfea80b626cefd0f525185aec37ec8bbb69c4cdb000a3f2 because it was last updated 01/30/2026 06:38:15
+Removing 573078a4f8b2188bb95582a2af77089af525185aec37ec8bbb69c4cdb000a3f2 because it was last updated 01/30/2026 06:38:15
+Removing 3e180d5cac03c800001c6ea061194198f525185aec37ec8bbb69c4cdb000a3f2 because it was last updated 01/30/2026 06:38:15
+Removing 573078a4f8b2188bb95582a2af77089af2421475de21d2aaf4016b98ccaf0444 because it was last updated 01/30/2026 06:37:35
+Removing f2421475de21d2aaf4016b98ccaf0444f525185aec37ec8bbb69c4cdb000a3f2 because it was last updated 01/30/2026 06:37:35
+Removing e8e0657258b2a7ece31ae8264dc72f86f8995cf107565cc5ca419de67b3d377f because it was last updated 01/30/2026 07:27:42
+Cull logic completed successfully.
+82168 pair durations saved.
+Total global duration: 4537 days.
+[GetIpDetailsAsync] API SUCCESS for 24.17.80.236 (1703ms): City=Tacoma, Lat=47.1291, Lon=-122.4094
+Client City: Tacoma
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[GetGuidCensusMapAsync] Successfully loaded 118172 unique GUIDs from data/censusgeo.csv.
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+[GetIpDetailsAsync] API SUCCESS for 71.117.176.23 (9ms): City=East Greenwich, Lat=41.6532, Lon=-71.4615
+4f43e639e0779f19257be072b7846fd5 NOW       No Name                             -> Rhode Island
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82168 pair durations saved.
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82168 pair durations saved.
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1632634  1    OFFLINE  46fd5  -                No Name [philadelphia, United States]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 18 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 283, Added: 6
+Client City: Tacoma
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1632634  1    OFFLINE  46fd5  -                No Name [philadelphia, United States]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 18 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 283, Added: 6
+Client City: Tacoma
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82168 pair durations saved.
+2 Requesting: http://ip-api.com/json/::ffff:24.115.143.117
+Cached new location: Stroudsburg, US
+________________________________________________________________________________
+Client IP:       ::ffff:24.115.143.117
+   GeoLoc:       Stroudsburg, US
+   Network:       AS3737 PenTeleData Inc.
+
+   => MATCH:      jeff
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1649944  29   OFFLINE  d2659  Saxophone        jeff [Delaware Water Gap, United States]
+ 1649944  0    OFFLINE  4b585  Bass Guitar      Juan Ignacio [, Chile]
+
+4 requesting http://ip-api.com/json/::ffff:24.115.143.117
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+A client IP has been cached: ::ffff:24.115.143.117 {
+  "names": {
+    "en": "Stroudsburg"
+  },
+  "name": "Stroudsburg"
+} 40.9868 -75.1946
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 18 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 283, Added: 6
+[SLOW REQUEST] Serialization Duration: 595ms
+[GetIpDetailsAsync] API SUCCESS for 24.115.143.117 (664ms): City=East Stroudsburg, Lat=41.0331, Lon=-75.1702
+Client City: East Stroudsburg
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82168 pair durations saved.
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1632634  1    OFFLINE  46fd5  -                No Name [philadelphia, United States]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 18 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 283, Added: 6
+Client City: Tacoma
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82170 pair durations saved.
+Cache expired (300s). Reloading all data files...
+Data file reload complete.
+Performing manual Garbage Collection to prevent swap thrashing...
+Garbage Collection complete. Memory stabilized.
+________________________________________________________________________________
+Client IP:       ::ffff:24.115.143.117
+   GeoLoc:       Stroudsburg, US
+   Network:       AS3737 PenTeleData Inc.
+
+   => MATCH:      jeff
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1649944  29   OFFLINE  d2659  Saxophone        jeff [Delaware Water Gap, United States]
+ 1649944  0    OFFLINE  4b585  Bass Guitar      Juan Ignacio [, Chile]
+
+Failed to update predictions: Response status code does not indicate success: 404 (Not Found).
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 18 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 283, Added: 6
+[SLOW REQUEST] Serialization Duration: 797ms
+Client City: East Stroudsburg
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[GetGuidCensusMapAsync] Successfully loaded 118172 unique GUIDs from data/censusgeo.csv.
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82170 pair durations saved.
+2 Requesting: http://ip-api.com/json/::ffff:69.138.173.104
+Cached new location: Lanham-Seabrook, US
+________________________________________________________________________________
+Client IP:       ::ffff:69.138.173.104
+   GeoLoc:       Lanham-Seabrook, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      Robert Kemp
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1646385  29   OFFLINE  d622e  Guitar Vocal     Robert Kemp [Annapolis, United States]
+ 1644630  1    OFFLINE  e2ef0  Listener         ChiliDog [Irvine, CA, United States]
+
+4 requesting http://ip-api.com/json/::ffff:69.138.173.104
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+A client IP has been cached: ::ffff:69.138.173.104 {
+  "names": {
+    "en": "Lanham-Seabrook"
+  },
+  "name": "Lanham-Seabrook"
+} 38.9614 -76.8433
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+[SLOW REQUEST] Serialization Duration: 2209ms
+[GetIpDetailsAsync] API SUCCESS for 69.138.173.104 (815ms): City=Dunkirk, Lat=38.7218, Lon=-76.6605
+Client City: Dunkirk
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1632634  1    OFFLINE  46fd5  -                No Name [philadelphia, United States]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+Client City: Tacoma
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82170 pair durations saved.
+________________________________________________________________________________
+Client IP:       ::ffff:24.115.143.117
+   GeoLoc:       Stroudsburg, US
+   Network:       AS3737 PenTeleData Inc.
+
+   => MATCH:      jeff
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1649944  29   OFFLINE  d2659  Saxophone        jeff [Delaware Water Gap, United States]
+ 1649944  0    OFFLINE  4b585  Bass Guitar      Juan Ignacio [, Chile]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+Client City: East Stroudsburg
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82170 pair durations saved.
+________________________________________________________________________________
+Client IP:       ::ffff:69.138.173.104
+   GeoLoc:       Lanham-Seabrook, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      Robert Kemp
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1646385  29   OFFLINE  d622e  Guitar Vocal     Robert Kemp [Annapolis, United States]
+ 1644630  1    OFFLINE  e2ef0  Listener         ChiliDog [Irvine, CA, United States]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+[SLOW REQUEST] Serialization Duration: 757ms
+Client City: Dunkirk
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1632634  1    OFFLINE  46fd5  -                No Name [philadelphia, United States]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+Client City: Tacoma
+[GetAccruedTimeMap] Successfully loaded 4800 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82172 pair durations saved.
+________________________________________________________________________________
+Client IP:       ::ffff:24.115.143.117
+   GeoLoc:       Stroudsburg, US
+   Network:       AS3737 PenTeleData Inc.
+
+   => MATCH:      jeff
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1649944  29   OFFLINE  d2659  Saxophone        jeff [Delaware Water Gap, United States]
+ 1649944  0    OFFLINE  4b585  Bass Guitar      Juan Ignacio [, Chile]
+
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+2 Requesting: http://ip-api.com/json/103.234.236.233
+Client City: East Stroudsburg
+[GetAccruedTimeMap] Successfully loaded 4801 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82172 pair durations saved.
+________________________________________________________________________________
+Client IP:       ::ffff:69.138.173.104
+   GeoLoc:       Lanham-Seabrook, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      Robert Kemp
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1646385  29   OFFLINE  d622e  Guitar Vocal     Robert Kemp [Annapolis, United States]
+ 1644630  1    OFFLINE  e2ef0  Listener         ChiliDog [Irvine, CA, United States]
+
+Failed to update predictions: Response status code does not indicate success: 404 (Not Found).
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+Client City: Dunkirk
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)
+Cache expired (300s). Reloading all data files...
+Data file reload complete.
+Performing manual Garbage Collection to prevent swap thrashing...
+Garbage Collection complete. Memory stabilized.
+________________________________________________________________________________
+Client IP:       ::ffff:24.17.80.236
+   GeoLoc:       Minnehaha, US
+   Network:       AS7922 Comcast Cable Communications, LLC
+
+   => MATCH:      💎🐇💎
+   => REASON:     Most Recent (Offline)
+
+TIME     SIG  STATUS   GUID   INSTRUMENT       IDENTITY
+ 1650544  28   OFFLINE  a033c  Conductor        💎🐇💎 [, -]
+ 1632634  1    OFFLINE  46fd5  -                No Name [philadelphia, United States]
+ 1631988  1    OFFLINE  f0444  Guitar Vocal     Derek [Parts Unknown, United States]
+ 1629733  1    OFFLINE  43e13  Flute            Dwight [, United States]
+ 1635627  0    OFFLINE  cbb2a  Electric Guitar   [, Switzerland]
+ 1632634  0    OFFLINE  8af2c  -                ภัทร [, -]
+ 1632634  0    OFFLINE  3d430  Recorder         Church [, -]
+ 1631927  0    OFFLINE  04da9  Scratching       Jimmy_Joplin [, Canada]
+ 1631927  0    OFFLINE  46f49  Drums            zzx [harbin, China]
+ 1631681  0    OFFLINE  0f141  -                Wendy   Zealot [, -]
+ 1631680  0    OFFLINE  a1782  -                Wendy Zealot [, -]
+ 1629788  0    OFFLINE  3043b  Listener          [london, -]
+ 1629788  0    OFFLINE  b447c  Guitar Vocal     Maria ELENA [, Argentina]
+ 1629776  0    OFFLINE  ac002  -                KROT KI  FUM [, -]
+
+Failed to update predictions: Response status code does not indicate success: 404 (Not Found).
+[DEBUG] ProcessServerListsAsync started. LastReportedList keys: Any Genre 1, Any Genre 2, Any Genre 3, Genre Rock, Genre Jazz, Genre Classical/Folk, Genre Choral/BBShop
+[DEBUG] Processing Any Genre 1: 108 servers.
+[DEBUG] Processing Any Genre 2: 37 servers.
+[DEBUG] Processing Any Genre 3: 22 servers.
+[DEBUG] Processing Genre Rock: 28 servers.
+[DEBUG] Processing Genre Jazz: 37 servers.
+[DEBUG] Processing Genre Classical/Folk: 33 servers.
+[DEBUG] Processing Genre Choral/BBShop: 17 servers.
+[DEBUG] ProcessServerListsAsync finished. Processed: 282, Added: 6
+[SLOW REQUEST] Serialization Duration: 1586ms
+Client City: Tacoma
+[GetAccruedTimeMap] Successfully loaded 4801 unique GUIDs from timeTogether.json.
+[GetPredictedUsers] Found 0 users predicted to arrive in the next 3 hours (or are up to 10 mins late).
+info: Microsoft.Hosting.Lifetime[0]
+      Application is shutting down...
+Starting 21-day cull logic...
+Cull logic completed successfully.
+82172 pair durations saved.
+[GetGuidCensusMapAsync] Successfully loaded 118172 unique GUIDs from data/censusgeo.csv.
+[FILTER] Excluded 03af23763eff54dc5361427fe93e5241 (💎99+💎). MaxGold: 0, Zeroes: 2/2 (100 %)
+[FILTER] Excluded c61a647ecca5c15ee566153b99087c18 (🤖 LowBot). MaxGold: 0, Zeroes: 14/14 (100 %)

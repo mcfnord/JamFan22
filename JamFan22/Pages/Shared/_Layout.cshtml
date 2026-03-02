@@ -39,6 +39,144 @@
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
 
+    @using Microsoft.AspNetCore.Http
+    @using JamFan22
+    @{
+        bool chatTestMode = Context.Request.Query.ContainsKey("chatTestMode");
+        string ip = Context.Connection.RemoteIpAddress?.ToString();
+        if (ip != null && (ip.Contains("127.0.0.1") || ip.Contains("::1")))
+        {
+            var xff = Context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (xff != null)
+            {
+                ip = xff.Split(',')[0].Trim();
+                if (!ip.Contains("::ffff")) ip = "::ffff:" + ip;
+            }
+        }
+        string persona = ip != null ? ChatPersonaManager.GetPersona(ip, chatTestMode) : null;
+    }
+
+    @if (persona != null)
+    {
+        <div id="chatPopup" style="position: fixed; bottom: 10px; right: 10px; width: calc(100% - 20px); max-width: 65px; background: white; border: 1px solid #ccc; z-index: 1000; box-shadow: 0 0 10px rgba(0,0,0,0.5); border-radius: 5px; transition: max-width 0.2s ease-in-out;">
+            <div id="chatHeader" style="background: #007bff; color: white; padding: 2px 10px; cursor: pointer; border-radius: 5px 5px 0 0; font-size: 14px; line-height: 1.2; white-space: nowrap; overflow: hidden;" onclick="toggleChat()">Chat</div>
+            <div id="chatBody" style="display: none; padding: 10px;">
+                <div id="messagesList" style="height: 200px; overflow-y: scroll; margin-bottom: 10px; font-size: 14px; border: 1px solid #eee; padding: 5px;"></div>
+                <div style="display: flex;">
+                    <input type="text" id="messageInput" style="flex: 1; padding: 5px;" placeholder="Type a message..." />
+                    <button id="sendButton" style="padding: 5px 10px; margin-left: 5px; font-weight: bold;">&gt;</button>
+                </div>
+            </div>
+        </div>
+        
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
+        <script>
+            function toggleChat() {
+                var chatBody = document.getElementById("chatBody");
+                var chatPopup = document.getElementById("chatPopup");
+                var chatHeader = document.getElementById("chatHeader");
+
+                if (chatBody.style.display === "none") {
+                    chatBody.style.display = "block";
+                    chatPopup.style.maxWidth = "300px";
+                    chatHeader.style.background = "#007bff"; // Reset to blue when opened
+                    chatHeader.innerText = "Chat"; // Reset text
+                    localStorage.setItem("chatOpen", "true");
+                } else {
+                    chatBody.style.display = "none";
+                    chatPopup.style.maxWidth = "65px";
+                    localStorage.setItem("chatOpen", "false");
+                }
+            }
+
+            document.addEventListener("DOMContentLoaded", function () {
+                var isChatOpen = localStorage.getItem("chatOpen");
+                var chatPopup = document.getElementById("chatPopup");
+                var chatHeader = document.getElementById("chatHeader");
+
+                if (isChatOpen === "true") {
+                    document.getElementById("chatBody").style.display = "block";
+                    chatPopup.style.maxWidth = "300px";
+                }
+
+                // Keep green color if unread messages persist across refresh
+                var hasUnread = sessionStorage.getItem("chatUnread");
+                if (hasUnread === "true" && isChatOpen !== "true") {
+                    chatHeader.style.background = "#28a745";
+                    chatHeader.innerText = "Chats";
+                }
+
+                var connection = new signalR.HubConnectionBuilder().withUrl("/chathub").build();
+
+                function renderMessage(user, message) {
+                    var msg = document.createElement("div");
+                    msg.innerHTML = "<strong>" + user + ":</strong> " + message;
+                    document.getElementById("messagesList").appendChild(msg);
+                    document.getElementById("messagesList").scrollTop = document.getElementById("messagesList").scrollHeight;
+                }
+
+                connection.on("ReceiveMessage", function (user, message) {
+                    renderMessage(user, message);
+
+                    var chatBody = document.getElementById("chatBody");
+                    if (chatBody.style.display === "none" || chatBody.style.display === "") {
+                        document.getElementById("chatHeader").style.background = "#28a745"; // Turn green
+                        document.getElementById("chatHeader").innerText = "Chats"; // Update text
+                        sessionStorage.setItem("chatUnread", "true");
+                    }
+                });
+
+                // Clear unread status when opening chat
+                document.getElementById("chatHeader").addEventListener("click", function() {
+                    if (document.getElementById("chatBody").style.display === "block") {
+                        sessionStorage.setItem("chatUnread", "false");
+                    }
+                });
+
+                connection.start().then(function () {
+                    connection.invoke("GetHistory").then(function (history) {
+                        document.getElementById("messagesList").innerHTML = ""; // Clear existing
+                        if (history && history.length > 0) {
+                            history.forEach(function(msg) {
+                                renderMessage(msg.user, msg.message);
+                            });
+                        } else {
+                            // If history is empty and this is the FIRST time the page loaded in this tab session
+                            if (sessionStorage.getItem("chatSessionStarted") !== "true") {
+                                var chatBody = document.getElementById("chatBody");
+                                if (chatBody.style.display === "block") {
+                                    toggleChat(); // Auto-close it
+                                }
+                            }
+                        }
+                        // Mark session as started so 2-minute refreshes don't auto-close it
+                        sessionStorage.setItem("chatSessionStarted", "true");
+                    });
+                }).catch(function (err) {
+                    return console.error(err.toString());
+                });
+
+                document.getElementById("sendButton").addEventListener("click", function (event) {
+                    var user = "@persona";
+                    var message = document.getElementById("messageInput").value;
+                    if (message) {
+                        connection.invoke("SendMessage", user, message).catch(function (err) {
+                            return console.error(err.toString());
+                        });
+                        document.getElementById("messageInput").value = "";
+                    }
+                    event.preventDefault();
+                });
+
+                document.getElementById("messageInput").addEventListener("keypress", function (e) {
+                    if (e.key === 'Enter') {
+                        document.getElementById("sendButton").click();
+                    }
+                });
+            });
+        </script>
+    }
+
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
