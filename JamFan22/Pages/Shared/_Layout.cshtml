@@ -71,6 +71,16 @@
         
         <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
         <script>
+            function hashMsg(user, message) {
+                var s = user + message;
+                var h = 0;
+                for (var i = 0; i < s.length; i++) {
+                    h = ((h << 5) - h) + s.charCodeAt(i);
+                    h |= 0;
+                }
+                return h.toString();
+            }
+
             function toggleChat() {
                 var chatBody = document.getElementById("chatBody");
                 var chatPopup = document.getElementById("chatPopup");
@@ -82,6 +92,11 @@
                     chatHeader.style.background = "#007bff"; // Reset to blue when opened
                     chatHeader.innerText = "Chat"; // Reset text
                     localStorage.setItem("chatOpen", "true");
+                    sessionStorage.setItem("chatUnread", "false"); // Clear unread on open
+                    // Mark the latest message as seen when opening
+                    if (window.lastReceivedMsg) {
+                        localStorage.setItem("lastSeenChatMsgHash", hashMsg(window.lastReceivedMsg.user, window.lastReceivedMsg.message));
+                    }
                 } else {
                     chatBody.style.display = "none";
                     chatPopup.style.maxWidth = "65px";
@@ -108,28 +123,41 @@
 
                 var connection = new signalR.HubConnectionBuilder().withUrl("/chathub").build();
 
-                function renderMessage(user, message) {
+                function renderMessage(user, message, timestampStr) {
                     var msg = document.createElement("div");
                     msg.innerHTML = "<strong>" + user + ":</strong> " + message;
                     document.getElementById("messagesList").appendChild(msg);
                     document.getElementById("messagesList").scrollTop = document.getElementById("messagesList").scrollHeight;
+                    
+                    var ageMs = timestampStr ? (new Date() - new Date(timestampStr)) : 0;
+                    var timeLeft = Math.max(0, 3600000 - ageMs);
+                    setTimeout(function() {
+                        msg.remove();
+                    }, timeLeft);
                 }
 
-                connection.on("ReceiveMessage", function (user, message) {
-                    renderMessage(user, message);
+                connection.on("ReceiveMessage", function (user, message, timestamp) {
+                    renderMessage(user, message, timestamp);
+                    window.lastReceivedMsg = { user: user, message: message };
 
                     var chatBody = document.getElementById("chatBody");
                     if (chatBody.style.display === "none" || chatBody.style.display === "") {
                         document.getElementById("chatHeader").style.background = "#28a745"; // Turn green
                         document.getElementById("chatHeader").innerText = "Chats"; // Update text
                         sessionStorage.setItem("chatUnread", "true");
+                    } else {
+                        // Chat is open, update last seen message hash
+                        localStorage.setItem("lastSeenChatMsgHash", hashMsg(user, message));
                     }
                 });
 
-                // Clear unread status when opening chat
+                // Clear unread status when clicking chat header
                 document.getElementById("chatHeader").addEventListener("click", function() {
                     if (document.getElementById("chatBody").style.display === "block") {
                         sessionStorage.setItem("chatUnread", "false");
+                        if (window.lastReceivedMsg) {
+                            localStorage.setItem("lastSeenChatMsgHash", hashMsg(window.lastReceivedMsg.user, window.lastReceivedMsg.message));
+                        }
                     }
                 });
 
@@ -138,8 +166,25 @@
                         document.getElementById("messagesList").innerHTML = ""; // Clear existing
                         if (history && history.length > 0) {
                             history.forEach(function(msg) {
-                                renderMessage(msg.user, msg.message);
+                                renderMessage(msg.user, msg.message, msg.timestamp);
                             });
+                            
+                            var lastMsg = history[history.length - 1];
+                            window.lastReceivedMsg = { user: lastMsg.user, message: lastMsg.message };
+                            
+                            var lastSeenMsgHash = localStorage.getItem("lastSeenChatMsgHash");
+                            var currentLastMsgHash = hashMsg(lastMsg.user, lastMsg.message);
+                            
+                            var chatBody = document.getElementById("chatBody");
+                            // If chat is closed and the last history message hash is different from what we last saw, turn green
+                            if (lastSeenMsgHash !== currentLastMsgHash && (chatBody.style.display === "none" || chatBody.style.display === "")) {
+                                document.getElementById("chatHeader").style.background = "#28a745"; // Turn green
+                                document.getElementById("chatHeader").innerText = "Chats"; // Update text
+                                sessionStorage.setItem("chatUnread", "true");
+                            } else if (chatBody.style.display === "block") {
+                                // If chat is already open, mark this as seen
+                                localStorage.setItem("lastSeenChatMsgHash", currentLastMsgHash);
+                            }
                         } else {
                             // If history is empty and this is the FIRST time the page loaded in this tab session
                             if (sessionStorage.getItem("chatSessionStarted") !== "true") {

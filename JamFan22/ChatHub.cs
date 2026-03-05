@@ -91,7 +91,7 @@ namespace JamFan22
                 _history.RemoveAll(m => m.Timestamp < cutoff);
             }
 
-            await Clients.All.SendAsync("ReceiveMessage", realName, message);
+            await Clients.All.SendAsync("ReceiveMessage", realName, message, chatMsg.Timestamp);
         }
     }
 }
