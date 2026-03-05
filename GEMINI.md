@@ -8,13 +8,6 @@
 This application is run and managed as a systemd service named jamfan22.
 - **Do not** use `dotnet run` directly.
 
-## Testing a Branch Live
-To test changes on a branch safely while the production instance runs undisturbed:
-1. Execute `./deploy-test-build.sh` from the project root.
-2. The script compiles the current code into a sandboxed directory (`/tmp/jamfan-test-build`).
-3. It takes a read-only snapshot of production data and copies it to the sandbox.
-4. It launches the test instance on port `5000` (e.g., `http://localhost:5000`), leaving all production data completely untouched.
-
 ## Data File Handling & Token Efficiency
 - **NEVER** read entire `.json`, `.csv`, `.log`, or other large data files into context using `read_file` without explicit bounds.
 - **Always** use `grep_search` to find specific keys, values, or lines of interest within these files.
