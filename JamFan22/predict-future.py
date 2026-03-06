@@ -295,7 +295,16 @@ def find_imminent_hotspots(file_path='data/census.csv',
             'total_count': row['total_sessions']
         })
 
-    # --- 8. Output Predictions ---
+    # --- 8. TRIGGER TOOLTIPS (Moved before output to ensure execution) ---
+    predicted_guids = {r['guid'] for r in results}
+    live_threshold = max_minutes - 1440
+    live_guids = set(df_raw[df_raw['mins'] > live_threshold]['guid'].unique())
+    all_targets = predicted_guids.union(live_guids)
+    
+    if all_targets:
+        generate_tooltips(df_raw, server_map, context_info, all_targets, max_minutes)
+
+    # --- 9. Output Predictions ---
     results_df = pd.DataFrame(results).sort_values('pred_mins')
     results_df['safe_username'] = results_df['context'].apply(lambda x: urllib.parse.quote(x.split(',')[0]) if isinstance(x, str) else '')
     results_df['safe_servername'] = results_df['server_name'].apply(lambda x: urllib.parse.quote(x) if x else '')
@@ -309,16 +318,7 @@ def find_imminent_hotspots(file_path='data/census.csv',
         mins_from_now = row['pred_mins'] - max_minutes
         print(f"GUID:       {row['guid']}")
         print(f"Prediction: {row['pred_mins']} (+{mins_from_now}m)")
-        print(f"Location:   {row['server_name'] or 'Unknown'}") 
-
-    # --- 9. TRIGGER TOOLTIPS ---
-    predicted_guids = set(results_df['guid'].unique())
-    live_threshold = max_minutes - 1440
-    live_guids = set(df_raw[df_raw['mins'] > live_threshold]['guid'].unique())
-    all_targets = predicted_guids.union(live_guids)
-    
-    if all_targets:
-        generate_tooltips(df_raw, server_map, context_info, all_targets, max_minutes)
+        print(f"Location:   {row['server_name'] or 'Unknown'}")
 
 if __name__ == '__main__':
     find_imminent_hotspots()
