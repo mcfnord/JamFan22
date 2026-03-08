@@ -78,6 +78,29 @@ app.MapRazorPages();
 app.MapHub<JamFan22.ChatHub>("/chathub");
 
 
+app.MapGet("/api/nearby", async (HttpContext context) =>
+{
+    string clientIP = context.Connection.RemoteIpAddress?.ToString() ?? "24.18.55.230";
+    if (clientIP.Length < 5 || clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
+    {
+        var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(xff))
+        {
+            clientIP = xff.Split(',')[0].Trim();
+            if (!clientIP.Contains("::ffff")) clientIP = "::ffff:" + clientIP;
+        }
+        else
+        {
+            clientIP = "24.18.55.230";
+        }
+    }
+
+    var finder = new JamFan22.MusicianFinder();
+    string htmlResult = await finder.FindMusiciansHtmlAsync(clientIP);
+    return Results.Content(htmlResult, "text/html");
+});
+
+
 app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext context) =>
 {
     // Use non-blocking wait for serialization
