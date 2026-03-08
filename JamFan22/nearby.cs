@@ -551,19 +551,20 @@ var orderedRecords = records
                 })
                 .ToList();
 
-            while (orderedRecords.Count > 0)
-            {
-                var first = orderedRecords[0];
-                bool isLive = liveGuids.Contains(first.Guid);
-                if (!isLive && !first.IsPredicted && (DateTime.UtcNow - first.LastSeen).TotalMinutes > 30)
-                {
-                    orderedRecords.RemoveAt(0);
-                }
-                else
-                {
-                    break;
-                }
-            }
+// Find the index of the first Live or Predicted user
+int firstActiveIndex = orderedRecords.FindIndex(r => liveGuids.Contains(r.Guid) || r.IsPredicted);
+
+// If no active users exist, we check the entire list. Otherwise, we only check up to the first active user.
+int trimEnd = firstActiveIndex == -1 ? orderedRecords.Count : firstActiveIndex;
+
+// Iterate backwards to safely remove items without throwing off the index
+for (int i = trimEnd - 1; i >= 0; i--)
+{
+    if ((DateTime.UtcNow - orderedRecords[i].LastSeen).TotalMinutes > 30)
+    {
+        orderedRecords.RemoveAt(i);
+    }
+}
 
             int lastActiveIndex = -1;
             for (int i = orderedRecords.Count - 1; i >= 0; i--)
