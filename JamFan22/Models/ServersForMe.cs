@@ -17,17 +17,17 @@ namespace JamFan22.Models
             usercount = peoplenow;
             maxusercount = maxpeople;
         }
-        public string category;
-        public string serverIpAddress;
-        public long serverPort;
-        public string name;
-        public string city;
-        public string country;
-        public int distanceAway;
-        public char zone;
-        public string who;
-        public Client[] whoObjectFromSourceData; // just to get the hash to work later. the who string is decorated but this is just data.
-        public int usercount;
-        public int maxusercount;
+        public string category { get; set; }
+        public string serverIpAddress { get; set; }
+        public long serverPort { get; set; }
+        public string name { get; set; }
+        public string city { get; set; }
+        public string country { get; set; }
+        public int distanceAway { get; set; }
+        public char zone { get; set; }
+        public string who { get; set; }
+        public Client[] whoObjectFromSourceData { get; set; } 
+        public int usercount { get; set; }
+        public int maxusercount { get; set; }
     }
 }
