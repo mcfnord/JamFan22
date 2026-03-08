@@ -617,7 +617,7 @@ public virtual async Task<IActionResult> OnGetAsync()
         }
 
 
-        protected static List<ServersForMe> m_allMyServers = null;
+        public static List<ServersForMe> m_allMyServers = null;
 
 
         // if we find this server address in the activity report, show its url
