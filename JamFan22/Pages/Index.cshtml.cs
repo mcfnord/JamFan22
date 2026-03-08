@@ -618,6 +618,7 @@ public virtual async Task<IActionResult> OnGetAsync()
 
 
         public static List<ServersForMe> m_allMyServers = null;
+        public static List<ServersForMe> m_safeServerSnapshot = new List<ServersForMe>();
 
 
         // if we find this server address in the activity report, show its url
@@ -1873,6 +1874,9 @@ public async Task<string> GetGutsRightNow()
 
     // 6. Generate the final HTML from the sorted list
     string output = await GenerateServerListHtmlAsync(sortedByDistanceAway, preloadedData);
+
+    // Create a safe, completed snapshot for the Client UI to read without crashing
+    m_safeServerSnapshot = m_allMyServers.ToList();
 
     return output;
 }

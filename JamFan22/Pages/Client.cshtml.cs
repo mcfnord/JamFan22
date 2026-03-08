@@ -28,9 +28,9 @@ namespace JamFan22.Pages
         {
             get
             {
-                if (IndexModel.m_allMyServers == null) return "";
+                if (IndexModel.m_safeServerSnapshot == null) return "";
                 StringBuilder ret = new StringBuilder("<table><tr><th>Server<th>Server Address</tr>\n");
-                foreach (var s in IndexModel.m_allMyServers.OrderBy(x => x.name).ToList())
+                foreach (var s in IndexModel.m_safeServerSnapshot.OrderBy(x => x.name).ToList())
                 {
                     ret.Append("<tr><td>" + s.name + "<td>" +
                             s.serverIpAddress +

@@ -283,16 +283,17 @@ namespace JamFan22.Pages
 
                         LastReportedListGatheredAt = DateTime.Now;
 
-                        ListServicesOffline.Clear();
+                        var newOfflineList = new List<string>();
                         foreach (var keyHere in JamulusListURLs.Keys)
                         {
                             var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
                             if (serversOnList.Count == 0)
                             {
-                                ListServicesOffline.Add(keyHere);
+                                newOfflineList.Add(keyHere);
                                 fMissingSamplePresent = true;
                             }
                         }
+                        ListServicesOffline = newOfflineList; // Atomic swap prevents read errors
 
                         HashSet<string> alreadyPushed = new HashSet<string>();
 
