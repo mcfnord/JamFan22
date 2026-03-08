@@ -1377,6 +1377,29 @@
                 await processDiff(currentData, data);
                 currentData = data;
                 isAnimating = false;
+// Clean up ghosts and re-index surviving elements to match the exact API state
+const activeServerElements = document.querySelectorAll('.server-card');
+activeServerElements.forEach(serverEl => {
+    const clientsDiv = serverEl.querySelector('.server-clients');
+    if (!clientsDiv) return;
+
+    // Filter out items actively animating out
+    const domNodes = Array.from(clientsDiv.querySelectorAll('.musician-container'))
+                          .filter(el => el.style.maxHeight !== '0px');
+
+    const counts = {};
+    domNodes.forEach(el => {
+        // Extract the base string from the ID (remove the -0, -1 suffix)
+        const baseId = el.id.substring(0, el.id.lastIndexOf('-'));
+        counts[baseId] = (counts[baseId] || 0);
+        
+        // Force the ID suffix to mathematically match the current physical DOM count
+        const correctId = baseId + '-' + counts[baseId]++;
+        if (el.id !== correctId) {
+            el.id = correctId; // Silently re-sync the DOM identifier 
+        }
+    });
+});                
             }
 
             refreshHighlights();
