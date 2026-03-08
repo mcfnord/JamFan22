@@ -32,11 +32,13 @@ namespace JamFan22.Pages
 
         static Dictionary<string, List<JamulusServers>> m_deserializedCache = new Dictionary<string, List<JamulusServers>>();
         static Dictionary<string, string> m_jsonCacheSource = new Dictionary<string, string>();
+        // Tracks the exact timestamp each directory was last proven to be freshly scraped
+        public static Dictionary<string, DateTime> DirectoryLastUpdated = new Dictionary<string, DateTime>();
         public static Dictionary<string, string> LastReportedList = new Dictionary<string, string>();
         static DateTime? LastReportedListGatheredAt = null;
-        static List<string> ListServicesOffline = new List<string>();
+        public static List<string> ListServicesOffline = new List<string>();
 
-        private static SemaphoreSlim m_serializerMutex = new SemaphoreSlim(1, 1);
+        protected static SemaphoreSlim m_serializerMutex = new SemaphoreSlim(1, 1);
 
         private static readonly HttpClient s_refreshClient = new HttpClient(
             new HttpClientHandler 
@@ -207,7 +209,7 @@ namespace JamFan22.Pages
                         {
                             newReportedList = await serverStates[key];
 
-                            // Handle Python API Wrapper for internal processing too
+                            // Handle Python API Wrapper & Extract Timestamp
                             if (newReportedList.TrimStart().StartsWith("{"))
                             {
                                 try
@@ -217,6 +219,12 @@ namespace JamFan22.Pages
                                         if (doc.RootElement.TryGetProperty("servers_data", out var serversData))
                                         {
                                             newReportedList = serversData.GetRawText();
+                                        }
+                                        
+                                        // Extract upstream timestamp if available
+                                        if (doc.RootElement.TryGetProperty("timestamp", out var ts))
+                                        {
+                                            DirectoryLastUpdated[key] = DateTimeOffset.FromUnixTimeSeconds((long)ts.GetDouble()).UtcDateTime.ToLocalTime();
                                         }
                                     }
                                 }
@@ -242,26 +250,20 @@ namespace JamFan22.Pages
                             await m_serializerMutex.WaitAsync(stoppingToken);
                             try
                             {
-                                if (newReportedList != "CRC mismatch in received message")
+                                if (LastReportedList.ContainsKey(key) && LastReportedList[key] == newReportedList)
                                 {
-                                    if (LastReportedList.ContainsKey(key) && LastReportedList[key] == newReportedList)
-                                    {
-                                        // Data unchanged
-                                    }
-                                    else
-                                    {
-                                        if (LastReportedList.ContainsKey(key))
-                                        {
-                                            DetectJoiners(LastReportedList[key], newReportedList);
-                                        }
-                                        LastReportedList[key] = newReportedList;
-                                    }
+                                    // Data unchanged. Do not update DirectoryLastUpdated unless upstream timestamp was explicitly caught above.
                                 }
                                 else
                                 {
-                                    Console.WriteLine("CRC mismatch in received message");
-                                    await Task.Delay(1000, stoppingToken);
-                                    break;
+                                    // Data physically changed. Update master list and record freshness.
+                                    if (LastReportedList.ContainsKey(key))
+                                    {
+                                        DetectJoiners(LastReportedList[key], newReportedList);
+                                    }
+                                    LastReportedList[key] = newReportedList;
+                                    
+                                    DirectoryLastUpdated[key] = DateTime.Now; 
                                 }
                             }
                             finally

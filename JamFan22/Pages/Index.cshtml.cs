@@ -82,8 +82,8 @@ private async Task LogVisitAsync(string ip, string countryCode)
 
 
 
-        private readonly ILogger<IndexModel> _logger;
-        private readonly GeolocationService _geoService;
+        protected readonly ILogger<IndexModel> _logger;
+        protected readonly GeolocationService _geoService;
 
         public IndexModel(ILogger<IndexModel> logger, GeolocationService geoService)
         {
@@ -97,7 +97,7 @@ private async Task LogVisitAsync(string ip, string countryCode)
 
         // REPLACE your 'public void OnGet()' or 'public IActionResult OnGet()'
         // with this 'public async Task<IActionResult> OnGetAsync()'
-public async Task<IActionResult> OnGetAsync()
+public virtual async Task<IActionResult> OnGetAsync()
 {
     // 1. Start the stopwatch to measure total request cost
     var sw = Stopwatch.StartNew();
@@ -578,7 +578,7 @@ public async Task<IActionResult> OnGetAsync()
                 if (ts.TotalMinutes > 5)
                 {
                     int tot = (int)ts.TotalMinutes;
-                    show = "<p align='right'>(" + tot.ToString() + "m)</p>";
+                    show = "<div style='text-align: right; font-size: 0.8em;'>(" + tot.ToString() + "m)</div>";
                     break;
                 }
 
@@ -586,12 +586,12 @@ public async Task<IActionResult> OnGetAsync()
                 if (ts.TotalMinutes > 1) // so let's see them for 1 minute before we show anything fancy
                 {
                     string phrase = LocalizedText("just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade&nbsp;angekommen", "appena&nbsp;arrivato");
-                    show = "<b><p align='right'>(" + phrase + ")</p></b>"; // after 1 minute, until 6th minute, they've Just Arrived
+                    show = "<b><div style='text-align: right; font-size: 0.8em;'>(" + phrase + ")</div></b>"; // after 1 minute, until 6th minute, they've Just Arrived
                 }
                 else
                 {
                     int i = (int)ts.TotalMinutes;
-                    show = "<p align='right'>(" + i + "m)</p>";
+                    show = "<div style='text-align: right; font-size: 0.8em;'>(" + i + "m)</div>";
                 }
 
                 /*
@@ -617,7 +617,7 @@ public async Task<IActionResult> OnGetAsync()
         }
 
 
-        static List<ServersForMe> m_allMyServers = null;
+        protected static List<ServersForMe> m_allMyServers = null;
 
 
         // if we find this server address in the activity report, show its url
@@ -650,7 +650,7 @@ public async Task<IActionResult> OnGetAsync()
 
         // didn't work        public static Dictionary<string, string> m_ipToGuid = new Dictionary<string, string>();
 
-        static bool NukeThisUsername(string name, string instrument, bool CBVB)
+        protected static bool NukeThisUsername(string name, string instrument, bool CBVB)
         {
             var trimmed = name.Trim();
 
@@ -837,7 +837,7 @@ public async Task<IActionResult> OnGetAsync()
 
 
 
-                static Dictionary<string, List<string>> m_predicted = new Dictionary<string, List<string>>();
+                protected static Dictionary<string, List<string>> m_predicted = new Dictionary<string, List<string>>();
                 static int m_lastMinSampledPredictions = -1;
         
 
@@ -861,7 +861,7 @@ public async Task<IActionResult> OnGetAsync()
         /// <summary>
         /// Gets the preloaded data, refreshing it from disk if the cache is older than 900 seconds.
         /// </summary>
-        private async Task<PreloadedData> GetCachedPreloadedDataAsync()
+        protected async Task<PreloadedData> GetCachedPreloadedDataAsync()
         {
             // First, check without a lock (fast path)
             if (DateTime.Now <= m_lastDataLoadTime.AddSeconds(CacheDurationSeconds))
@@ -915,7 +915,7 @@ public async Task<IActionResult> OnGetAsync()
         /// <summary>
         /// A private record to hold all the data we load from files at the start.
         /// </summary>
-        private record PreloadedData(
+        protected record PreloadedData(
             HashSet<string> BlockedASNs,
             string[] JoinEventsLines,
             HashSet<string> ErasedServerNames,
@@ -927,7 +927,7 @@ public async Task<IActionResult> OnGetAsync()
         /// <summary>
         /// Resets the lists and counters for this request.
         /// </summary>
-        private void InitializeGutsRequest()
+        protected void InitializeGutsRequest()
         {
             m_allMyServers = new List<ServersForMe>(); // new list!
             m_listenLinkDeployment.Clear();
@@ -937,7 +937,7 @@ public async Task<IActionResult> OnGetAsync()
         /// <summary>
         /// Fetches the 'soon.json' prediction file if the cache minute has expired.
         /// </summary>
-        private async Task UpdatePredictionsIfNeededAsync()
+        protected async Task UpdatePredictionsIfNeededAsync()
         {
             if (m_lastMinSampledPredictions == DateTime.Now.Minute)
             {
@@ -966,7 +966,7 @@ public async Task<IActionResult> OnGetAsync()
         /// Loads all data from local files (block lists, etc.) into memory.
         /// This method is now called by the caching manager.
         /// </summary>
-        private async Task<PreloadedData> LoadPreloadedDataAsync()
+        protected async Task<PreloadedData> LoadPreloadedDataAsync()
         {
             // 1. Converted to ReadAllLinesAsync
             var blockedASNs = new HashSet<string>(
@@ -1136,7 +1136,7 @@ public async Task<IActionResult> OnGetAsync()
 
         //        static string m_ThreeLetterNationCode = "USA";
 
-        class MyUserGeoCandy
+        protected class MyUserGeoCandy
         {
             public string city;
             public string countryCode2;
@@ -1654,7 +1654,7 @@ return (120 + rand.Next(-9,9)).ToString();
         static bool m_bUserWaiting = false;
 
         // Recommended: Use a single static HttpClient instance to avoid socket exhaustion.
-        private static readonly HttpClient httpClient = new HttpClient();
+        protected static readonly HttpClient httpClient = new HttpClient();
         // private static string GEOAPIFY_MYSTERY_STRING; // Should be loaded from config once
 
         // The original Mutex for synchronous locking.
@@ -1665,7 +1665,7 @@ return (120 + rand.Next(-9,9)).ToString();
         /// <summary>
         /// Updates all user activity logs and statistics.
         /// </summary>
-        private void UpdateUserStatistics(string ipAddress, MyUserGeoCandy geoData)
+        protected void UpdateUserStatistics(string ipAddress, MyUserGeoCandy geoData)
         {
             Console.Write($"{geoData.city}, {geoData.countryCode2}");
 
@@ -1701,7 +1701,7 @@ return (120 + rand.Next(-9,9)).ToString();
         /// <summary>
         /// Adjusts a performance delta based on request duration.
         /// </summary>
-        private void AdjustPerformanceDelta(TimeSpan duration)
+        protected void AdjustPerformanceDelta(TimeSpan duration)
         {
             if (duration.TotalSeconds > 3)
             {
@@ -1727,7 +1727,7 @@ return (120 + rand.Next(-9,9)).ToString();
         }
 
         // 1. Signature changed to 'async Task<MyUserGeoCandy>'
-        private async Task<MyUserGeoCandy> GetOrAddUserGeoDataAsync(string ipAddress)
+        protected async Task<MyUserGeoCandy> GetOrAddUserGeoDataAsync(string ipAddress)
         {
             if (userIpCachedItems.TryGetValue(ipAddress, out var cachedCandy))
             {
@@ -2285,7 +2285,7 @@ public async Task<string> GetIPDerivedHashAsync()
         }
 
         // --- UPDATED CACHE LOADER (Includes Instrument) ---
-        private async Task<Dictionary<string, (string City, string Nation, string Instrument)>> GetCensusCacheAsync()
+        protected async Task<Dictionary<string, (string City, string Nation, string Instrument)>> GetCensusCacheAsync()
         {
             if (_censusCache != null && DateTime.Now < _censusCacheTime.AddMinutes(60))
             {

@@ -1,0 +1,1023 @@
+@page
+@model JamFan22.Pages.ClientModel
+@{
+     ViewData["Title"] = "Jamulus.live (JSON Client)";
+}
+
+<style>
+.server-header {
+        background-color: rgba(0, 0, 0, 0.06); 
+        margin: -0.5rem -0.5rem 0.25rem -0.5rem; 
+        padding: 0.5rem 0.5rem 0.1rem 0.5rem; 
+        border-top-left-radius: 1rem; 
+        border-top-right-radius: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.55); /* Adds a subtle, high-contrast-safe line */
+    }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        grid-gap: 1rem;
+    }
+
+    .grid > div:hover {
+        transform: scale(1.07);
+        box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.3); 
+        cursor: pointer; 
+    }
+
+    .grid > div {
+        background: #D9F9F9; /* Fallback */
+        padding: 0.5rem 0.5rem 0.25rem 0.5rem;
+        border-radius: 1rem;
+        font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+        margin: 1rem;
+        background-color: lightblue;
+        line-height: unset;
+    }
+</style>
+
+<div id="system-status" style="font-family: Arial, Helvetica, sans-serif; margin-bottom: 1rem;">
+    @Html.Raw(Model.SystemStatus)
+</div>
+
+<div id="client-grid" class="grid"></div>
+
+<script>
+    let currentData = [];
+    let isAnimating = false;
+
+    // OBSERVER: The "High-Water Mark" using Intrinsic Content Height
+    const cardHeightObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            const card = entry.target;
+            const inner = card.querySelector('.server-inner');
+            if (!inner) continue;
+            
+            // Measure the inside wrapper + 14px to account for the card's padding and margins
+            const contentHeight = inner.offsetHeight + 14; 
+            const lockedHeight = parseFloat(card.dataset.lockedHeight) || 0;
+            
+            if (contentHeight > lockedHeight) {
+                card.dataset.lockedHeight = contentHeight;
+                card.style.minHeight = contentHeight + 'px';
+            }
+        }
+    });
+
+    // 1. Map standard Jamulus instruments to Emojis
+    const instrumentEmojis = {
+        "Drums": "🥁",
+        "Bass": "🎸",
+        "Guitar Vocal": "🎸🎤",
+        "Acoustic Guitar": "🎸",
+        "Guitar": "🎸",
+        "Vocal": "🎤",
+        "Microphone": "🎤",
+        "Keyboard": "🎹",
+        "Keyboard Vocal": "🎹🎤",
+        "Piano": "🎹",
+        "Grand Piano": "🎹",
+        "Synthesizer": "🎹",
+        "Saxophone": "🎷",
+        "Trumpet": "🎺",
+        "French Horn": "📯",
+        "Violin": "🎻",
+        "Listener": "👂",
+        "Mountain Dulcimer": "⛰️ Dulcimer"
+    };
+
+    function replaceCountry(country) {
+        if (!country) return "";
+        country = country.replace(/Afghanistan/g, '🇦🇫')
+        country = country.replace(/Aland Islands/g, '🇦🇽')
+        country = country.replace(/Albania/g, '🇦🇱')
+        country = country.replace(/Algeria/g, '🇩🇿')
+        country = country.replace(/Andorra/g, '🇦🇩')
+        country = country.replace(/Angola/g, '🇦🇴')
+        country = country.replace(/Argentina/g, '🇦🇷')
+        country = country.replace(/Armenia/g, '🇦🇲')
+        country = country.replace(/Aruba/g, '🇦🇼')
+        country = country.replace(/Australia/g, '🇦🇺')
+        country = country.replace(/Austria/g, '🇦🇹')
+        country = country.replace(/Azerbaijan/g, '🇦🇿')
+        country = country.replace(/Bahrain/g, '🇧🇭')
+        country = country.replace(/Bangladesh/g, '🇧🇩')
+        country = country.replace(/Belarus/g, '🇧🇾')
+        country = country.replace(/Belgium/g, '🇧🇪')
+        country = country.replace(/Benin/g, '🇧🇯')
+        country = country.replace(/Bhutan/g, '🇧🇹')
+        country = country.replace(/Bolivia/g, '🇧🇴')
+        country = country.replace(/Bosnia And Herzegowina/g, '🇧🇦')
+        country = country.replace(/Botswana/g, '🇧🇼')
+        country = country.replace(/Brazil/g, '🇧🇷')
+        country = country.replace(/Brunei/g, '🇧🇳')
+        country = country.replace(/Bulgaria/g, '🇧🇬')
+        country = country.replace(/Burkina Faso/g, '🇧🇫')
+        country = country.replace(/Burundi/g, '🇧🇮')
+        country = country.replace(/Cambodia/g, '🇰🇭')
+        country = country.replace(/Cameroon/g, '🇨🇲')
+        country = country.replace(/Canada/g, '🇨🇦')
+        country = country.replace(/Cape Verde/g, '🇨🇻')
+        country = country.replace(/Central African Republic/g, '🇨🇫')
+        country = country.replace(/Chad/g, '🇹🇩')
+        country = country.replace(/Chile/g, '🇨🇱')
+        country = country.replace(/China/g, '🇨🇳')
+        country = country.replace(/Colombia/g, '🇨🇴')
+        country = country.replace(/Comoros/g, '🇰🇲')
+        country = country.replace(/Congo Brazzaville/g, '🇨🇬')
+        country = country.replace(/Congo Kinshasa/g, '🇨🇩')
+        country = country.replace(/Costa Rica/g, '🇨🇷')
+        country = country.replace(/Croatia/g, '🇭🇷')
+        country = country.replace(/Cuba/g, '🇨🇺')
+        country = country.replace(/Cyprus/g, '🇨🇾')
+        country = country.replace(/Czech Republic/g, '🇨🇿')
+        country = country.replace(/Denmark/g, '🇩🇰')
+        country = country.replace(/Djibouti/g, '🇩🇯')
+        country = country.replace(/Dominican Republic/g, '🇩🇴')
+        country = country.replace(/East Timor/g, '🇹🇱')
+        country = country.replace(/Ecuador/g, '🇪🇨')
+        country = country.replace(/Egypt/g, '🇪🇬')
+        country = country.replace(/El Salvador/g, '🇸🇻')
+        country = country.replace(/Equatorial Guinea/g, '🇬🇶')
+        country = country.replace(/Eritrea/g, '🇪🇷')
+        country = country.replace(/Estonia/g, '🇪🇪')
+        country = country.replace(/Ethiopia/g, '🇪🇹')
+        country = country.replace(/Faroe Islands/g, '🇫🇴')
+        country = country.replace(/Finland/g, '🇫🇮')
+        country = country.replace(/France/g, '🇫🇷')
+        country = country.replace(/French Guiana/g, '🇬🇫')
+        country = country.replace(/French Polynesia/g, '🇵🇫')
+        country = country.replace(/Gabon/g, '🇬🇦')
+        country = country.replace(/Georgia/g, '🇬🇪')
+        country = country.replace(/Germany/g, '🇩🇪')
+        country = country.replace(/Ghana/g, '🇬🇭')
+        country = country.replace(/Greece/g, '🇬🇷')
+        country = country.replace(/Greenland/g, '🇬🇱')
+        country = country.replace(/Guadeloupe/g, '🇬🇵')
+        country = country.replace(/Guatemala/g, '🇬🇹')
+        country = country.replace(/Guinea/g, '🇬🇳')
+        country = country.replace(/Guinea Bissau/g, '🇬🇼')
+        country = country.replace(/Guyana/g, '🇬🇾')
+        country = country.replace(/Honduras/g, '🇭🇳')
+        country = country.replace(/Hong Kong/g, '🇭🇰')
+        country = country.replace(/Hungary/g, '🇭🇺')
+        country = country.replace(/Iceland/g, '🇮🇸')
+        country = country.replace(/India/g, '🇮🇳')
+        country = country.replace(/Indonesia/g, '🇮🇩')
+        country = country.replace(/Iran/g, '🇮🇷')
+        country = country.replace(/Iraq/g, '🇮🇶')
+        country = country.replace(/Ireland/g, '🇮🇪')
+        country = country.replace(/Israel/g, '🇮🇱')
+        country = country.replace(/Italy/g, '🇮🇹')
+        country = country.replace(/Ivory Coast/g, '🇨🇮')
+        country = country.replace(/Jamaica/g, '🇯🇲')
+        country = country.replace(/Japan/g, '🇯🇵')
+        country = country.replace(/Jordan/g, '🇯🇴')
+        country = country.replace(/Kazakhstan/g, '🇰🇿')
+        country = country.replace(/Kenya/g, '🇰🇪')
+        country = country.replace(/Kuwait/g, '🇰🇼')
+        country = country.replace(/Kyrgyzstan/g, '🇰🇬')
+        country = country.replace(/Laos/g, '🇱🇦')
+        country = country.replace(/Latvia/g, '🇱🇻')
+        country = country.replace(/Lebanon/g, '🇱🇧')
+        country = country.replace(/Lesotho/g, '🇱🇸')
+        country = country.replace(/Libya/g, '🇱🇾')
+        country = country.replace(/Liechtenstein/g, '🇱🇮')
+        country = country.replace(/Lithuania/g, '🇱🇹')
+        country = country.replace(/Luxembourg/g, '🇱🇺')
+        country = country.replace(/Macau/g, '🇲🇴')
+        country = country.replace(/Macedonia/g, '🇲🇰')
+        country = country.replace(/Madagascar/g, '🇲🇬')
+        country = country.replace(/Malaysia/g, '🇲🇾')
+        country = country.replace(/Mali/g, '🇲🇱')
+        country = country.replace(/Malta/g, '🇲🇹')
+        country = country.replace(/Martinique/g, '🇲🇶')
+        country = country.replace(/Mauritania/g, '🇲🇷')
+        country = country.replace(/Mauritius/g, '🇲🇺')
+        country = country.replace(/Mayotte/g, '🇾🇹')
+        country = country.replace(/Mexico/g, '🇲🇽')
+        country = country.replace(/Moldova/g, '🇲🇩')
+        country = country.replace(/Monaco/g, '🇲🇨')
+        country = country.replace(/Mongolia/g, '🇲🇳')
+        country = country.replace(/Montenegro/g, '🇲🇪')
+        country = country.replace(/Morocco/g, '🇲🇦')
+        country = country.replace(/Mozambique/g, '🇲🇿')
+        country = country.replace(/Myanmar/g, '🇲🇲')
+        country = country.replace(/Namibia/g, '🇳🇦')
+        country = country.replace(/Nepal/g, '🇳🇵')
+        country = country.replace(/Netherlands/g, '🇳🇱')
+        country = country.replace(/New Caledonia/g, '🇳🇨')
+        country = country.replace(/New Zealand/g, '🇳🇿')
+        country = country.replace(/Nicaragua/g, '🇳🇮')
+        country = country.replace(/Niger/g, '🇳🇪')
+        country = country.replace(/Nigeria/g, '🇳🇬')
+        country = country.replace(/North Korea/g, '🇰🇵')
+        country = country.replace(/Norway/g, '🇳🇴')
+        country = country.replace(/Oman/g, '🇴🇲')
+        country = country.replace(/Pakistan/g, '🇵🇰')
+        country = country.replace(/Palestinian Territories/g, '🇵🇸')
+        country = country.replace(/Panama/g, '🇵🇦')
+        country = country.replace(/Papua New Guinea/g, '🇵🇬')
+        country = country.replace(/Paraguay/g, '🇵🇾')
+        country = country.replace(/Peru/g, '🇵🇪')
+        country = country.replace(/Philippines/g, '🇵🇭')
+        country = country.replace(/Poland/g, '🇵🇱')
+        country = country.replace(/Portugal/g, '🇵🇹')
+        country = country.replace(/Puerto Rico/g, '🇵🇷')
+        country = country.replace(/Qatar/g, '🇶🇦')
+        country = country.replace(/Reunion/g, '🇷🇪')
+        country = country.replace(/Romania/g, '🇷🇴')
+        country = country.replace(/Russia/g, '🇷🇺')
+        country = country.replace(/Rwanda/g, '🇷🇼')
+        country = country.replace(/San Marino/g, '🇸🇲')
+        country = country.replace(/Sao Tome And Principe/g, '🇸🇹')
+        country = country.replace(/Saudi Arabia/g, '🇸🇦')
+        country = country.replace(/Senegal/g, '🇸🇳')
+        country = country.replace(/Serbia/g, '🇷🇸')
+        country = country.replace(/Seychelles/g, '🇸🇨')
+        country = country.replace(/Sierra Leone/g, '🇸🇱')
+        country = country.replace(/Singapore/g, '🇸🇬')
+        country = country.replace(/Slovakia/g, '🇸🇰')
+        country = country.replace(/Slovenia/g, '🇸🇮')
+        country = country.replace(/Somalia/g, '🇸🇴')
+        country = country.replace(/South Africa/g, '🇿🇦')
+        country = country.replace(/South Korea/g, '🇰🇷')
+        country = country.replace(/Spain/g, '🇪🇸')
+        country = country.replace(/Sri Lanka/g, '🇱🇰')
+        country = country.replace(/Sudan/g, '🇸🇩')
+        country = country.replace(/Suriname/g, '🇸🇷')
+        country = country.replace(/Swaziland/g, '🇸🇿')
+        country = country.replace(/Sweden/g, '🇸🇪')
+        country = country.replace(/Switzerland/g, '🇨🇭')
+        country = country.replace(/Syria/g, '🇸🇾')
+        country = country.replace(/Taiwan/g, '🇹🇼')
+        country = country.replace(/Tajikistan/g, '🇹🇯')
+        country = country.replace(/Tanzania/g, '🇹🇿')
+        country = country.replace(/Thailand/g, '🇹🇭')
+        country = country.replace(/Togo/g, '🇹🇬')
+        country = country.replace(/Tonga/g, '🇹🇴')
+        country = country.replace(/Tunisia/g, '🇹🇳')
+        country = country.replace(/Turkey/g, '🇹🇷')
+        country = country.replace(/Uganda/g, '🇺🇬')
+        country = country.replace(/Ukraine/g, '🇺🇦')
+        country = country.replace(/United Arab Emirates/g, '🇦🇪')
+        country = country.replace(/United Kingdom/g, '🇬🇧')
+        country = country.replace(/United States/g, '🇺🇸')
+        country = country.replace(/Uruguay/g, '🇺🇾')
+        country = country.replace(/Uzbekistan/g, '🇺🇿')
+        country = country.replace(/Venezuela/g, '🇻🇪')
+        country = country.replace(/Vietnam/g, '🇻🇳')
+        country = country.replace(/Western Sahara/g, '🇪🇭')
+        country = country.replace(/Yemen/g, '🇾🇪')
+        country = country.replace(/Zambia/g, '🇿🇲')
+        country = country.replace(/Zimbabwe/g, '🇿🇼')
+
+        country = country.replace(/UK/g, "🇬🇧");
+        country = country.replace(/USA/g, "🇺🇸");
+        country = country.replace(/HK/g, "🇭🇰");
+
+        return country;
+    }
+
+    function getSmartNations(server) {
+        if (!server.clients || server.clients.length === 0) return "";
+        
+        const serverCountry = server.country || "";
+        let iCountryless = 0;
+        let itotalpeeps = server.clients.length;
+        
+        server.clients.forEach(who => {
+            if (who.country === "World" || !who.country || who.country.length < 2) {
+                iCountryless++;
+            }
+        });
+        
+        if (iCountryless / itotalpeeps >= 0.5) return "";
+        
+        let fNeeded = false;
+        server.clients.forEach(who => {
+            if (who.country && who.country.length > 1 && who.country !== serverCountry) {
+                fNeeded = true;
+            }
+        });
+        
+        if (!fNeeded) return "";
+        
+        let smartNationsList = [];
+        server.clients.forEach(who => {
+            if (who.country && who.country.length > 1 && who.country !== "World") {
+                if (!smartNationsList.includes(who.country)) {
+                    smartNationsList.push(who.country);
+                }
+            }
+        });
+        
+        let nationsStr = smartNationsList.join(" &middot; ");
+        
+        if (smartNationsList.length > 2) {
+            nationsStr = nationsStr.replace(/United States/g, "USA");
+            nationsStr = nationsStr.replace(/United Kingdom/g, "UK");
+            nationsStr = nationsStr.replace(/Hong Kong/g, "HK");
+        }
+        
+        if (smartNationsList.length > 3) {
+            nationsStr = nationsStr.replace(/ &middot; /g, " ");
+        }
+        
+        if (nationsStr === serverCountry) return "";
+        
+        return nationsStr;
+    }
+
+    function getInstrumentDisplay(instrument) {
+        if (!instrument) return "";
+        
+        if (instrument === "Electric Guitar") return "⚡🎸";
+        if (instrument === "Bass Guitar") return "<i>Bass</i> 🎸";
+        if (instrument.toLowerCase().indexOf("guitar vocal") !== -1) return "🎸 <i>Vocal</i>";
+
+        if (instrumentEmojis[instrument]) {
+            return instrumentEmojis[instrument];
+        }
+
+        return `<i>${instrument}</i>`;
+    }
+
+    function getMusicianId(client) {
+        return 'm-' + btoa(unescape(encodeURIComponent((client.name || '') + (client.country || '')))).replace(/=/g, '');
+    }
+
+    function getServerId(server) {
+        return 's-' + server.serverIpAddress.replace(/\./g, '-') + '-' + server.serverPort;
+    }
+
+function ensureNoShrink(el) {
+    if (!el) return;
+    const inner = el.querySelector('.server-inner');
+    if (!inner) return;
+    
+    // Change this from 32 to 14 so it matches the ResizeObserver math perfectly
+    const contentHeight = inner.offsetHeight + 14; 
+    const lockedHeight = parseFloat(el.dataset.lockedHeight) || 0;
+    
+    if (contentHeight > lockedHeight) {
+        el.dataset.lockedHeight = contentHeight;
+        el.style.minHeight = contentHeight + 'px';
+    }
+}
+
+    function renderServerHeader(server) {
+        let html = `<center>`;
+        html += `<a href='https://jamulus.live/jamgroup-map.html?server=${server.serverIpAddress}:${server.serverPort}' target='_blank' style='position:absolute; right:5px; top:5px; z-index:10; text-decoration:none; font-size:1.5em; cursor:pointer; opacity:0; transition:opacity 0.2s;' onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0'">👀</a>`;
+        
+        if (server.name) html += `${server.name}<br>`;
+        if (server.city) html += `<b>${server.city}</b><br>`;
+        
+        let cat = server.category || "";
+        cat = cat.replace("Genre ", "").replace(" ", "&nbsp;");
+        if (cat) html += `<font size='-1'>${cat}</font><br>`;
+        
+        if (server.newJamFlag) {
+            html += `${server.newJamFlag}<br>`;
+        }
+
+        if (server.isNewServer) {
+            html += `(New server.)<br>`;
+        }
+        
+        if (server.listenHtml) {
+            html += `${server.listenHtml}`;
+        }
+        
+        html += `</center>`;
+        return html;
+    }
+
+    function renderServerFooter(server) {
+        let footerHtml = '';
+        if (server.serverDurationHtml) {
+            footerHtml += `<div>${server.serverDurationHtml}</div>`;
+        }
+        
+        let byeHtml = '';
+        if (server.leavers && server.leavers.length > 0) {
+            byeHtml = `<div style="color:gray; font-size:0.7em;"><i>Bye ${server.leavers.join("&nbsp;&middot;&nbsp;")}</i></div>`;
+        }
+
+        let nationsHtml = '';
+        let smartNations = (server.smartNations ? server.smartNations : getSmartNations(server));
+        if (smartNations) {
+            if (!navigator.userAgent.includes("Windows")) {
+                smartNations = replaceCountry(smartNations);
+            }
+            nationsHtml = `<div style="font-size:0.7em; margin-top:0.5rem;">${smartNations}</div>`;
+        }
+        
+        let soonHtml = '';
+        if (server.soonNames && server.soonNames.length > 0) {
+            soonHtml = `<div style="color:gray; font-size:0.7em;"><i>Soon ${server.soonNames.join("&nbsp;&middot;&nbsp;")}</i></div>`;
+        }
+
+        if (!footerHtml && !byeHtml && !nationsHtml && !soonHtml) return '';
+        
+        return `<div style="text-align:center; line-height:1.1;">${footerHtml}${byeHtml}${nationsHtml}${soonHtml}</div>`;
+    }
+
+    function renderMusician(client) {
+        let sizeStr = client.name && client.name.length > 10 ? "-1" : "+0";
+        let arrivalClass = client.isNewArrival ? " just-arrived" : "";
+        let mId = getMusicianId(client);
+        
+        let instrumentDisplay = getInstrumentDisplay(client.instrument);
+        let hashClass = client.hash ? ` ${client.hash}` : "";
+
+        let html = `<div class="musician-container" id="${mId}" style="max-height: 50px; overflow: hidden; transition: all 0.75s ease-in-out; margin-bottom: 0px;">`;
+        
+        html += `<span class="musician${arrivalClass}${hashClass}">`;
+        
+        html += `<font size='${sizeStr}'><b>${client.name}</b> ${instrumentDisplay}</font>`;
+        html += `</span></div>`;
+        return html;
+    }
+    
+    function createServerElement(server) {
+        const serverDiv = document.createElement('div');
+        serverDiv.id = getServerId(server);
+        serverDiv.className = 'server-card';
+        serverDiv.style.position = 'relative';
+        serverDiv.style.transition = 'all 0.75s ease';
+
+        let bgColor = '';
+        switch (server.zone) {
+            case 'E': bgColor = '#AFFFC6'; break;
+            case 'N': bgColor = '#C1F1FF'; break;
+            case 'A': bgColor = '#FFF0AA'; break;
+            case 'S': bgColor = '#E8D8F8'; break;
+            default: bgColor = '#D9F9F9'; break;
+        }
+        serverDiv.style.background = bgColor;
+
+        // --- NEW: The inner wrapper for accurate height measurements ---
+        const innerDiv = document.createElement('div');
+        innerDiv.className = 'server-inner';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'server-header';
+        headerDiv.innerHTML = renderServerHeader(server);
+        
+        const clientsDiv = document.createElement('div');
+        clientsDiv.className = 'server-clients';
+        if (server.clients) {
+            server.clients.forEach(client => {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = renderMusician(client);
+                clientsDiv.appendChild(tempDiv.firstChild);
+            });
+        }
+
+        const footerDiv = document.createElement('div');
+        footerDiv.className = 'server-footer';
+        footerDiv.style.marginTop = '0.25rem';
+        footerDiv.innerHTML = renderServerFooter(server);
+
+        // Append to inner wrapper
+        innerDiv.appendChild(headerDiv);
+        innerDiv.appendChild(clientsDiv);
+        innerDiv.appendChild(footerDiv);
+
+        // Append wrapper to main card
+        serverDiv.appendChild(innerDiv);
+
+        cardHeightObserver.observe(serverDiv);
+
+        return serverDiv;
+    }
+
+    function optimizeGhostPlacement(ghost, grid, idealData) {
+        if (!idealData) return;
+        
+        let nodes = Array.from(grid.children);
+        let ghostIndex = nodes.indexOf(ghost);
+        if (ghostIndex === -1) return;
+
+        let idealMap = {};
+        idealData.forEach((srv, i) => {
+            idealMap[getServerId(srv)] = i;
+        });
+
+        let easternCandidate = null;
+        let easternIndex = -1;
+        let southernCandidate = null;
+        let southernIndex = -1;
+        
+        let gRect = ghost.getBoundingClientRect();
+        
+        for (let i = ghostIndex + 1; i < nodes.length; i++) {
+            let node = nodes[i];
+            if (node && !node.classList.contains('ghost-card')) {
+                let nRect = node.getBoundingClientRect();
+                
+                if (!easternCandidate && Math.abs(gRect.top - nRect.top) < 20 && nRect.left > gRect.left) {
+                    easternCandidate = node;
+                    easternIndex = i;
+                }
+                
+                if (!southernCandidate && Math.abs(gRect.left - nRect.left) < 20 && nRect.top > gRect.top) {
+                    southernCandidate = node;
+                    southernIndex = i;
+                }
+                
+                if (easternCandidate && southernCandidate) break;
+            }
+        }
+
+        if (!easternCandidate && !southernCandidate) return;
+
+        function calcError(swapIdx) {
+            let err = 0;
+            for (let i = 0; i < nodes.length; i++) {
+                let id = nodes[i].id;
+                if (i === ghostIndex) id = nodes[swapIdx].id;
+                else if (i === swapIdx) continue;
+                
+                if (idealMap[id] !== undefined) {
+                    err += Math.abs(i - idealMap[id]);
+                }
+            }
+            return err;
+        }
+
+        let bestSwap = null;
+        let minErr = Infinity;
+
+        if (easternCandidate) {
+            let errE = calcError(easternIndex);
+            if (errE < minErr) { minErr = errE; bestSwap = easternCandidate; }
+        }
+        if (southernCandidate) {
+            let errS = calcError(southernIndex);
+            if (errS <= minErr) { minErr = errS; bestSwap = southernCandidate; } 
+        }
+
+        if (bestSwap) {
+            // --- NEW: Strip old row height memory before moving! ---
+            bestSwap.style.minHeight = '';
+            bestSwap.dataset.lockedHeight = '0';
+            
+            let swapRect = bestSwap.getBoundingClientRect();
+            let gRectFinal = ghost.getBoundingClientRect();
+            let dx = gRectFinal.left - swapRect.left;
+            let dy = gRectFinal.top - swapRect.top;
+
+            bestSwap.style.transition = 'transform 0.6s ease';
+            bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
+            bestSwap.style.zIndex = '10';
+
+            setTimeout(() => {
+                const parent = ghost.parentNode;
+                if (!parent) return;
+                
+                const t1 = document.createTextNode('');
+                const t2 = document.createTextNode('');
+                parent.insertBefore(t1, ghost);
+                parent.insertBefore(t2, bestSwap);
+                parent.insertBefore(bestSwap, t1);
+                parent.insertBefore(ghost, t2);
+                t1.remove();
+                t2.remove();
+
+                bestSwap.style.transition = 'none';
+                bestSwap.style.transform = '';
+                bestSwap.style.zIndex = '';
+                
+                void bestSwap.offsetWidth; 
+                
+                bestSwap.style.transition = 'all 0.75s ease';
+            }, 600);
+        }
+    }
+
+    async function executeAction(action, newData) {
+        const grid = document.getElementById('client-grid');
+        
+        if (action.type === 'replace_server') {
+            const el = document.getElementById(action.removeId);
+            const newEl = createServerElement(action.addServer);
+            if (el) {
+                el.style.transition = 'all 0.75s ease-out';
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(-20px) scale(0.95)';
+                el.style.filter = 'blur(4px)';
+
+                setTimeout(() => {
+                    if (el.parentNode === grid) {
+                        grid.replaceChild(newEl, el);
+                        
+                        newEl.style.transition = 'none';
+                        newEl.style.opacity = '0';
+                        newEl.style.transform = 'scale(1.05)';
+                        newEl.style.filter = 'brightness(1.5) drop-shadow(0 0 10px white)';
+                        void newEl.offsetWidth;
+                        
+                        newEl.style.transition = 'all 0.75s ease-in';
+                        newEl.style.opacity = '1';
+                        newEl.style.transform = 'scale(1)';
+                        newEl.style.filter = 'brightness(1) drop-shadow(0 0 0 white)';
+                        
+                        setTimeout(() => newEl.style.filter = '', 750);
+                    }
+                }, 750);
+            } else {
+                newEl.style.transition = 'none';
+                newEl.style.opacity = '0';
+                newEl.style.transform = 'scale(1.05)';
+                newEl.style.filter = 'brightness(1.5) drop-shadow(0 0 10px white)';
+                grid.appendChild(newEl);
+                void newEl.offsetWidth;
+                
+                newEl.style.transition = 'all 0.75s ease-in';
+                newEl.style.opacity = '1';
+                newEl.style.transform = 'scale(1)';
+                newEl.style.filter = 'brightness(1) drop-shadow(0 0 0 white)';
+                
+                setTimeout(() => newEl.style.filter = '', 750);
+            }
+        }
+        else if (action.type === 'remove_server') {
+            const el = document.getElementById(action.id);
+            if (el) {
+                el.style.transition = 'all 0.75s ease-out';
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(-20px) scale(0.95)';
+                el.style.filter = 'blur(4px)';
+                
+                setTimeout(() => {
+                    if (el.parentNode !== grid) return;
+
+                    const ghost = document.createElement('div');
+                    ghost.className = 'server-card ghost-card';
+                    ghost.style.visibility = 'hidden'; 
+                    ghost.id = 'ghost-' + Date.now();
+                    ghost.style.order = el.style.order;
+                    el.replaceWith(ghost);
+
+                    optimizeGhostPlacement(ghost, grid, newData);
+
+                }, 750); 
+            }
+        }
+        else if (action.type === 'add_server') {
+            const el = createServerElement(action.server);
+            
+            el.style.transition = 'none';
+            el.style.opacity = '0';
+            el.style.transform = 'scale(1.05)';
+            el.style.filter = 'brightness(1.5) drop-shadow(0 0 10px white)';
+
+            // --- THE FIX: Look for a ghost card first ---
+            const firstGhost = grid.querySelector('.ghost-card');
+            if (firstGhost) {
+                firstGhost.replaceWith(el);
+            } else {
+                grid.appendChild(el);
+            }
+            
+            void el.offsetWidth;
+            
+            el.style.transition = 'all 0.75s ease-in';
+            el.style.opacity = '1';
+            el.style.transform = 'scale(1)';
+            el.style.filter = 'brightness(1) drop-shadow(0 0 0 white)';
+            
+            setTimeout(() => el.style.filter = '', 750);
+        }
+        else if (action.type === 'remove_musician') {
+            const el = document.getElementById(action.mId);
+            if (el) {
+                const serverEl = el.closest('.server-card');
+                ensureNoShrink(serverEl);
+
+                el.style.transition = 'all 0.75s ease-out';
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(-10px) scale(0.9)';
+                el.style.filter = 'blur(2px)';
+                el.style.letterSpacing = '1px';
+                
+                el.style.maxHeight = '0px';
+                el.style.marginBottom = '0px';
+                
+                setTimeout(() => el.remove(), 750);
+            }
+        }
+        else if (action.type === 'add_musician') {
+            const serverEl = document.getElementById(action.serverId);
+            if (serverEl) {
+                const clientsDiv = serverEl.querySelector('.server-clients');
+                if (clientsDiv) {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = renderMusician(action.client);
+                    const el = tempDiv.firstChild;
+                    
+                    el.style.transition = 'none';
+                    el.style.opacity = '0';
+                    el.style.transform = 'scale(1.1)';
+                    
+                    el.style.maxHeight = '0px';
+                    el.style.marginBottom = '0px';
+                    el.style.textShadow = '0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(255,255,255,0.8)';
+                    
+                    clientsDiv.appendChild(el);
+                    void el.offsetWidth;
+                    
+                    el.style.transition = 'all 0.75s ease-in';
+                    el.style.opacity = '1';
+                    el.style.transform = 'scale(1)';
+                    el.style.maxHeight = '50px'; 
+                    el.style.marginBottom = '2px';
+                    el.style.textShadow = '0 0 0px rgba(255,255,255,0)';
+                    
+                    setTimeout(() => el.style.textShadow = '', 750);
+                }
+            }
+        }
+        else if (action.type === 'migrate_musician') {
+            const el = document.getElementById(action.mId);
+            const toServerEl = document.getElementById(action.toServer);
+            if (el && toServerEl) {
+                const fromServerEl = el.closest('.server-card');
+                ensureNoShrink(fromServerEl);
+
+                const clientsDiv = toServerEl.querySelector('.server-clients');
+                if (clientsDiv) {
+                    const firstRect = el.getBoundingClientRect();
+                    
+                    // 1. Create the spacer to hold the gap on the origin server
+                    const oldSpacer = document.createElement('div');
+                    oldSpacer.style.height = el.offsetHeight + 'px';
+                    oldSpacer.style.marginBottom = '2px';
+                    el.parentNode.insertBefore(oldSpacer, el);
+                    
+                    // 2. Delay the collapse until AFTER the musician has landed
+                    setTimeout(() => {
+                        // Now start the collapse animation
+                        oldSpacer.style.transition = 'height 0.75s ease-in-out, margin-bottom 0.75s ease-in-out';
+                        oldSpacer.style.height = '0px';
+                        oldSpacer.style.marginBottom = '0px';
+                        
+                        // 3. Remove from DOM after collapse finishes
+                        setTimeout(() => oldSpacer.remove(), 750);
+                    }, 750);
+
+                    // Move the element in the DOM
+                    clientsDiv.appendChild(el);
+                    
+                    // Calculate the translation to fake the start position
+                    const lastRect = el.getBoundingClientRect();
+                    const invertX = firstRect.left - lastRect.left;
+                    const invertY = firstRect.top - lastRect.top;
+                    
+                    el.style.transition = 'none';
+                    el.style.transform = `translate(${invertX}px, ${invertY}px)`;
+                    el.style.zIndex = '100';
+                    el.style.position = 'relative';
+                    
+                    el.style.maxHeight = '0px';
+                    el.style.marginBottom = '0px';
+                    
+                    void el.offsetWidth; // Force browser reflow
+                    
+                    // Animate the musician to their new home
+                    el.style.transition = 'transform 0.75s ease-in-out, max-height 0.75s ease-in-out';
+                    el.style.transform = 'translate(0, 0)';
+                    el.style.maxHeight = '50px';
+                    el.style.marginBottom = '2px';
+                    
+                    setTimeout(() => {
+                        el.style.zIndex = '';
+                        el.style.position = '';
+                    }, 750);
+                }
+            }
+        }
+        else if (action.type === 'update_server_meta') {
+            const serverEl = document.getElementById(getServerId(action.server));
+            if (serverEl) {
+                ensureNoShrink(serverEl);
+
+// Helper to smoothly update structural changes ONLY
+function animateMetaUpdate(container, newHtml) {
+    // Create a temporary element to let the browser normalize the new HTML quotes/spacing
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = newHtml;
+    
+    // If it is structurally identical, skip the update entirely
+    if (container.innerHTML === tempDiv.innerHTML) return;
+
+    // Otherwise, update it directly without the problematic height calculations
+    container.innerHTML = newHtml;
+}
+
+                const headerDiv = serverEl.querySelector('.server-header');
+                if (headerDiv) {
+                    animateMetaUpdate(headerDiv, renderServerHeader(action.server));
+                }
+                
+                const footerDiv = serverEl.querySelector('.server-footer');
+                if (footerDiv) {
+                    animateMetaUpdate(footerDiv, renderServerFooter(action.server));
+                }
+            }
+        }
+    }
+
+    async function processDiff(oldData, newData) {
+        const actions = [];
+        const oldServers = new Map(oldData.map(s => [getServerId(s), s]));
+        const newServers = new Map(newData.map(s => [getServerId(s), s]));
+
+        const serversToRemove = [];
+        const serversToAdd = [];
+
+        for (const [id, oldSrv] of oldServers) {
+            if (!newServers.has(id)) serversToRemove.push(id);
+        }
+
+        for (const [id, newSrv] of newServers) {
+            if (!oldServers.has(id)) serversToAdd.push(newSrv);
+        }
+
+        while (serversToRemove.length > 0 || serversToAdd.length > 0) {
+            if (serversToRemove.length > 0 && serversToAdd.length > 0) {
+                const removeId = serversToRemove.shift();
+                const addSrv = serversToAdd.shift();
+                actions.push({ type: 'replace_server', removeId: removeId, addServer: addSrv });
+            } else if (serversToRemove.length > 0) {
+                const removeId = serversToRemove.shift();
+                actions.push({ type: 'remove_server', id: removeId });
+            } else if (serversToAdd.length > 0) {
+                const addSrv = serversToAdd.shift();
+                actions.push({ type: 'add_server', server: addSrv });
+            }
+        }
+
+        const oldMusicians = new Map();
+        oldData.forEach(s => {
+            if (s.clients) {
+                s.clients.forEach(c => oldMusicians.set(getMusicianId(c), { client: c, serverId: getServerId(s) }));
+            }
+        });
+
+        const newMusicians = new Map();
+        newData.forEach(s => {
+            if (s.clients) {
+                s.clients.forEach(c => newMusicians.set(getMusicianId(c), { client: c, serverId: getServerId(s) }));
+            }
+        });
+
+        for (const [mId, oldM] of oldMusicians) {
+            if (!newMusicians.has(mId)) {
+                if (newServers.has(oldM.serverId)) {
+                    actions.push({ type: 'remove_musician', mId: mId, serverId: oldM.serverId });
+                }
+            } else {
+                const newM = newMusicians.get(mId);
+                if (oldM.serverId !== newM.serverId) {
+                    if (newServers.has(oldM.serverId)) {
+                        if (oldServers.has(newM.serverId)) {
+                            actions.push({ type: 'migrate_musician', mId: mId, fromServer: oldM.serverId, toServer: newM.serverId, client: newM.client });
+                        } else {
+                            actions.push({ type: 'remove_musician', mId: mId, serverId: oldM.serverId });
+                        }
+                    } 
+                    else {
+                        if (oldServers.has(newM.serverId)) {
+                            actions.push({ type: 'add_musician', mId: mId, serverId: newM.serverId, client: newM.client });
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const [mId, newM] of newMusicians) {
+            if (!oldMusicians.has(mId)) {
+                if (oldServers.has(newM.serverId)) { 
+                    actions.push({ type: 'add_musician', mId: mId, serverId: newM.serverId, client: newM.client });
+                }
+            }
+        }
+
+        for (const [id, newSrv] of newServers) {
+            if (oldServers.has(id)) {
+                actions.push({ type: 'update_server_meta', server: newSrv });
+            }
+        }
+
+        for (const action of actions) {
+            await executeAction(action, newData);
+            if (['add_musician', 'remove_musician', 'migrate_musician', 'add_server', 'remove_server', 'replace_server'].includes(action.type)) {
+                await new Promise(r => setTimeout(r, 1200)); 
+            }
+        }
+    }
+
+    let lastFullRefresh = Date.now();
+    let ipDerivedLoginHash = null;
+
+    function getCurrentUserHash() {
+        const explicitHash = localStorage.getItem("loginHash");
+        if (explicitHash) {
+            if (document.getElementsByClassName(explicitHash).length > 0) {
+                return explicitHash;
+            }
+        }
+        if (ipDerivedLoginHash) {
+            return ipDerivedLoginHash;
+        }
+        return null;
+    }
+
+    function refreshHighlights() {
+        const allCards = document.getElementsByClassName("server-card");
+        for(let i=0; i<allCards.length; i++) {
+            allCards[i].style.border = "";
+        }
+
+        const loginHash = getCurrentUserHash();
+        if (loginHash) {
+            const meElements = document.getElementsByClassName(loginHash);
+            if (meElements.length > 0) {
+                for (let i = 0; i < meElements.length; i++) {
+                    const serverCard = meElements[i].closest('.server-card');
+                    if (serverCard) {
+                        serverCard.style.border = "thick solid SteelBlue";
+                    }
+                }
+            }
+        }
+    }
+
+    async function fetchAndRender() {
+        if (isAnimating) return;
+
+        try {
+            const response = await fetch('/api');
+
+            const systemStatus = response.headers.get("X-System-Status");
+            if (systemStatus !== null) {
+                const statusDiv = document.getElementById("system-status");
+                if (statusDiv) {
+                    statusDiv.innerHTML = systemStatus;
+                }
+            }
+
+            const headerHash = response.headers.get("X-IP-Derived-Hash");
+            if (headerHash) {
+                ipDerivedLoginHash = headerHash;
+            }
+
+            let data = await response.json();
+            
+            if (Array.isArray(data)) {
+                data.forEach(server => {
+                    if (server.clients) {
+                        server.clients = server.clients.filter(client => {
+                            if (!client.name || !client.instrument) return true;
+                            if (client.name.toLowerCase().includes('obby') && client.instrument === 'Streamer') {
+                                return false;
+                            }
+                            return true;
+                        });
+                    }
+                });
+            }
+
+            const now = Date.now();
+            if (currentData.length === 0 || now - lastFullRefresh > 480000) {
+                const grid = document.getElementById('client-grid');
+                grid.innerHTML = '';
+                data.forEach(server => {
+                    grid.appendChild(createServerElement(server));
+                });
+                currentData = data;
+                lastFullRefresh = now;
+            } else {
+                isAnimating = true;
+                await processDiff(currentData, data);
+                currentData = data;
+                isAnimating = false;
+            }
+
+            refreshHighlights();
+            
+        } catch(e) {
+            console.error("Failed to fetch API:", e);
+            isAnimating = false;
+        }
+    }
+
+    fetchAndRender();
+    setInterval(fetchAndRender, 20000);
+</script>

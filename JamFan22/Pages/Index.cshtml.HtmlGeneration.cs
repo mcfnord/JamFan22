@@ -22,7 +22,7 @@ namespace JamFan22.Pages
         public static List<string> m_listenLinkDeployment = new List<string>();
         public static int m_snippetsDeployed = 0;
 
-        private async Task LoadConnectedLoungesAsync()
+        protected async Task LoadConnectedLoungesAsync()
         {
             try
             {
@@ -285,7 +285,7 @@ namespace JamFan22.Pages
             return newJamFlag;
         }
 
-        private async Task<string> GetListenHtmlAsync(ServersForMe s)
+        protected async Task<string> GetListenHtmlAsync(ServersForMe s)
         {
             string ipport = s.serverIpAddress + ":" + s.serverPort;
 
@@ -459,7 +459,7 @@ namespace JamFan22.Pages
         /// Iterates through the master server lists and processes each server.
         /// Populates the 'm_allMyServers' list.
         /// </summary>
-        private async Task ProcessServerListsAsync(PreloadedData data)
+        protected async Task ProcessServerListsAsync(PreloadedData data)
         {
             Console.WriteLine($"[DEBUG] ProcessServerListsAsync started. LastReportedList keys: {string.Join(", ", LastReportedList.Keys)}");
             int totalProcessed = 0;
@@ -520,7 +520,7 @@ namespace JamFan22.Pages
         /// <summary>
         /// Checks if a server should be skipped based on initial filter rules.
         /// </summary>
-        private bool ShouldSkipServer(JamulusServers server, int people)
+        protected bool ShouldSkipServer(JamulusServers server, int people)
         {
             if (server.name.ToLower().Contains("script") ||
                 server.city.ToLower().Contains("script") ||
@@ -542,7 +542,7 @@ namespace JamFan22.Pages
         /// <summary>
         /// Processes all clients on a server, filters them, and builds the 'Who' HTML string.
         /// </summary>
-        private (string WhoHtml, List<string> UserCountries, string FirstUserHash) ProcessServerClients(JamulusServers server, PreloadedData data)
+        protected (string WhoHtml, List<string> UserCountries, string FirstUserHash) ProcessServerClients(JamulusServers server, PreloadedData data)
         {
             string who = "";
             List<string> userCountries = new List<string>();
@@ -609,7 +609,7 @@ namespace JamFan22.Pages
         /// <summary>
         /// Determines the server's location and the most common user location.
         /// </summary>
-        private (string Place, string UsersPlace, string ServerCountry) GetServerAndUserLocation(JamulusServers server, List<string> userCountries)
+        protected (string Place, string UsersPlace, string ServerCountry) GetServerAndUserLocation(JamulusServers server, List<string> userCountries)
         {
             string place = "";
             string serverCountry = "";
@@ -671,7 +671,7 @@ namespace JamFan22.Pages
         /// Calculates the distance and time zone for a server.
         /// </summary>
         // 1. Signature changed: no 'out' params, returns a 'Task' with a tuple
-        private async Task<(int dist, char zone)> CalculateServerDistanceAndZoneAsync(string place, string usersPlace, string serverIp)
+        protected async Task<(int dist, char zone)> CalculateServerDistanceAndZoneAsync(string place, string usersPlace, string serverIp)
         {
             // 2. Call the new async method and await its 'LatLong' result
             LatLong location = await _geoService.PlaceToLatLonAsync(place.ToUpper(), usersPlace.ToUpper(), serverIp);
@@ -696,7 +696,7 @@ namespace JamFan22.Pages
         /// <summary>
         /// Applies a "boost" to the distance (making it seem closer) if a user is solo.
         /// </summary>
-        private int CalculateBoostedDistance(JamulusServers server, int initialDistance, string firstUserHash)
+        protected int CalculateBoostedDistance(JamulusServers server, int initialDistance, string firstUserHash)
         {
             if (server.clients.Length != 1 || firstUserHash == null)
             {

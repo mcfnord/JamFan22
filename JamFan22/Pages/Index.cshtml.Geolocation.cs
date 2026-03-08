@@ -67,16 +67,15 @@ namespace JamFan22.Pages
         const string WholeMiddotString = " &#xB7; ";
 
         // This cache makes sure we don't query ip-api.com for the same user twice in 48 hours
-        private static System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache 
-            = new System.Collections.Concurrent.ConcurrentDictionary<string, (string, DateTime)>();        
-
+        protected static System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache
+            = new System.Collections.Concurrent.ConcurrentDictionary<string, (string, DateTime)>();
         public static Dictionary<string, JObject> m_ipapiOutputs = new Dictionary<string, JObject>();
         static int m_hourLastFlushed = -1;
 
         public static Dictionary<string, DateTime> m_ArnOfIpGoodUntil = new Dictionary<string, DateTime>();
         public static Dictionary<string, string> m_ArnOfIp = new Dictionary<string, string>();
 
-        static string m_TwoLetterNationCode = "US";
+        protected static string m_TwoLetterNationCode = "US";
 
         public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
         {
