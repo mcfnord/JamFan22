@@ -86,4 +86,4 @@ echo ""
 cd "$TARGET_DIR"
 
 # Use the PORT environment variable we added to Program.cs
-PORT=$TEST_PORT dotnet JamFan22.dll
+ASPNETCORE_ENVIRONMENT=Development PORT=$TEST_PORT dotnet JamFan22.dll
