@@ -138,11 +138,11 @@ hr {
 
 
 /* ========================================= */
-/* 3. HOTTIES (Auto-Rec) - Hot Pink          */
+/* 3. HOTTIES (Auto-Rec) - Green             */
 /* ========================================= */
 .hottie-arrived {
     font-weight: bold !important;
-    border: 1px solid #FF1493 !important; 
+    border: 1px solid #2ecc71 !important; /* Emerald Green Border */
     position: relative;
     z-index: 1;
 }
@@ -154,13 +154,13 @@ hr {
         border-radius: 1rem;
         pointer-events: none;
 
-        background-color: rgba(255, 105, 180, 0.15);
-        box-shadow: 0 0 10px #FF1493;
+        background-color: rgba(46, 204, 113, 0.15); /* Soft green fill */
+        box-shadow: 0 0 10px #2ecc71; /* Green aura/glow */
         
         z-index: 0 !important; 
 
         opacity: 0;
-        /* MEDIUM BREATH: 5s */
+        /* MEDIUM BREATH: 8s */
         animation: gpuPulse 8s infinite ease-in-out;
         will-change: opacity, transform;
     }
