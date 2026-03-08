@@ -13,7 +13,14 @@ touch census.csv
 cat censusfrozen.csv | sort | uniq > newcensus.csv
 rm censusfrozen.csv
 
-python3 three-month-trim.py < newcensus.csv > newcensustrimmed.csv
+# Calculate max minutes and filter for the last 90 days (129600 minutes)
+MAX_MINS=$(awk -F',' 'BEGIN{max=0} {if($1>max+0) max=$1} END{print max}' newcensus.csv)
+if [ -z "$MAX_MINS" ] || [ "$MAX_MINS" -eq 0 ]; then
+    cp newcensus.csv newcensustrimmed.csv
+else
+    THRESHOLD=$((MAX_MINS - 129600))
+    awk -F',' -v thresh="$THRESHOLD" '$1 >= thresh' newcensus.csv > newcensustrimmed.csv
+fi
 rm newcensus.csv
 
 # Append the new census.csv content to newcensus.csv
