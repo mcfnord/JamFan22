@@ -1331,7 +1331,7 @@ if (action.type === 'replace_server') {
         if (isAnimating) return;
 
         try {
-            const response = await fetch('/api');
+            const response = await fetch('/api' + window.location.search);
 
             const systemStatus = response.headers.get("X-System-Status");
             if (systemStatus !== null) {

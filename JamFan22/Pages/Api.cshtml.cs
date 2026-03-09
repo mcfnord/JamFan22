@@ -93,14 +93,12 @@ namespace JamFan22.Pages
                         }
                     }
 
-                    m_TwoLetterNationCode = UserNationCode;
-
-                    // Support URL-based language preview
-                    string requestedLang = Request.Query["lang"];
-                    if (!string.IsNullOrEmpty(requestedLang))
+                    if (Request.Query.ContainsKey("lang"))
                     {
-                        m_TwoLetterNationCode = requestedLang.ToUpper();
+                        UserNationCode = Request.Query["lang"].ToString().ToUpper();
                     }
+
+                    m_TwoLetterNationCode = UserNationCode;
 
                     MyUserGeoCandy geoData = await GetOrAddUserGeoDataAsync(ipAddress);
                     if (geoData != null)
