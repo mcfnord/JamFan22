@@ -56,7 +56,7 @@ namespace JamFan22.Pages
         {
         }
 
-        public override async Task<IActionResult> OnGetAsync()
+        public async Task<IActionResult> OnGetAsync()
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -94,6 +94,13 @@ namespace JamFan22.Pages
                     }
 
                     m_TwoLetterNationCode = UserNationCode;
+
+                    // Support URL-based language preview
+                    string requestedLang = Request.Query["lang"];
+                    if (!string.IsNullOrEmpty(requestedLang))
+                    {
+                        m_TwoLetterNationCode = requestedLang.ToUpper();
+                    }
 
                     MyUserGeoCandy geoData = await GetOrAddUserGeoDataAsync(ipAddress);
                     if (geoData != null)
@@ -198,29 +205,40 @@ namespace JamFan22.Pages
                                 // KEEP THE GHOST IF:
                                 // 1. Network hasn't caught up (waiting for round-robin) AND < 180s (fail-safe)
                                 // 2. OR it has been <= 15s (guaranteed minimum animation buffer)
-                                if ((!networkHasCaughtUp && absoluteWait < 180) || absoluteWait <= 15)
-                                {
-                                    string name = m_guidNamePairs.ContainsKey(guid) ? m_guidNamePairs[guid] : "Unknown";
-                                    string inst = "";
-                                    string country = "";
-                                    string city = "";
+if ((!networkHasCaughtUp && absoluteWait < 180) || absoluteWait <= 15)
+{
+    // 1. Decode the HTML name from the cache, then apply the exact same Active client formatting
+    string rawName = m_guidNamePairs.ContainsKey(guid) ? System.Web.HttpUtility.HtmlDecode(m_guidNamePairs[guid]) : "Unknown";
+    string cleanName = (rawName ?? "").Trim().Replace("  ", " ").Replace("<", "");
 
-                                    if (richCache.TryGetValue(guid, out var info))
-                                    {
-                                        city = info.City;
-                                        country = info.Nation;
-                                        inst = info.Instrument;
-                                    }
+    string inst = "";
+    string country = "";
+    string city = "";
 
-                                    bubbleUsers.Add(new ApiClient {
-                                        name = name,
-                                        country = country,
-                                        instrument = inst,
-                                        city = city,
-                                        isNewArrival = false, 
-                                        hash = guid
-                                    });
-                                }
+    if (richCache.TryGetValue(guid, out var info))
+    {
+        city = info.City;
+        country = info.Nation;
+        inst = info.Instrument;
+    }
+
+    // 2. Apply the exact same instrument formatting as the Active clients
+    string slimmerInst = (inst == "-" || inst == "Streamer") ? "" : inst;
+    if (slimmerInst.Length > 0) slimmerInst = " " + slimmerInst;
+
+    // 3. NEW: Drop ghosts that are blank or flagged as bots
+    if (cleanName.Length == 0 && (slimmerInst == "" || slimmerInst == " Streamer")) continue;
+    if (NukeThisUsername(cleanName, inst, s.name.ToLower().Contains("cbvb"))) continue;
+
+    bubbleUsers.Add(new ApiClient {
+        name = cleanName,            
+        country = country,
+        instrument = slimmerInst.Trim(), 
+        city = city,
+        isNewArrival = false, 
+        hash = guid
+    });
+}
                             }
                         }
                     }
@@ -476,6 +494,7 @@ namespace JamFan22.Pages
                 stopwatch.Stop();
                 AdjustPerformanceDelta(stopwatch.Elapsed);
 
+                IndexModel.m_safeServerSnapshot = IndexModel.m_allMyServers.ToList();
                 return new JsonResult(apiResponse);
             }
             catch (Exception ex)

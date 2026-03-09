@@ -91,53 +91,33 @@
 <div id="client-grid" class="grid"></div>
 
 <div id="nearbySection" style="font-family: Arial, Helvetica, sans-serif; margin-top: 1rem;">
-    <button type="button" class="collapsible active" id="nearby-btn">Nearby Musicians</button>
-    <div class="content" id="nearby-content" style="display: block; padding-top: 15px; padding-bottom: 15px;">
+    <button type="button" class="collapsible active" id="nearby-btn" style="height: 16px; padding: 0; min-height: 16px; margin-bottom: 0;"></button>
+    <div class="content" id="nearby-content" style="display: block; padding-top: 0; padding-bottom: 15px;">
         <div id="nearby-musicians-container">Loading nearby musicians...</div>
     </div>
 </div>
 
 <hr />
 
-<div id="censusSection">
-    <button type="button" class="collapsible">Servers</button>
-    <div class="content">
-        <p>
+<div id="split-tabs-section">
+    <div class="split-tab-container" style="display: flex; background-color: #eee; border-radius: 10px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <button type="button" id="btn-servers" style="flex: 1; padding: 15px; border: none; background: transparent; font-weight: bold; color: #444; border-right: 2px solid #ccc; outline: none; font-size: 16px; cursor: pointer; transition: background-color 0.2s;">Servers</button>
+        <button type="button" id="btn-info" style="flex: 1; padding: 15px; border: none; background: transparent; font-weight: bold; color: #444; outline: none; font-size: 16px; cursor: pointer; transition: background-color 0.2s;">Info</button>
+    </div>
+
+    <div id="content-servers" class="content" style="display: none;">
+        <p style="padding-top: 15px;">
             Sometimes when you can't find the server in Jamulus, you can paste the server's Server address into the <b>Server Address</b>
             field on the <b>Connection Setup</b> dialog box.
         </p>
-        <p>@Html.Raw(@Model.ShowServerByIPPortForView)</p>
+        <p id="servers-table-container">@Html.Raw(@Model.ShowServerByIPPortForView)</p>
     </div>
-</div>
 
-<hr />
-
-<button type="button" id="faq" class="collapsible">Frequently Asked Questions</button>
-<div class="content">
-    <p>
-        <b>Q: What is Jamulus.live?</b><br />
-        A: This web page shows who is on every public Jamulus server.
-    </p>
-
-    <p>
-        <b>Q: How do I find my friends?</b><br />
-        A: Click a musician's name to select them. Selected names stay selected (until someone changes their name).
-        You'll also often see green around people you jam with the most.
-    </p>
-    <p>
-        <b>Q: Does this web page collect data? What happens to the data?</b><br />
-        A: This web page collects details about users on public Jamulus servers, including IP addresses. As a public service, this web page associates a geographic region with each IP address. All these details are erased after 15 days. The IP addresses are never shared. This web page complies with GDPR, Europe's privacy law.
-    </p>
-</div>
-
-<hr />
-
-<div id="contactUs">
-    <button type="button" class="collapsible">Contact us</button>
-    <div class="content">
-        <p style="padding-top: 15px;">
-            You can reach this website's team at <b>jamfan.x.jrd@xoxy.net</b>
-        </p>
+    <div id="content-info" class="content" style="display: none;">
+        <p style="padding-top: 15px;">This web page shows who is on every public Jamulus server.</p>
+        <p>Click a musician's name to select them. Selected names stay selected (until someone changes their name). You'll also see green lines around people you jam with the most.</p>
+        <p>This web page collects details about users on public Jamulus servers, including IP addresses. As a public service, this web page associates a geographic region with each IP address. All these details are erased after 15 days. The IP addresses are never shared. This web page complies with GDPR, Europe's privacy law.</p>
+        <p>You can reach this web page's team at <b>jamfan.x.jrd@xoxy.net</b></p>
     </div>
 </div>
 
@@ -540,7 +520,7 @@
     }
 
     function renderMusician(client, serverId, occurrence = 0) {
-        let sizeStr = client.name && client.name.length > 10 ? "-1" : "+0";
+        let fontSizeStyle = client.name && client.name.length > 10 ? "font-size: 0.85em;" : "font-size: 1em;";
         let arrivalClass = client.isNewArrival ? " just-arrived" : "";
         let mId = getMusicianId(client, serverId, occurrence);
         
@@ -554,7 +534,7 @@
         
         html += `<span class="musician${arrivalClass}${hashClass}" id="${clickHash}" style="cursor: pointer;" title="Click to highlight, Ctrl-Click for green">`;
         
-        html += `<font size='${sizeStr}'><b>${client.name}</b> ${instrumentDisplay}</font>`;
+        html += `<span style='${fontSizeStyle}'><b>${client.name}</b> ${instrumentDisplay}</span>`;
         html += `</span></div>`;
         return html;
     }
@@ -723,34 +703,42 @@
     async function executeAction(action, newData) {
         const grid = document.getElementById('client-grid');
         
-        if (action.type === 'replace_server') {
+if (action.type === 'replace_server') {
             const el = document.getElementById(action.removeId);
             const newEl = createServerElement(action.addServer);
             if (el) {
-                el.style.transition = 'all 0.75s ease-out';
-                el.style.opacity = '0';
-                el.style.transform = 'translateY(-20px) scale(0.95)';
-                el.style.filter = 'blur(4px)';
+                // 1. The Wind-Up: Elevate, glow, and spin 2.25 times (810 degrees)
+                el.style.zIndex = '100'; // Bring to front so it doesn't clip neighboring cards
+                el.style.transition = 'transform 0.6s cubic-bezier(0.55, 0.085, 0.68, 0.53), filter 0.6s ease-in';
+                el.style.transform = 'perspective(1000px) scale(1.1) rotateY(810deg)';
+                el.style.filter = 'brightness(1.5) blur(1px)';
 
                 setTimeout(() => {
                     if (el.parentNode === grid) {
                         grid.replaceChild(newEl, el);
                         
+                        // 2. The Swap: Start the new card perfectly edge-on (-90 deg) to continue the momentum
+                        newEl.style.zIndex = '100';
                         newEl.style.transition = 'none';
-                        newEl.style.opacity = '0';
-                        newEl.style.transform = 'scale(1.05)';
-                        newEl.style.filter = 'brightness(1.5) drop-shadow(0 0 10px white)';
-                        void newEl.offsetWidth;
-                        
-                        newEl.style.transition = 'all 0.75s ease-in';
                         newEl.style.opacity = '1';
-                        newEl.style.transform = 'scale(1)';
-                        newEl.style.filter = 'brightness(1) drop-shadow(0 0 0 white)';
+                        newEl.style.transform = 'perspective(1000px) scale(1.1) rotateY(-90deg)';
+                        newEl.style.filter = 'brightness(1.5) drop-shadow(0 0 20px gold)';
+                        void newEl.offsetWidth; // Force browser reflow
                         
-                        setTimeout(() => newEl.style.filter = '', 750);
+                        // 3. The Flourish: Snap into place with a slight physical "bounce" (ease-out-back)
+                        newEl.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.5s ease-out';
+                        newEl.style.transform = 'perspective(1000px) scale(1) rotateY(0deg)';
+                        newEl.style.filter = 'brightness(1) drop-shadow(0 0 0 transparent)';
+                        
+                        // Clean up inline styles once finished
+                        setTimeout(() => {
+                            newEl.style.filter = '';
+                            newEl.style.zIndex = '';
+                        }, 500);
                     }
-                }, 750);
+                }, 600); // Wait exactly for the edge-on moment (600ms)
             } else {
+                // Fallback if the old element isn't in the DOM for some reason
                 newEl.style.transition = 'none';
                 newEl.style.opacity = '0';
                 newEl.style.transform = 'scale(1.05)';
@@ -1016,6 +1004,12 @@
             }
         });
 
+        for (const [id, newSrv] of newServers) {
+            if (oldServers.has(id)) {
+                actions.push({ type: 'update_server_meta', server: newSrv });
+            }
+        }
+
         const allHashKeys = new Set([...oldMusicians.keys(), ...newMusicians.keys()]);
         for (const hashKey of allHashKeys) {
             let oldList = oldMusicians.get(hashKey) || [];
@@ -1069,12 +1063,6 @@
             // 4. Additions
             for (const newM of newList) {
                 actions.push({ type: 'add_musician', newId: newM.mId, serverId: newM.serverId, client: newM.client, occurrence: newM.occurrence });
-            }
-        }
-
-        for (const [id, newSrv] of newServers) {
-            if (oldServers.has(id)) {
-                actions.push({ type: 'update_server_meta', server: newSrv });
             }
         }
 
@@ -1319,6 +1307,26 @@
         }
     }
 
+    function updateServersList(data) {
+        const container = document.getElementById("servers-table-container");
+        if (!container) return;
+        
+        const sortedData = [...data].sort((a, b) => {
+            const nameA = a.name ? a.name.toLowerCase() : "";
+            const nameB = b.name ? b.name.toLowerCase() : "";
+            return nameA.localeCompare(nameB);
+        });
+
+        let html = "<table><tr><th>Server<th>Server Address</tr>\n";
+        sortedData.forEach(server => {
+            if (server.name && server.serverIpAddress) {
+                html += `<tr><td>${server.name}<td>${server.serverIpAddress}:${server.serverPort}</tr>\n`;
+            }
+        });
+        html += "</table>\n";
+        container.innerHTML = html;
+    }
+
     async function fetchAndRender() {
         if (isAnimating) return;
 
@@ -1405,7 +1413,8 @@ activeServerElements.forEach(serverEl => {
             refreshHighlights();
             runDOMDiagnostics(data);
             preventLineWrap(); // Ensure no names are wrapped to two lines
-            
+            updateServersList(data); // Populate the Servers tab
+
         } catch(e) {
             console.error("Failed to fetch API:", e);
             isAnimating = false;
@@ -1416,6 +1425,7 @@ activeServerElements.forEach(serverEl => {
     setInterval(fetchAndRender, 20000);
 
     document.addEventListener("DOMContentLoaded", function () {
+        // Default logic for any remaining standard collapsibles (like Nearby Musicians)
         var coll = document.getElementsByClassName("collapsible");
         for (var i = 0; i < coll.length; i++) {
             coll[i].addEventListener("click", function () {
@@ -1425,6 +1435,49 @@ activeServerElements.forEach(serverEl => {
                     content.style.display = "none";
                 } else {
                     content.style.display = "block";
+                }
+
+                if (this.id === "nearby-btn") {
+                    if (this.classList.contains("active")) {
+                        this.innerText = "";
+                    } else {
+                        this.innerText = "Nearby";
+                        this.style.textAlign = "center";
+                        this.style.fontSize = "10px";
+                        this.style.lineHeight = "16px";
+                    }
+                }
+            });
+        }
+
+        // Logic for the new split Servers/Info tab
+        var btnServers = document.getElementById("btn-servers");
+        var btnInfo = document.getElementById("btn-info");
+        var contentServers = document.getElementById("content-servers");
+        var contentInfo = document.getElementById("content-info");
+
+        if (btnServers && btnInfo) {
+            btnServers.addEventListener("click", function () {
+                if (contentServers.style.display === "block") {
+                    contentServers.style.display = "none";
+                    this.style.backgroundColor = "transparent";
+                } else {
+                    contentServers.style.display = "block";
+                    contentInfo.style.display = "none";
+                    this.style.backgroundColor = "#ccc"; // Active tab color
+                    btnInfo.style.backgroundColor = "transparent";
+                }
+            });
+
+            btnInfo.addEventListener("click", function () {
+                if (contentInfo.style.display === "block") {
+                    contentInfo.style.display = "none";
+                    this.style.backgroundColor = "transparent";
+                } else {
+                    contentInfo.style.display = "block";
+                    contentServers.style.display = "none";
+                    this.style.backgroundColor = "#ccc"; // Active tab color
+                    btnServers.style.backgroundColor = "transparent";
                 }
             });
         }
@@ -1458,5 +1511,14 @@ activeServerElements.forEach(serverEl => {
     setInterval(fetchHotties, 60000);
     
     // Re-evaluate line wrapping if the user resizes the browser window
-    window.addEventListener('resize', preventLineWrap);
+// Re-evaluate line wrapping and release height locks if the user resizes the browser window
+window.addEventListener('resize', () => {
+    preventLineWrap();
+    
+    // Clear the high-water marks so cards can naturally shrink back down
+    document.querySelectorAll('.server-card').forEach(card => {
+        card.style.minHeight = '';
+        card.dataset.lockedHeight = '0';
+    });
+});
 </script>

@@ -21,7 +21,6 @@ namespace JamFan22.Pages
                     ret += list + ", ";
                 return ret.Substring(0, ret.Length - 2); // chop comma
             }
-            set { }
         }
 
         public string ShowServerByIPPortForView
