@@ -49,6 +49,7 @@ namespace JamFan22.Pages
         public string hash { get; set; }
     }
 
+    [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
     public class ApiModel : IndexModel
     {
         public ApiModel(ILogger<IndexModel> logger, GeolocationService geoService)
@@ -132,7 +133,7 @@ namespace JamFan22.Pages
                 }
                 else
                 {
-                    Response.Headers.Append("X-System-Status", "");
+                    Response.Headers.Append("X-System-Status", "OK");
                 }
 
                 // Re-sort the list so the active server is explicitly at the top

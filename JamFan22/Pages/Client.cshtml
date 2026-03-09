@@ -1331,13 +1331,13 @@ if (action.type === 'replace_server') {
         if (isAnimating) return;
 
         try {
-            const response = await fetch('/api' + window.location.search);
+            const response = await fetch('/api' + window.location.search, { cache: 'no-store' });
 
             const systemStatus = response.headers.get("X-System-Status");
             if (systemStatus !== null) {
                 const statusDiv = document.getElementById("system-status");
                 if (statusDiv) {
-                    if (systemStatus.trim() === "") {
+                    if (systemStatus.trim() === "" || systemStatus.trim() === "OK") {
                         // Slide and fade out
                         statusDiv.classList.add("hidden");
                         // Clear the content after the animation completes
