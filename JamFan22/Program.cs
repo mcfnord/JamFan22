@@ -11,7 +11,6 @@ var hottiesSemaphore = new System.Threading.SemaphoreSlim(1, 1);
 
 var builder = WebApplication.CreateBuilder(args);
 
-///* removed for localhost usage.
 builder.WebHost.UseKestrel(serverOptions =>
 {
     var port = 443;
@@ -30,7 +29,6 @@ builder.WebHost.UseKestrel(serverOptions =>
         serverOptions.ListenAnyIP(port);
     }
 });
-//*/
 
 
 // Add services to the container.
@@ -76,6 +74,35 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 app.MapHub<JamFan22.ChatHub>("/chathub");
+
+app.MapGet("/countries", () =>
+{
+    var stats = JamFan22.Pages.IndexModel.m_bucketUniqueIPsByCountry
+        .Select(kvp => new {
+            CountryCode = string.IsNullOrEmpty(kvp.Key) ? "Unknown" : kvp.Key,
+            UniqueIPs = kvp.Value.Count,
+            Refreshes = JamFan22.Pages.IndexModel.m_countryRefreshCounts.GetValueOrDefault(kvp.Key, 0)
+        })
+        .OrderByDescending(x => x.UniqueIPs)
+        .ToList();
+
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("<!DOCTYPE html><html><head><title>Country Diagnostics</title>");
+    sb.AppendLine("<style>body{font-family:sans-serif; margin: 2rem;} table{border-collapse:collapse; width: 100%; max-width: 600px;} th,td{padding:8px;border:1px solid #ccc; text-align: left;} th{background-color: #f4f4f4;}</style>");
+    sb.AppendLine("</head><body>");
+    sb.AppendLine("<h2>Visitor Distribution by Country</h2>");
+    sb.AppendLine("<p><em>Data resets on application restart.</em></p>");
+    sb.AppendLine("<table><tr><th>Country Code</th><th>Unique IPs</th><th>Total API Requests</th></tr>");
+    
+    foreach(var stat in stats)
+    {
+        sb.AppendLine($"<tr><td>{stat.CountryCode}</td><td>{stat.UniqueIPs}</td><td>{stat.Refreshes}</td></tr>");
+    }
+    
+    sb.AppendLine("</table></body></html>");
+
+    return Results.Content(sb.ToString(), "text/html");
+});
 
 
 app.MapGet("/api/nearby", async (HttpContext context) =>
