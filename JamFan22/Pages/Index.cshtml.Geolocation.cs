@@ -75,7 +75,7 @@ namespace JamFan22.Pages
         public static Dictionary<string, DateTime> m_ArnOfIpGoodUntil = new Dictionary<string, DateTime>();
         public static Dictionary<string, string> m_ArnOfIp = new Dictionary<string, string>();
 
-        protected static string m_TwoLetterNationCode = "US";
+        protected string m_TwoLetterNationCode = "US";
 
         public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
         {
@@ -154,51 +154,6 @@ namespace JamFan22.Pages
             }
         }
 
-        public string SmartCity(string city, Client[] users)
-        {
-            string smartCity = city;
-
-            if ((smartCity == "") || (smartCity == "yourCity")) // this didn't work: || (smartCity == "-"))
-            {
-                // Hate these. Estimate a city based on participation.
-                List<string> cities = new List<string>();
-                List<string> nations = new List<string>();
-                foreach (var u in users)
-                {
-                    cities.Add(u.city);
-                    nations.Add(u.country);
-                }
-
-                if (cities.Count > 0)
-                {
-                    var citiGroup = cities.GroupBy(x => x);
-                    var maxCountr = citiGroup.Max(g => g.Count());
-                    var mostCommonCity = citiGroup.Where(x => x.Count() == maxCountr).Select(x => x.Key).ToArray();
-                    if (mostCommonCity.GetLength(0) > 0)
-                        smartCity = mostCommonCity[0];
-
-                    // I still fuckin hate blanks. 
-                    if ((smartCity == "") || (smartCity == "-"))
-                    {
-                        var nationGroup = nations.GroupBy(x => x);
-                        var maxCountry = nationGroup.Max(g => g.Count());
-                        var mostCommonCountry = nationGroup.Where(x => x.Count() == maxCountry).Select(x => x.Key).ToArray();
-                        if (mostCommonCountry.GetLength(0) > 0)
-                            smartCity = mostCommonCountry[0];
-                    }
-                }
-            }
-
-            if (smartCity == "-")
-                smartCity = "";
-
-            string pattern = @"\([^)]*\)";
-            string textWithoutParentheses = Regex.Replace(smartCity, pattern, "");
-
-
-            return textWithoutParentheses;
-        }
-
         public string SmartNations(Client[] whoObject, string servercountry)
         {
             string smartNations = "";
@@ -269,27 +224,6 @@ namespace JamFan22.Pages
                 return "";
 
             return smartNations;
-        }
-
-        string BackgroundByZone(char zone)
-        {
-            switch (zone) 
-            {
-                case 'E':
-                    return " style=\"background: #AFFFC6\""; // Europe (Mint Green)
-
-                case 'N':
-                    return " style=\"background: #C1F1FF\""; // North America (Light Blue)
-
-                case 'A':
-                    // Pushed to a truer, brighter pale yellow (removes the warm/red tint)
-                    return " style=\"background: #FFF0AA\""; 
-
-                case 'S':
-                    // Shifted completely away from pink into a soft lilac/purple
-                    return " style=\"background: #E8D8F8\""; 
-            }
-            return "";
         }
 
         private async Task<string> GetSmarterCityAsync(string city, string ipAddress)
