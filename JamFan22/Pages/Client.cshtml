@@ -5,13 +5,18 @@
 }
 
 <style>
-    .server-header {
-        background-color: rgba(0, 0, 0, 0.06); 
-        margin: -0.5rem -0.5rem 0.25rem -0.5rem; 
-        padding: 0.5rem 0.5rem 0.1rem 0.5rem; 
-        border-top-left-radius: 1rem; 
-        border-top-right-radius: 1rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+.server-header {
+        /* Replaced flat background with a gradient fading to darker at the bottom */
+        background: linear-gradient(to bottom, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.12)); 
+        margin: -0.25rem -0.5rem 0.25rem -0.5rem; 
+        padding: 0.15rem 0.5rem 0.1rem 0.5rem; 
+        border-top-left-radius: 0.5rem; 
+        border-top-right-radius: 0.5rem; 
+        
+        /* Enhanced the line by making it dark instead of white */
+        border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+        /* Added a subtle white glow directly under the line for an etched/3D effect */
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4); 
     }
     .grid {
         display: grid;
@@ -27,8 +32,8 @@
 
     .grid > div {
         background: #D9F9F9;
-        padding: 0.5rem 0.5rem 0.25rem 0.5rem;
-        border-radius: 1rem;
+        padding: 0.25rem 0.5rem 0.1rem 0.5rem; /* Reduced top and bottom padding */
+        border-radius: 0.5rem; /* Tighter corner curve */
         font-family: Arial, Helvetica, sans-serif;
     }
 
@@ -144,18 +149,52 @@
 
     // OBSERVER: The "High-Water Mark" using Intrinsic Content Height
     const cardHeightObserver = new ResizeObserver(entries => {
+        const grid = document.getElementById('client-grid');
+        if (!grid) return;
+        
+        // Grab all real cards to evaluate global state
+        const allCards = Array.from(grid.querySelectorAll('.server-card:not(.ghost-card)'));
+        
+        // Check if we're in a single-column layout (Mobile)
+        let isSingleColumn = true;
+        if (allCards.length > 1) {
+            // If the first two cards share the same top offset, there are multiple columns
+            if (allCards[0].getBoundingClientRect().top === allCards[1].getBoundingClientRect().top) {
+                isSingleColumn = false;
+            }
+        }
+        
+        // Find the absolute maximum locked height across ALL cards
+        let maxLockedHeight = 0;
+        allCards.forEach(c => {
+            const lh = parseFloat(c.dataset.lockedHeight) || 0;
+            if (lh > maxLockedHeight) maxLockedHeight = lh;
+        });
+
         for (let entry of entries) {
             const card = entry.target;
             const inner = card.querySelector('.server-inner');
             if (!inner) continue;
             
-            // Measure the inside wrapper + 14px to account for the card's padding and margins
-            const contentHeight = inner.offsetHeight + 14; 
+            // Measure the inside wrapper + 6px to account for the new smaller card padding
+            const contentHeight = inner.offsetHeight + 6; 
             const lockedHeight = parseFloat(card.dataset.lockedHeight) || 0;
             
-            if (contentHeight > lockedHeight) {
-                card.dataset.lockedHeight = contentHeight;
-                card.style.minHeight = contentHeight + 'px';
+            // Exception: Is this the largest tile of them all?
+            const isLargestTile = (lockedHeight > 0 && lockedHeight >= maxLockedHeight);
+            
+            if (isSingleColumn || isLargestTile) {
+                // Allow shrinking: sync the locked height down to the new smaller content height
+                if (contentHeight !== lockedHeight) {
+                    card.dataset.lockedHeight = contentHeight;
+                    card.style.minHeight = contentHeight + 'px';
+                }
+            } else {
+                // Normal High-water mark logic: only allow growing
+                if (contentHeight > lockedHeight) {
+                    card.dataset.lockedHeight = contentHeight;
+                    card.style.minHeight = contentHeight + 'px';
+                }
             }
         }
     });
@@ -452,8 +491,8 @@
         const inner = el.querySelector('.server-inner');
         if (!inner) return;
         
-        // Change this from 32 to 14 so it matches the ResizeObserver math perfectly
-        const contentHeight = inner.offsetHeight + 14; 
+        // Change this from 14 to 6 so it matches the ResizeObserver math perfectly
+        const contentHeight = inner.offsetHeight + 6; 
         const lockedHeight = parseFloat(el.dataset.lockedHeight) || 0;
         
         if (contentHeight > lockedHeight) {
@@ -580,8 +619,11 @@
 
         const footerDiv = document.createElement('div');
         footerDiv.className = 'server-footer';
-        footerDiv.style.marginTop = '0.25rem';
-        footerDiv.innerHTML = renderServerFooter(server);
+        const footerHtml = renderServerFooter(server);
+        if (footerHtml !== '') {
+            footerDiv.style.marginTop = '0.25rem';
+        }
+        footerDiv.innerHTML = footerHtml;
 
         // Append to inner wrapper
         innerDiv.appendChild(headerDiv);
@@ -634,6 +676,19 @@
             }
         }
 
+        if (!easternCandidate && !southernCandidate) return;
+
+        // RULE EXCEPTION: If the content in the southern tile is taller than the row above it, it can't move.
+        // (ghost.offsetHeight perfectly represents the exact height of the row above it).
+        if (southernCandidate) {
+            let sInner = southernCandidate.querySelector('.server-inner');
+            let sContentHeight = sInner ? (sInner.offsetHeight + 14) : 0;
+            if (sContentHeight > ghost.offsetHeight) {
+                southernCandidate = null; // Veto the southern move
+            }
+        }
+
+        // Re-check in case the southern candidate was our only hope and we just vetoed it
         if (!easternCandidate && !southernCandidate) return;
 
         function calcError(swapIdx) {
@@ -1440,14 +1495,32 @@ activeServerElements.forEach(serverEl => {
                 if (this.id === "nearby-btn") {
                     if (this.classList.contains("active")) {
                         this.innerText = "";
+                        // Save state as open
+                        localStorage.setItem("nearbyTabState", "open");
                     } else {
                         this.innerText = "Nearby";
                         this.style.textAlign = "center";
                         this.style.fontSize = "10px";
                         this.style.lineHeight = "16px";
+                        // Save state as closed
+                        localStorage.setItem("nearbyTabState", "closed");
                     }
                 }
             });
+        }
+
+        // Restore Nearby Tab state on load
+        var nearbyTabState = localStorage.getItem("nearbyTabState");
+        var nearbyBtn = document.getElementById("nearby-btn");
+        var nearbyContent = document.getElementById("nearby-content");
+
+        if (nearbyTabState === "closed" && nearbyBtn && nearbyContent) {
+            nearbyBtn.classList.remove("active");
+            nearbyContent.style.display = "none";
+            nearbyBtn.innerText = "Nearby";
+            nearbyBtn.style.textAlign = "center";
+            nearbyBtn.style.fontSize = "10px";
+            nearbyBtn.style.lineHeight = "16px";
         }
 
         // Logic for the new split Servers/Info tab
