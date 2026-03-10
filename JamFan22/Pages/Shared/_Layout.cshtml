@@ -133,6 +133,13 @@
                     var timeLeft = Math.max(0, 3600000 - ageMs);
                     setTimeout(function() {
                         msg.remove();
+                        // FIX: If the message list is now empty, reset the header
+                        if (document.getElementById("messagesList").childElementCount === 0) {
+                            var chatHeader = document.getElementById("chatHeader");
+                            chatHeader.style.background = "#007bff"; // Turn blue
+                            chatHeader.innerText = "Chat"; // Update text
+                            sessionStorage.setItem("chatUnread", "false");
+                        }
                     }, timeLeft);
                 }
 
@@ -186,6 +193,12 @@
                                 localStorage.setItem("lastSeenChatMsgHash", currentLastMsgHash);
                             }
                         } else {
+                            // FIX: Reset to blue if there is no chat history anymore
+                            var chatHeader = document.getElementById("chatHeader");
+                            chatHeader.style.background = "#007bff"; // Turn blue
+                            chatHeader.innerText = "Chat"; // Update text
+                            sessionStorage.setItem("chatUnread", "false");
+
                             // If history is empty and this is the FIRST time the page loaded in this tab session
                             if (sessionStorage.getItem("chatSessionStarted") !== "true") {
                                 var chatBody = document.getElementById("chatBody");
