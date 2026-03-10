@@ -990,11 +990,11 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
         private async Task<HashSet<string>> GetLiveGuidsFromApiAsync()
         {
             var liveGuids = new HashSet<string>();
-            foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
+            foreach (var key in JamFan22.Services.JamulusCacheManager.JamulusListURLs.Keys)
             {
                 try
                 {
-                    if (JamFan22.Pages.IndexModel.LastReportedList.TryGetValue(key, out var jsonString) && !string.IsNullOrEmpty(jsonString))
+                    if (JamFan22.Services.JamulusCacheManager.LastReportedList.TryGetValue(key, out var jsonString) && !string.IsNullOrEmpty(jsonString))
                     {
                         var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamulusServer>>(jsonString);
                         if (serversOnList != null)

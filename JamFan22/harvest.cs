@@ -1,5 +1,5 @@
-using JamFan22.Pages;
 using JamFan22.Models;
+using JamFan22.Services;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Runtime.CompilerServices;
@@ -24,10 +24,10 @@ namespace JamFan22
 
         static void DiscreetLinkForServer(string url)
         {
-            string where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
+            string where = JamulusAnalyzer.m_connectedLounges["https://hear.jamulus.live"];
             m_discreetLinks[where] = url;
 
-            m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 3;
+            m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 3;
         }
 
         static void ShortLivedTitleForServer(string title, string url)
@@ -35,14 +35,14 @@ namespace JamFan22
             if (title.Length > 0)
             {
                 string where = "1.2.3.4";
-                if(false == JamFan22.Pages.IndexModel.IsDebuggingOnWindows)
-                    where = JamFan22.Pages.IndexModel.m_connectedLounges["https://hear.jamulus.live"];
+                if (!JamulusCacheManager.IsDebuggingOnWindows)
+                    where = JamulusAnalyzer.m_connectedLounges["https://hear.jamulus.live"];
                 m_songTitle[where] = title;
 
-                m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 2;
+                m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 2;
 
                 System.IO.File.AppendAllText("data/urls.csv",
-                    JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + ","
+                    JamulusCacheManager.MinutesSince2023AsInt() + ","
                     + where + ","
                     + System.Web.HttpUtility.UrlEncode(url)
                     + Environment.NewLine);
@@ -54,7 +54,7 @@ namespace JamFan22
             if (title.Length > 0)
             {
                 m_songTitleAtAddr[serverAddr] = title;
-                m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt() + 10;
+                m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 10;
             }
         }
 
@@ -185,9 +185,9 @@ namespace JamFan22
             {
                 try
                 {
-                    if (JamFan22.Pages.IndexModel.MinutesSince2023AsInt() > m_timeToLive)
+                    if (JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt() > m_timeToLive)
                     {
-                        m_timeToLive = JamFan22.Pages.IndexModel.MinutesSince2023AsInt();
+                        m_timeToLive = JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt();
                         var rng = new Random();
 
                         for (int iPos = m_songTitle.Count - 1; iPos >= 0; iPos--)

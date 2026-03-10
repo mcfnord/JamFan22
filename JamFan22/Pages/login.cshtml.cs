@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using JamFan22.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
@@ -18,7 +19,7 @@ namespace JamFan21.Pages
                 // BUT THIS IS GONNA BE A RARE CLICK FOR USERS! SO I WON'T SYNCHRONIZE FOR NOW.
                 // gonna use full server lists read-only to produce selection list for login.
                 Dictionary<string, string> allEm = new Dictionary<string, string>();
-                var globe = JamFan22.Pages.IndexModel.LastReportedList;
+                var globe = JamulusCacheManager.LastReportedList;
                 foreach (var key in globe.Keys)
                 {
                     var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(globe[key]);
@@ -28,7 +29,7 @@ namespace JamFan21.Pages
                         {
                             foreach (var guy in server.clients)
                             {
-                                string encodedHashOfGuy = JamFan22.Pages.IndexModel.GetHash(guy.name, guy.country, guy.instrument);
+                                string encodedHashOfGuy = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument);
                                 /*
                                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(guy.name + guy.country + guy.instrument);
                                 var hashOfGuy = System.Security.Cryptography.MD5.HashData(bytes);

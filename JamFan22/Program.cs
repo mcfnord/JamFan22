@@ -1,13 +1,12 @@
 using JamFan22;
-using JamFan22.Pages;
+using JamFan22.Services;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
-using System.Threading; // Added for SemaphoreSlim and Task.Delay
+using System.Threading;
 
-// Use SemaphoreSlim(1) for non-blocking asynchronous serialization
-var hottiesSemaphore = new System.Threading.SemaphoreSlim(1, 1);
+var hottiesSemaphore = new SemaphoreSlim(1, 1);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,20 +15,13 @@ builder.WebHost.UseKestrel(serverOptions =>
     var port = 443;
     var portStr = Environment.GetEnvironmentVariable("PORT");
     if (!string.IsNullOrEmpty(portStr) && int.TryParse(portStr, out int p))
-    {
         port = p;
-    }
 
     if (port == 443)
-    {
         serverOptions.ListenAnyIP(port, listenOptions => listenOptions.UseHttps("keyJan26.pfx", "jamfan"));
-    }
     else
-    {
         serverOptions.ListenAnyIP(port);
-    }
 });
-
 
 // Add services to the container.
 builder.Services.AddRazorPages();
@@ -37,7 +29,13 @@ builder.Services.AddSignalR();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
+
+// Business logic singletons (order: dependencies before dependents)
+builder.Services.AddSingleton<JamFan22.Services.EncounterTracker>();
+builder.Services.AddSingleton<JamFan22.Services.JamulusCacheManager>();
+builder.Services.AddSingleton<JamFan22.Services.IpAnalyticsService>();
 builder.Services.AddSingleton<JamFan22.Services.GeolocationService>();
+builder.Services.AddSingleton<JamFan22.Services.JamulusAnalyzer>();
 
 builder.Services.AddHostedService<JamFan22.Services.JamulusListRefreshService>();
 builder.Services.AddHostedService<JamFan22.Services.JammerHarvestService>();
@@ -48,11 +46,9 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
-// app.UseHttpsRedirection();
 app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
@@ -60,50 +56,42 @@ app.UseStaticFiles(new StaticFileOptions
         if (ctx.Context.Request.Path.Value.EndsWith("asn-ip-client-blocks.txt", StringComparison.OrdinalIgnoreCase))
         {
             var logger = ctx.Context.RequestServices.GetRequiredService<ILogger<Program>>();
-            
-            // Log the access, IP address, or User Agent
-            logger.LogInformation("asn-ip-client-blocks.txt accessed by {IP}", 
-                ctx.Context.Connection.RemoteIpAddress);
+            logger.LogInformation("asn-ip-client-blocks.txt accessed by {IP}", ctx.Context.Connection.RemoteIpAddress);
         }
     }
 });
 
 app.UseRouting();
-
 app.UseAuthorization();
-
 app.MapRazorPages();
 app.MapHub<JamFan22.ChatHub>("/chathub");
 
-app.MapGet("/countries", () =>
+app.MapGet("/countries", (HttpContext context) =>
 {
-    var stats = JamFan22.Pages.IndexModel.m_bucketUniqueIPsByCountry
+    var analyzer = context.RequestServices.GetRequiredService<JamulusAnalyzer>();
+
+    var stats = JamulusAnalyzer.m_bucketUniqueIPsByCountry
         .Select(kvp => new {
             CountryCode = string.IsNullOrEmpty(kvp.Key) ? "Unknown" : kvp.Key,
-            UniqueIPs = kvp.Value.Count,
-            Refreshes = JamFan22.Pages.IndexModel.m_countryRefreshCounts.GetValueOrDefault(kvp.Key, 0)
+            UniqueIPs   = kvp.Value.Count,
+            Refreshes   = JamulusAnalyzer.m_countryRefreshCounts.GetValueOrDefault(kvp.Key, 0)
         })
         .OrderByDescending(x => x.UniqueIPs)
         .ToList();
 
-    var sb = new System.Text.StringBuilder();
+    var sb = new StringBuilder();
     sb.AppendLine("<!DOCTYPE html><html><head><title>Country Diagnostics</title>");
     sb.AppendLine("<style>body{font-family:sans-serif; margin: 2rem;} table{border-collapse:collapse; width: 100%; max-width: 600px;} th,td{padding:8px;border:1px solid #ccc; text-align: left;} th{background-color: #f4f4f4;}</style>");
     sb.AppendLine("</head><body>");
     sb.AppendLine("<h2>Visitor Distribution by Country</h2>");
     sb.AppendLine("<p><em>Data resets on application restart.</em></p>");
     sb.AppendLine("<table><tr><th>Country Code</th><th>Unique IPs</th><th>Total API Requests</th></tr>");
-    
-    foreach(var stat in stats)
-    {
+    foreach (var stat in stats)
         sb.AppendLine($"<tr><td>{stat.CountryCode}</td><td>{stat.UniqueIPs}</td><td>{stat.Refreshes}</td></tr>");
-    }
-    
     sb.AppendLine("</table></body></html>");
 
     return Results.Content(sb.ToString(), "text/html");
 });
-
 
 app.MapGet("/api/nearby", async (HttpContext context) =>
 {
@@ -116,10 +104,7 @@ app.MapGet("/api/nearby", async (HttpContext context) =>
             clientIP = xff.Split(',')[0].Trim();
             if (!clientIP.Contains("::ffff")) clientIP = "::ffff:" + clientIP;
         }
-        else
-        {
-            clientIP = "24.18.55.230";
-        }
+        else { clientIP = "24.18.55.230"; }
     }
 
     var finder = new JamFan22.MusicianFinder();
@@ -127,123 +112,92 @@ app.MapGet("/api/nearby", async (HttpContext context) =>
     return Results.Content(htmlResult, "text/html");
 });
 
-
 app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext context) =>
 {
-    // Use non-blocking wait for serialization
     await hottiesSemaphore.WaitAsync();
     try
     {
         string guid = System.Web.HttpUtility.UrlDecode(encodedGuid);
 
-        // ... (your IP-GUID association comment block) ...
+        string theirName = "", theirInstrument = "";
+        var cacheManager = context.RequestServices.GetRequiredService<JamulusCacheManager>();
 
-        // If the user is online...
-        string theirName = "";
-        string theirInstrument = "";
-        // This is still a synchronous call, which is fine if it's just a fast dictionary lookup
-        bool result = JamFan22.Pages.IndexModel.DetailsFromHash(guid, ref theirName, ref theirInstrument);
-        
-        if (result == true)
-            if (guid != "No Name")
+        bool result = EncounterTracker.DetailsFromHash(
+            guid, ref theirName, ref theirInstrument,
+            JamulusCacheManager.JamulusListURLs,
+            JamulusCacheManager.LastReportedList);
+
+        if (result && guid != "No Name")
+        {
+            foreach (var key in JamulusCacheManager.JamulusListURLs.Keys)
             {
-                // find the user's city-nation.
-                foreach (var key in JamFan22.Pages.IndexModel.JamulusListURLs.Keys)
+                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(JamulusCacheManager.LastReportedList[key]);
+                foreach (var server in serversOnList)
                 {
-                    var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(JamFan22.Pages.IndexModel.LastReportedList[key]);
-                    foreach (var server in serversOnList)
+                    if (server.clients == null) continue;
+                    foreach (var guy in server.clients)
                     {
-                        if (server.clients != null)
+                        string stringHashOfGuy = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument);
+                        if (guid == stringHashOfGuy && guy.city != "" && guy.country != "")
                         {
-                            foreach (var guy in server.clients)
+                            var geoService = context.RequestServices.GetRequiredService<JamFan22.Services.GeolocationService>();
+                            var (success, lat, lon) = await geoService.CallOpenCageCachedAsync(guy.city + ", " + guy.country);
+
+                            if (success)
                             {
-                                string stringHashOfGuy = JamFan22.Pages.IndexModel.GetHash(guy.name, guy.country, guy.instrument);
-                                if (guid == stringHashOfGuy)
+                                string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
+                                if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
                                 {
-                                    if ((guy.city != "") && (guy.country != ""))
-                                    {
-                                        // try to get a lat-long from the city-country
-                                        
-                                        var geoService = context.RequestServices.GetRequiredService<JamFan22.Services.GeolocationService>();
-                                        var (success, lat, lon) = await geoService.CallOpenCageCachedAsync(guy.city + ", " + guy.country);
-                                        
-                                        if (true == success)
-                                        {
-                                            // assoc this lat-lon with this ip address
-                                            string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-
-                                            // ... (your X-Forwarded-For logic is unchanged) ...
-                                            if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
-                                            {
-                                                ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-                                                if (null != ipaddr)
-                                                {
-                                                    if (false == ipaddr.Contains("::ffff"))
-                                                        ipaddr = "::ffff:" + ipaddr;
-                                                }
-                                                Console.WriteLine("Due to localhost IP, switched to XFF IP: " + ipaddr);
-                                            }
-
-                                            if (null != ipaddr)
-                                            {
-                                                // We use the 'lat' and 'lon' variables returned from the async call
-                                                JamFan22.Services.GeolocationService.m_ipAddrToLatLong[ipaddr] = new JamFan22.Models.LatLong(lat, lon);
-
-                                                Console.Write("From " + ipaddr + " ");
-                                                Console.Write(result + " / ");
-                                                Console.Write(guy.city + ", " + guy.country + " ");
-                                                Console.WriteLine(lat + ", " + lon);
-                                            }
-                                            else
-                                                Console.WriteLine("no ipaddr. could be bug.");
-                                        }
-                                        else
-                                            Console.WriteLine("Failed to map " + guy.city + ", " + guy.country + " to a lat-long.");
-                                    }
+                                    ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
+                                    if (ipaddr != null && !ipaddr.Contains("::ffff"))
+                                        ipaddr = "::ffff:" + ipaddr;
+                                    Console.WriteLine("Due to localhost IP, switched to XFF IP: " + ipaddr);
                                 }
+
+                                if (ipaddr != null)
+                                {
+                                    JamFan22.Services.GeolocationService.m_ipAddrToLatLong[ipaddr] = new JamFan22.Models.LatLong(lat, lon);
+                                    Console.Write("From " + ipaddr + " ");
+                                    Console.Write(result + " / ");
+                                    Console.Write(guy.city + ", " + guy.country + " ");
+                                    Console.WriteLine(lat + ", " + lon);
+                                }
+                                else { Console.WriteLine("no ipaddr. could be bug."); }
                             }
+                            else { Console.WriteLine("Failed to map " + guy.city + ", " + guy.country + " to a lat-long."); }
                         }
                     }
                 }
             }
+        }
 
-        ///
-        /// FIND ALL KEYS THIS GUY'S IN
-        ///
-
-        if (null != JamFan22.Pages.IndexModel.m_timeTogether)
+        if (EncounterTracker.m_timeTogether != null)
         {
-            List<string> hotties = new List<string>();
-
-            var timeTogetherDescending = JamFan22.Pages.IndexModel.m_timeTogether.OrderByDescending(dude => dude.Value);
+            var hotties = new List<string>();
+            var timeTogetherDescending = EncounterTracker.m_timeTogether.OrderByDescending(dude => dude.Value);
 
             foreach (var pair in timeTogetherDescending)
             {
                 if (pair.Key.Contains(guid))
                 {
                     var otherGuysGuid = pair.Key.Replace(guid, "");
-                    string friendlyName = "";
-                    string friendlyInstrument = "";
-                    // This is still a synchronous call
-                    bool online = JamFan22.Pages.IndexModel.DetailsFromHash(otherGuysGuid, ref friendlyName, ref friendlyInstrument);
-                    
-                    if (online)
-                        if ("Listener" != friendlyInstrument)
-                            if ("No Name" != friendlyName)
-                                if ("" != friendlyName)
-                                    if ("Studio Bridge" != friendlyName)
-                                        if ("Ear" != friendlyName)
-                                            if (false == friendlyName.Contains("obby"))
-                                                hotties.Add(otherGuysGuid); // the guid that isn't me is left!
+                    string friendlyName = "", friendlyInstrument = "";
+                    bool online = EncounterTracker.DetailsFromHash(
+                        otherGuysGuid, ref friendlyName, ref friendlyInstrument,
+                        JamulusCacheManager.JamulusListURLs,
+                        JamulusCacheManager.LastReportedList);
+
+                    if (online && friendlyInstrument != "Listener" && friendlyName != "No Name" &&
+                        friendlyName != "" && friendlyName != "Studio Bridge" &&
+                        friendlyName != "Ear" && !friendlyName.Contains("obby"))
+                        hotties.Add(otherGuysGuid);
                 }
             }
 
-            // ... (rest of your JSON return logic is unchanged) ...
-            if (hotties.Count < 2) 
-                return "[]";
+            if (hotties.Count < 2) return "[]";
             const string QUOT = "\"";
             string ret = "[";
-            for (int i = 0; i < hotties.Count / 2; i++) // of the top half...
+            for (int i = 0; i < hotties.Count / 2; i++)
                 ret += QUOT + hotties[i] + QUOT + ", ";
             ret = ret.Substring(0, ret.Length - 2);
             ret += "]";
@@ -253,7 +207,6 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
     }
     finally
     {
-        // Release the non-blocking semaphore
         hottiesSemaphore.Release();
     }
 });
@@ -261,8 +214,7 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
 app.MapGet("/halos/", async (HttpContext context) =>
 {
     string url = "https://jamulus.live/halo-streaming.txt";
-    // Use await for non-blocking I/O instead of .Wait()/.Result
-    List<string> halostreaming = await JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
+    List<string> halostreaming = await JamulusCacheManager.LoadLinesFromHttpTextFile(url);
 
     if (halostreaming.Count == 0)
     {
@@ -271,29 +223,15 @@ app.MapGet("/halos/", async (HttpContext context) =>
     }
 
     url = "https://jamulus.live/halo-snippeting.txt";
-    // Use await for non-blocking I/O instead of .Wait()/.Result
-    List<string> halosnippeting = await JamFan22.Pages.IndexModel.LoadLinesFromHttpTextFile(url);
+    List<string> halosnippeting = await JamulusCacheManager.LoadLinesFromHttpTextFile(url);
 
     string ret = "[";
-
     const string QUOT = "\"";
-
-    for (int i = 0; i < halostreaming.Count; i++) // of the top half...
-        ret += QUOT + halostreaming[i] + QUOT + ", ";
-
-    for (int i = 0; i < halosnippeting.Count; i++) // of the top half...
-        ret += QUOT + halosnippeting[i] + QUOT + ", ";
-
+    for (int i = 0; i < halostreaming.Count; i++)  ret += QUOT + halostreaming[i]  + QUOT + ", ";
+    for (int i = 0; i < halosnippeting.Count; i++) ret += QUOT + halosnippeting[i] + QUOT + ", ";
     ret = ret.Substring(0, ret.Length - 2);
-
     ret += "]";
     return ret;
 });
 
 app.Run();
-
-
-
-
-
-
