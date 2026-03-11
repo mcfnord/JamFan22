@@ -1,10 +1,5 @@
 # JamFan22 Project Instructions
 
-## Development Workflow
-- **All code changes** must occur in a non-main branch.
-- **Never modify files** on the `main` branch directly.
-
-## Running the Application
 This application is run and managed as a systemd service named jamfan22.
 - **Do not** use `dotnet run` directly.
 
