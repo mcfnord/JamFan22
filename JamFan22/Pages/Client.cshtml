@@ -37,8 +37,21 @@
         font-family: Arial, Helvetica, sans-serif;
     }
 
+/* Mobile: tighter gaps and no height locking */
+    @@media (max-width: 500px) {
+        /* Retain the height unlocking for JS, but remove the extreme whitespace narrowing */
+        .grid > div { min-height: unset !important; }
+        
+        /* Commented out to use the default 1rem desktop spacing instead:
+        .grid { grid-gap: 4px !important; }
+        body { padding: 4px !important; }
+        .container-fluid { padding-left: 0 !important; padding-right: 0 !important; }
+        */
+    }
+
     body {
-        margin: 1rem;
+        padding: 1rem;
+        margin: 0;
         background-color: lightblue;
         line-height: unset;
     }
@@ -183,7 +196,11 @@
             // Exception: Is this the largest tile of them all?
             const isLargestTile = (lockedHeight > 0 && lockedHeight >= maxLockedHeight);
             
-            if (isSingleColumn || isLargestTile) {
+            if (isSingleColumn) {
+                // Mobile: never lock heights, let cards size naturally
+                card.style.minHeight = '';
+                card.dataset.lockedHeight = '0';
+            } else if (isLargestTile) {
                 // Allow shrinking: sync the locked height down to the new smaller content height
                 if (contentHeight !== lockedHeight) {
                     card.dataset.lockedHeight = contentHeight;
@@ -516,8 +533,8 @@
             html += `${server.newJamFlag}<br>`;
         }
 
-        if (server.isNewServer) {
-            html += `(New server.)<br>`;
+        if (server.newServerHtml) {
+            html += `${server.newServerHtml}<br>`;
         }
         
         if (server.listenHtml) {
@@ -534,10 +551,7 @@
             footerHtml += `<div>${server.serverDurationHtml}</div>`;
         }
         
-        let byeHtml = '';
-        if (server.leavers && server.leavers.length > 0) {
-            byeHtml = `<div style="color:gray; font-size:0.7em;"><i>Bye ${server.leavers.join("&nbsp;&middot;&nbsp;")}</i></div>`;
-        }
+        let byeHtml = server.leaversHtml || '';
 
         let nationsHtml = '';
         let smartNations = (server.smartNations ? server.smartNations : getSmartNations(server));
@@ -638,7 +652,7 @@
         return serverDiv;
     }
 
-    function optimizeGhostPlacement(ghost, grid, idealData) {
+function optimizeGhostPlacement(ghost, grid, idealData) {
         if (!idealData) return;
         
         let nodes = Array.from(grid.children);
@@ -679,7 +693,6 @@
         if (!easternCandidate && !southernCandidate) return;
 
         // RULE EXCEPTION: If the content in the southern tile is taller than the row above it, it can't move.
-        // (ghost.offsetHeight perfectly represents the exact height of the row above it).
         if (southernCandidate) {
             let sInner = southernCandidate.querySelector('.server-inner');
             let sContentHeight = sInner ? (sInner.offsetHeight + 14) : 0;
@@ -688,7 +701,6 @@
             }
         }
 
-        // Re-check in case the southern candidate was our only hope and we just vetoed it
         if (!easternCandidate && !southernCandidate) return;
 
         function calcError(swapIdx) {
@@ -718,17 +730,27 @@
         }
 
         if (bestSwap) {
-            // --- NEW: Strip old row height memory before moving! ---
+            // Strip old row height memory before moving
             bestSwap.style.minHeight = '';
             bestSwap.dataset.lockedHeight = '0';
+            
+            // Capture exact heights before moving to animate the stretch
+            let startHeight = bestSwap.offsetHeight;
+            let targetHeight = ghost.offsetHeight;
             
             let swapRect = bestSwap.getBoundingClientRect();
             let gRectFinal = ghost.getBoundingClientRect();
             let dx = gRectFinal.left - swapRect.left;
             let dy = gRectFinal.top - swapRect.top;
 
-            bestSwap.style.transition = 'transform 0.6s ease';
+            // Lock the height to explicit px so CSS can interpolate it
+            bestSwap.style.height = startHeight + 'px';
+            void bestSwap.offsetHeight; // Force browser reflow
+
+            // Add height to the transition list
+            bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
             bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
+            bestSwap.style.height = targetHeight + 'px'; // Smoothly stretch/shrink to fit the new row
             bestSwap.style.zIndex = '10';
 
             setTimeout(() => {
@@ -747,6 +769,7 @@
                 bestSwap.style.transition = 'none';
                 bestSwap.style.transform = '';
                 bestSwap.style.zIndex = '';
+                bestSwap.style.height = ''; // Release the explicit height lock so Grid takes over seamlessly
                 
                 void bestSwap.offsetWidth; 
                 
@@ -1235,7 +1258,7 @@ if (action.type === 'replace_server') {
         const allCards = document.getElementsByClassName("server-card");
         for(let i=0; i<allCards.length; i++) {
             allCards[i].style.border = "";
-            allCards[i].style.order = ""; // Reset order so inactive servers fall back to normal sorting
+            // REMOVED: allCards[i].style.order = ""; <-- By not resetting this, it stays at -1!
         }
 
         const loginHash = getCurrentUserHash();
@@ -1246,12 +1269,12 @@ if (action.type === 'replace_server') {
                     const serverCard = meElements[i].closest('.server-card');
                     if (serverCard) {
                         serverCard.style.border = "thick solid SteelBlue";
-                        serverCard.style.order = "-1"; // Promote this card to the absolute front of the grid
+                        serverCard.style.order = "-1";
                     }
                 }
             }
         }
-        
+
         blankForRefresh();
         subRefresh("trackedPeople", "2px solid #FFFFCC", "#FFFFCC"); // 2px yellow
         subRefresh("advancedTrackedPeople", "2px dashed #22FF22", "#22FF22"); // 2px dashed green
@@ -1261,9 +1284,10 @@ if (action.type === 'replace_server') {
             const peeps = document.getElementsByClassName(hottieHash);
             for (let i = 0; i < peeps.length; i++) {
                 const p = peeps[i];
-                if (!p.style.border.includes("solid") && 
-                    !p.style.border.includes("dashed") && 
-                    p.closest('.server-card')?.style.order !== "-1") 
+                // TWEAKED: Check for the SteelBlue border instead of the -1 order
+                if (!p.style.border.includes("solid") &&
+                    !p.style.border.includes("dashed") &&
+                    !p.closest('.server-card')?.style.border.includes("SteelBlue"))
                 {
                     p.classList.add("hottie-arrived");
                 }
@@ -1427,7 +1451,7 @@ if (action.type === 'replace_server') {
             }
 
             const now = Date.now();
-            if (currentData.length === 0 || now - lastFullRefresh > 960000) {
+            if (currentData.length === 0 || now - lastFullRefresh > 1560000) {
                 const grid = document.getElementById('client-grid');
                 grid.innerHTML = '';
                 data.forEach(server => {

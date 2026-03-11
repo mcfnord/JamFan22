@@ -30,11 +30,11 @@ namespace JamFan22.Pages
         public string newJamFlag { get; set; }
         public string listenHtml { get; set; }
         public string serverDurationHtml { get; set; }
-        public List<string> leavers { get; set; } = new List<string>();
+        public string leaversHtml { get; set; }
         public List<string> soonNames { get; set; } = new List<string>();
 
         public string smartNations { get; set; }
-        public bool isNewServer { get; set; }
+        public string newServerHtml { get; set; }
 
         public List<ApiClient> clients { get; set; } = new List<ApiClient>();
     }
@@ -81,6 +81,15 @@ namespace JamFan22.Pages
         public async Task<IActionResult> OnGetAsync()
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            bool isDiagMode = Request.Query.ContainsKey("diag");
+            System.Text.StringBuilder diagLog = null;
+            if (isDiagMode)
+            {
+                diagLog = new System.Text.StringBuilder();
+                diagLog.AppendLine($"Visibility Diagnostics generated at {DateTime.Now}");
+                diagLog.AppendLine("=====================================================");
+            }
 
             await JamulusCacheManager.m_serializerMutex.WaitAsync();
             try
@@ -223,6 +232,12 @@ namespace JamFan22.Pages
                     int  totalVisibleUsers = filteredUsersForRules.Count + bubbleUsers.Count;
                     bool fSuppress = false;
 
+                    if (isDiagMode)
+                    {
+                        diagLog.AppendLine($"\nServer: {s.name} ({serverAddress})");
+                        diagLog.AppendLine($"- Total Visible: {totalVisibleUsers} (Filtered: {filteredUsersForRules.Count}, Bubble: {bubbleUsers.Count})");
+                    }
+
                     if (totalVisibleUsers == 1)
                     {
                         string userHash = filteredUsersForRules.Count == 1
@@ -230,25 +245,58 @@ namespace JamFan22.Pages
                             : bubbleUsers[0].hash;
                         double howLong = _tracker.DurationHereInMins(serverAddress, userHash);
 
-                        if (!preloadedData.GoodGuids.Contains(userHash) && howLong > 60.0) fSuppress = true;
-                        else if (howLong > 360.0) fSuppress = true;
+                        if (isDiagMode) diagLog.AppendLine($"- 1 User Rule. Hash: {userHash}, Mins: {howLong:F1}");
+
+                        if (!preloadedData.GoodGuids.Contains(userHash) && howLong > 60.0) 
+                        { fSuppress = true; if (isDiagMode) diagLog.AppendLine("- ACTION: Suppressed (Not GoodGuid, > 60 mins)"); }
+                        else if (howLong > 360.0) 
+                        { fSuppress = true; if (isDiagMode) diagLog.AppendLine("- ACTION: Suppressed (> 360 mins)"); }
 
                         var excludedServerNames = new HashSet<string> { "JamPad", "portable" };
-                        if (excludedServerNames.Contains(s.name)) fSuppress = true;
+                        if (excludedServerNames.Contains(s.name)) 
+                        { fSuppress = true; if (isDiagMode) diagLog.AppendLine("- ACTION: Suppressed (Excluded Name)"); }
                     }
                     else if (totalVisibleUsers > 1)
                     {
                         int iTimeoutPeriod = s.name.ToLower().Contains("priv") ? (4 * 60) : (8 * 60);
+                        if (isDiagMode) diagLog.AppendLine($"- >1 User Rule. Timeout period: {iTimeoutPeriod} mins");
+
                         fSuppress = true;
                         foreach (var user in filteredUsersForRules)
-                            if (_tracker.DurationHereInMins(serverAddress, EncounterTracker.GetHash(user.name, user.country, user.instrument)) < iTimeoutPeriod)
-                            { fSuppress = false; break; }
+                        {
+                            string userHash = EncounterTracker.GetHash(user.name, user.country, user.instrument);
+                            double mins = _tracker.DurationHereInMins(serverAddress, userHash);
+                            if (isDiagMode) diagLog.AppendLine($"  - User: {user.name}, Hash: {userHash}, Mins: {mins:F1}");
+
+                            if (mins < iTimeoutPeriod)
+                            {
+                                fSuppress = false;
+                                if (isDiagMode) diagLog.AppendLine($"  - KEEPALIVE: User {user.name} is active (under timeout)");
+                                break;
+                            }
+                        }
                         if (fSuppress)
+                        {
                             foreach (var bu in bubbleUsers)
-                                if (_tracker.DurationHereInMins(serverAddress, bu.hash) < iTimeoutPeriod)
-                                { fSuppress = false; break; }
+                            {
+                                double mins = _tracker.DurationHereInMins(serverAddress, bu.hash);
+                                if (isDiagMode) diagLog.AppendLine($"  - BubbleUser: {bu.hash}, Mins: {mins:F1}");
+
+                                if (mins < iTimeoutPeriod)
+                                {
+                                    fSuppress = false;
+                                    if (isDiagMode) diagLog.AppendLine($"  - KEEPALIVE: Bubble user is active (under timeout)");
+                                    break;
+                                }
+                            }
+                        }
+                        if (fSuppress && isDiagMode) diagLog.AppendLine($"- ACTION: Suppressed (All {totalVisibleUsers} users exceeded {iTimeoutPeriod} mins)");
                     }
-                    else { fSuppress = true; }
+                    else 
+                    { 
+                        fSuppress = true; 
+                        if (isDiagMode) diagLog.AppendLine("- ACTION: Suppressed (0 users)");
+                    }
 
                     if (fSuppress) continue;
 
@@ -265,7 +313,9 @@ namespace JamFan22.Pages
                         usercount     = s.usercount,
                         maxusercount  = s.maxusercount,
                         activeJitsi   = _analyzer.FindActiveJitsiOfJSvr(serverAddress),
-                        isNewServer   = _analyzer.NoticeNewbs(serverAddress),
+                        newServerHtml = _analyzer.NoticeNewbs(serverAddress)
+                            ? $"({JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "New server", "新伺服器", "เซิร์ฟเวอร์ใหม่", "Neuer Server", "Nuovo server")}.)"
+                            : "",
                         listenHtml    = await _analyzer.GetListenHtmlAsync(s)
                     };
 
@@ -280,6 +330,8 @@ namespace JamFan22.Pages
                     if (harvest.m_discreetLinks.TryGetValue(serverAddress, out string videoUrl))
                         apiSvr.videoUrl = videoUrl;
 
+                    var currentLeavers = new List<string>();
+
                     foreach (var entry in EncounterTracker.m_connectionLatestSighting)
                     {
                         if (!entry.Key.Contains(serverAddress)) continue;
@@ -289,7 +341,7 @@ namespace JamFan22.Pages
                             if (EncounterTracker.m_guidNamePairs.TryGetValue(guid, out string leaverName) &&
                                 !string.IsNullOrWhiteSpace(leaverName) && leaverName != "No Name" &&
                                 leaverName != "Ear" && !leaverName.Contains("obby") &&
-                                !apiSvr.leavers.Contains(leaverName))
+                                !currentLeavers.Contains(leaverName))
                             {
                                 bool fFound = false;
                                 if (s.whoObjectFromSourceData != null)
@@ -298,9 +350,15 @@ namespace JamFan22.Pages
                                            (user.name.Length > 3 && leaverName.Length > 3 &&
                                             user.name.ToLower().Substring(0, 3) == leaverName.ToLower().Substring(0, 3)))
                                         { fFound = true; break; }
-                                if (!fFound) apiSvr.leavers.Add(leaverName);
+                                if (!fFound) currentLeavers.Add(leaverName);
                             }
                         }
+                    }
+
+                    if (currentLeavers.Count > 0)
+                    {
+                        string byeText = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Bye", "再見", "ลาก่อน", "Tschüss", "Ciao");
+                        apiSvr.leaversHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>{byeText} {string.Join("&nbsp;&middot;&nbsp;", currentLeavers)}</i></div>";
                     }
 
                     if (_analyzer.Predicted.TryGetValue(serverAddress, out var predictedList))
@@ -369,6 +427,12 @@ namespace JamFan22.Pages
                     if (bubbleUsers.Count > 0) apiSvr.clients.AddRange(bubbleUsers);
 
                     apiResponse.Add(apiSvr);
+                }
+
+                if (isDiagMode && diagLog != null)
+                {
+                    try { System.IO.File.WriteAllText("wwwroot/server-visibility.txt", diagLog.ToString()); }
+                    catch (Exception ex) { Console.WriteLine($"Failed to write diagnostics: {ex.Message}"); }
                 }
 
                 stopwatch.Stop();
