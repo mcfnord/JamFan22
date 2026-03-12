@@ -49,11 +49,17 @@
         */
     }
 
-    body {
-        padding: 1rem;
+body {
+        padding: 1rem 0.5rem; /* Changed from 1rem to halve the left/right padding */
         margin: 0;
         background-color: lightblue;
         line-height: unset;
+    }
+
+    /* Override Bootstrap's default container padding to halve its contribution too */
+    .container-fluid {
+        padding-left: 0.5rem !important; 
+        padding-right: 0.5rem !important;
     }
 
     .collapsible {
@@ -135,6 +141,10 @@
         <p style="padding-top: 15px;">This web page shows who is on every public Jamulus server.</p>
         <p>Click a musician's name to select them. Selected names stay selected (until someone changes their name). You'll also see green lines around people you jam with the most.</p>
         <p>This web page collects details about users on public Jamulus servers, including IP addresses. As a public service, this web page associates a geographic region with each IP address. All these details are erased after 15 days. The IP addresses are never shared. This web page complies with GDPR, Europe's privacy law.</p>
+        <ul>
+            <li>To prevent details about servers you join from being shared with this web page, block <i>outgoing</i> UDP traffic to <code>24.199.107.192</code> using your router or computer firewall.</li>
+            <li>To prevent details about musicians that join your server from being shared, block <i>incoming</i> UDP traffic from <code>137.184.43.255</code>. If you do this, your server will not appear on this web page.</li>
+        </ul>
         <p>You can reach this web page's team at <b>jamfan.x.jrd@xoxy.net</b></p>
     </div>
 </div>
@@ -529,8 +539,8 @@
         cat = cat.replace("Genre ", "").replace(" ", "&nbsp;");
         if (cat) html += `<font size='-1'>${cat}</font><br>`;
         
-        if (server.newJamFlag) {
-            html += `${server.newJamFlag}<br>`;
+        if (server.jamStatusHtml) {
+            html += `${server.jamStatusHtml}<br>`;
         }
 
         if (server.newServerHtml) {
@@ -562,10 +572,7 @@
             nationsHtml = `<div style="font-size:0.7em; margin-top:0.5rem;">${smartNations}</div>`;
         }
         
-        let soonHtml = '';
-        if (server.soonNames && server.soonNames.length > 0) {
-            soonHtml = `<div style="color:gray; font-size:0.7em;"><i>Soon ${server.soonNames.join("&nbsp;&middot;&nbsp;")}</i></div>`;
-        }
+        let soonHtml = server.soonHtml || '';
 
         if (!footerHtml && !byeHtml && !nationsHtml && !soonHtml) return '';
         
@@ -654,7 +661,7 @@
 
 function optimizeGhostPlacement(ghost, grid, idealData) {
         if (!idealData) return;
-        
+
         let nodes = Array.from(grid.children);
         let ghostIndex = nodes.indexOf(ghost);
         if (ghostIndex === -1) return;
@@ -664,40 +671,33 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             idealMap[getServerId(srv)] = i;
         });
 
-        let easternCandidate = null;
-        let easternIndex = -1;
-        let southernCandidate = null;
-        let southernIndex = -1;
-        
+        let easternCandidate = null, easternIndex = -1;
+        let southernCandidate = null, southernIndex = -1;
+
         let gRect = ghost.getBoundingClientRect();
-        
+
+        // Forward pass: finds nearest eastern and southern neighbors only.
+        // Western/northern are excluded — moving a card backward just relocates the gap.
         for (let i = ghostIndex + 1; i < nodes.length; i++) {
             let node = nodes[i];
             if (node && !node.classList.contains('ghost-card')) {
                 let nRect = node.getBoundingClientRect();
-                
                 if (!easternCandidate && Math.abs(gRect.top - nRect.top) < 20 && nRect.left > gRect.left) {
-                    easternCandidate = node;
-                    easternIndex = i;
+                    easternCandidate = node; easternIndex = i;
                 }
-                
                 if (!southernCandidate && Math.abs(gRect.left - nRect.left) < 20 && nRect.top > gRect.top) {
-                    southernCandidate = node;
-                    southernIndex = i;
+                    southernCandidate = node; southernIndex = i;
                 }
-                
                 if (easternCandidate && southernCandidate) break;
             }
         }
 
-        if (!easternCandidate && !southernCandidate) return;
-
-        // RULE EXCEPTION: If the content in the southern tile is taller than the row above it, it can't move.
+        // RULE EXCEPTION: Veto vertical moves if the incoming content is taller than the target row.
         if (southernCandidate) {
             let sInner = southernCandidate.querySelector('.server-inner');
-            let sContentHeight = sInner ? (sInner.offsetHeight + 14) : 0;
+            let sContentHeight = sInner ? (sInner.offsetHeight + 6) : 0;
             if (sContentHeight > ghost.offsetHeight) {
-                southernCandidate = null; // Veto the southern move
+                southernCandidate = null;
             }
         }
 
@@ -709,7 +709,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 let id = nodes[i].id;
                 if (i === ghostIndex) id = nodes[swapIdx].id;
                 else if (i === swapIdx) continue;
-                
+
                 if (idealMap[id] !== undefined) {
                     err += Math.abs(i - idealMap[id]);
                 }
@@ -720,43 +720,39 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         let bestSwap = null;
         let minErr = Infinity;
 
-        if (easternCandidate) {
-            let errE = calcError(easternIndex);
-            if (errE < minErr) { minErr = errE; bestSwap = easternCandidate; }
-        }
-        if (southernCandidate) {
-            let errS = calcError(southernIndex);
-            if (errS <= minErr) { minErr = errS; bestSwap = southernCandidate; } 
-        }
+        const evaluateSwap = (candidate, idx) => {
+            if (!candidate) return;
+            let err = calcError(idx);
+            if (err < minErr) { minErr = err; bestSwap = candidate; }
+        };
+
+        evaluateSwap(easternCandidate, easternIndex);
+        evaluateSwap(southernCandidate, southernIndex);
 
         if (bestSwap) {
-            // Strip old row height memory before moving
             bestSwap.style.minHeight = '';
             bestSwap.dataset.lockedHeight = '0';
-            
-            // Capture exact heights before moving to animate the stretch
+
             let startHeight = bestSwap.offsetHeight;
             let targetHeight = ghost.offsetHeight;
-            
+
             let swapRect = bestSwap.getBoundingClientRect();
             let gRectFinal = ghost.getBoundingClientRect();
             let dx = gRectFinal.left - swapRect.left;
             let dy = gRectFinal.top - swapRect.top;
 
-            // Lock the height to explicit px so CSS can interpolate it
             bestSwap.style.height = startHeight + 'px';
-            void bestSwap.offsetHeight; // Force browser reflow
+            void bestSwap.offsetHeight;
 
-            // Add height to the transition list
             bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
             bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
-            bestSwap.style.height = targetHeight + 'px'; // Smoothly stretch/shrink to fit the new row
+            bestSwap.style.height = targetHeight + 'px';
             bestSwap.style.zIndex = '10';
 
             setTimeout(() => {
                 const parent = ghost.parentNode;
                 if (!parent) return;
-                
+
                 const t1 = document.createTextNode('');
                 const t2 = document.createTextNode('');
                 parent.insertBefore(t1, ghost);
@@ -769,13 +765,166 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 bestSwap.style.transition = 'none';
                 bestSwap.style.transform = '';
                 bestSwap.style.zIndex = '';
-                bestSwap.style.height = ''; // Release the explicit height lock so Grid takes over seamlessly
-                
-                void bestSwap.offsetWidth; 
-                
+                bestSwap.style.height = '';
+
+                void bestSwap.offsetWidth;
+
                 bestSwap.style.transition = 'all 0.75s ease';
             }, 600);
         }
+    }
+
+    async function evaluateAndSwapForAdd(firstGhost, grid, idealData, newServerId) {
+        if (!idealData) return firstGhost;
+
+        let nodes = Array.from(grid.children);
+        let ghostIndex = nodes.indexOf(firstGhost);
+        if (ghostIndex === -1) return firstGhost;
+
+        let idealMap = {};
+        idealData.forEach((srv, i) => {
+            idealMap[getServerId(srv)] = i;
+        });
+
+        let easternCandidate = null, easternIndex = -1;
+        let southernCandidate = null, southernIndex = -1;
+        let westernCandidate = null, westernIndex = -1;
+        let northernCandidate = null, northernIndex = -1;
+
+        let gRect = firstGhost.getBoundingClientRect();
+
+        // Forward pass: finds nearest eastern and southern neighbors
+        for (let i = ghostIndex + 1; i < nodes.length; i++) {
+            let node = nodes[i];
+            if (node && !node.classList.contains('ghost-card')) {
+                let nRect = node.getBoundingClientRect();
+                if (!easternCandidate && Math.abs(gRect.top - nRect.top) < 20 && nRect.left > gRect.left) {
+                    easternCandidate = node; easternIndex = i;
+                }
+                if (!southernCandidate && Math.abs(gRect.left - nRect.left) < 20 && nRect.top > gRect.top) {
+                    southernCandidate = node; southernIndex = i;
+                }
+                if (easternCandidate && southernCandidate) break;
+            }
+        }
+
+        // Backward pass: finds nearest western and northern neighbors
+        for (let i = ghostIndex - 1; i >= 0; i--) {
+            let node = nodes[i];
+            if (node && !node.classList.contains('ghost-card')) {
+                let nRect = node.getBoundingClientRect();
+                if (!westernCandidate && Math.abs(gRect.top - nRect.top) < 20 && nRect.left < gRect.left) {
+                    westernCandidate = node; westernIndex = i;
+                }
+                if (!northernCandidate && Math.abs(gRect.left - nRect.left) < 20 && nRect.top < gRect.top) {
+                    northernCandidate = node; northernIndex = i;
+                }
+                if (westernCandidate && northernCandidate) break;
+            }
+        }
+
+        // RULE EXCEPTION: Veto vertical moves if the incoming content is taller than the target row.
+        if (southernCandidate) {
+            let sInner = southernCandidate.querySelector('.server-inner');
+            let sContentHeight = sInner ? (sInner.offsetHeight + 6) : 0;
+            if (sContentHeight > firstGhost.offsetHeight) {
+                southernCandidate = null; // Veto the move up
+            }
+        }
+
+        if (northernCandidate) {
+            let nInner = northernCandidate.querySelector('.server-inner');
+            let nContentHeight = nInner ? (nInner.offsetHeight + 6) : 0;
+            if (nContentHeight > firstGhost.offsetHeight) {
+                northernCandidate = null; // Veto the move down
+            }
+        }
+
+        if (!easternCandidate && !southernCandidate && !westernCandidate && !northernCandidate) return firstGhost;
+
+        function calcErrorForAdd(ghostGetsId, swappedIndex) {
+            let err = 0;
+            for (let i = 0; i < nodes.length; i++) {
+                let currentId;
+                if (i === ghostIndex) {
+                    currentId = ghostGetsId;
+                } else if (i === swappedIndex) {
+                    currentId = newServerId;
+                } else {
+                    currentId = nodes[i].id;
+                }
+
+                if (currentId && idealMap[currentId] !== undefined) {
+                    err += Math.abs(i - idealMap[currentId]);
+                }
+            }
+            return err;
+        }
+
+        let errDirect = calcErrorForAdd(newServerId, -1);
+        let minErr = errDirect;
+        let bestSwap = null;
+
+        const evaluateSwapAdd = (candidate, idx) => {
+            if (!candidate) return;
+            let err = calcErrorForAdd(candidate.id, idx);
+            if (err < minErr) { minErr = err; bestSwap = candidate; }
+        };
+
+        evaluateSwapAdd(easternCandidate, easternIndex);
+        evaluateSwapAdd(southernCandidate, southernIndex);
+        evaluateSwapAdd(westernCandidate, westernIndex);
+        evaluateSwapAdd(northernCandidate, northernIndex);
+
+        if (!bestSwap) return firstGhost;
+
+        return new Promise(resolve => {
+            bestSwap.style.minHeight = '';
+            bestSwap.dataset.lockedHeight = '0';
+
+            let startHeight = bestSwap.offsetHeight;
+            let targetHeight = firstGhost.offsetHeight;
+
+            let swapRect = bestSwap.getBoundingClientRect();
+            let gRectFinal = firstGhost.getBoundingClientRect();
+            let dx = gRectFinal.left - swapRect.left;
+            let dy = gRectFinal.top - swapRect.top;
+
+            bestSwap.style.height = startHeight + 'px';
+            void bestSwap.offsetHeight;
+
+            bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
+            bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
+            bestSwap.style.height = targetHeight + 'px';
+            bestSwap.style.zIndex = '10';
+
+            setTimeout(() => {
+                const parent = firstGhost.parentNode;
+                if (!parent) {
+                    resolve(firstGhost);
+                    return;
+                }
+
+                const t1 = document.createTextNode('');
+                const t2 = document.createTextNode('');
+                parent.insertBefore(t1, firstGhost);
+                parent.insertBefore(t2, bestSwap);
+                parent.insertBefore(bestSwap, t1);
+                parent.insertBefore(firstGhost, t2);
+                t1.remove();
+                t2.remove();
+
+                bestSwap.style.transition = 'none';
+                bestSwap.style.transform = '';
+                bestSwap.style.zIndex = '';
+                bestSwap.style.height = '';
+
+                void bestSwap.offsetWidth;
+                bestSwap.style.transition = 'all 0.75s ease';
+
+                resolve(firstGhost);
+            }, 600);
+        });
     }
 
     async function executeAction(action, newData) {
@@ -857,15 +1006,18 @@ if (action.type === 'replace_server') {
         }
         else if (action.type === 'add_server') {
             const el = createServerElement(action.server);
-            
+
             el.style.transition = 'none';
             el.style.opacity = '0';
             el.style.transform = 'scale(1.05)';
             el.style.filter = 'brightness(1.5) drop-shadow(0 0 10px white)';
 
-            // --- THE FIX: Look for a ghost card first ---
-            const firstGhost = grid.querySelector('.ghost-card');
+            // --- THE FIX: Look for a ghost card and evaluate the 3-way placement ---
+            let firstGhost = grid.querySelector('.ghost-card');
             if (firstGhost) {
+                const newServerId = getServerId(action.server);
+                // Pause the queue, measure options, and animate the swap if needed
+                firstGhost = await evaluateAndSwapForAdd(firstGhost, grid, newData, newServerId);
                 firstGhost.replaceWith(el);
             } else {
                 grid.appendChild(el);

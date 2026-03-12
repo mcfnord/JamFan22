@@ -27,11 +27,14 @@ namespace JamFan22.Pages
         public string activeJitsi { get; set; }
         public string videoUrl { get; set; }
         public string songTitle { get; set; }
-        public string newJamFlag { get; set; }
+        public string jamStatusHtml { get; set; }
         public string listenHtml { get; set; }
         public string serverDurationHtml { get; set; }
         public string leaversHtml { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
         public List<string> soonNames { get; set; } = new List<string>();
+
+        public string soonHtml { get; set; }
 
         public string smartNations { get; set; }
         public string newServerHtml { get; set; }
@@ -135,7 +138,7 @@ namespace JamFan22.Pages
                 }
 
                 _analyzer.InitializeGutsRequest();
-                await _analyzer.UpdatePredictionsIfNeededAsync();
+                var activePredictions = await _analyzer.GetActivePredictionsAsync();
                 var preloadedData = await _analyzer.GetCachedPreloadedDataAsync();
                 await _analyzer.ProcessServerListsAsync(preloadedData);
 
@@ -361,10 +364,24 @@ namespace JamFan22.Pages
                         apiSvr.leaversHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>{byeText} {string.Join("&nbsp;&middot;&nbsp;", currentLeavers)}</i></div>";
                     }
 
-                    if (_analyzer.Predicted.TryGetValue(serverAddress, out var predictedList))
-                        foreach (var dude in predictedList)
-                            if (EncounterTracker.m_guidNamePairs.TryGetValue(dude, out string soonName) && !string.IsNullOrWhiteSpace(soonName))
-                                apiSvr.soonNames.Add(soonName);
+                    var now = DateTime.UtcNow;
+                    foreach (var pred in activePredictions)
+                    {
+                        if (string.Equals(pred.Server, s.name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            double minsUntil = (pred.ArrivalTime - now).TotalMinutes;
+                            if (minsUntil <= 15 && minsUntil >= -10)
+                            {
+                                if (!string.IsNullOrWhiteSpace(pred.Name) && !apiSvr.soonNames.Contains(pred.Name))
+                                    apiSvr.soonNames.Add(pred.Name);
+                            }
+                        }
+                    }
+
+                    if (apiSvr.soonNames.Count > 0)
+                    {
+                        apiSvr.soonHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>Soon {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";
+                    }
 
                     if (s.whoObjectFromSourceData != null)
                     {
@@ -389,18 +406,18 @@ namespace JamFan22.Pages
                         {
                             string translatedPhrase = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;connessi.");
                             if (allNew && sortedFilteredUsers.Count > 0)
-                                apiSvr.newJamFlag = "(" + (s.usercount == s.maxusercount ? JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Pieno. ") : "") + translatedPhrase + ")";
+                                apiSvr.jamStatusHtml = "(" + (s.usercount == s.maxusercount ? JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Pieno. ") : "") + translatedPhrase + ")";
                             else if (s.usercount == s.maxusercount)
-                                apiSvr.newJamFlag = "<b>(" + JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full", "滿房", "เต็ม", "Voll", "piena") + ")</b>";
+                                apiSvr.jamStatusHtml = "<b>(" + JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full", "滿房", "เต็ม", "Voll", "piena") + ")</b>";
                             else if (s.usercount + 1 == s.maxusercount)
-                                apiSvr.newJamFlag = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)");
+                                apiSvr.jamStatusHtml = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)");
                             else
-                                apiSvr.newJamFlag = "";
+                                apiSvr.jamStatusHtml = "";
                             apiSvr.serverDurationHtml = "";
                         }
                         else
                         {
-                            apiSvr.newJamFlag = "";
+                            apiSvr.jamStatusHtml = "";
                             apiSvr.serverDurationHtml = firstUserHash != null
                                 ? _analyzer.DurationHere(serverAddress, firstUserHash, m_TwoLetterNationCode)
                                 : "";
