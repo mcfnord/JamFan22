@@ -131,7 +131,7 @@ body {
 
     <div id="content-servers" class="content" style="display: none;">
         <p style="padding-top: 15px;">
-            Sometimes when you can't find the server in Jamulus, you can paste the server's Server address into the <b>Server Address</b>
+            Sometimes when you can't find the server in Jamulus, you can paste the server's address into the <b>Server Address</b>
             field on the <b>Connection Setup</b> dialog box.
         </p>
         <div id="servers-table-container">@Html.Raw(@Model.ShowServerByIPPortForView)</div>
@@ -730,10 +730,8 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         evaluateSwap(southernCandidate, southernIndex);
 
         if (bestSwap) {
-            bestSwap.style.minHeight = '';
-            bestSwap.dataset.lockedHeight = '0';
-
             let startHeight = bestSwap.offsetHeight;
+            let startWidth = bestSwap.offsetWidth;
             let targetHeight = ghost.offsetHeight;
 
             let swapRect = bestSwap.getBoundingClientRect();
@@ -741,13 +739,27 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             let dx = gRectFinal.left - swapRect.left;
             let dy = gRectFinal.top - swapRect.top;
 
+            const spacer = document.createElement('div');
+            spacer.style.width = startWidth + 'px';
+            spacer.style.height = startHeight + 'px';
+            spacer.style.visibility = 'hidden';
+            bestSwap.parentNode.insertBefore(spacer, bestSwap);
+
+            bestSwap.style.minHeight = '';
+            bestSwap.dataset.lockedHeight = '0';
+            bestSwap.style.position = 'fixed';
+            bestSwap.style.margin = '0';
+            bestSwap.style.top = swapRect.top + 'px';
+            bestSwap.style.left = swapRect.left + 'px';
+            bestSwap.style.width = startWidth + 'px';
             bestSwap.style.height = startHeight + 'px';
+            bestSwap.style.zIndex = '100';
+
             void bestSwap.offsetHeight;
 
             bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
             bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
             bestSwap.style.height = targetHeight + 'px';
-            bestSwap.style.zIndex = '10';
 
             setTimeout(() => {
                 const parent = ghost.parentNode;
@@ -762,13 +774,18 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 t1.remove();
                 t2.remove();
 
-                bestSwap.style.transition = 'none';
+                spacer.remove();
+                bestSwap.style.position = '';
+                bestSwap.style.margin = '';
+                bestSwap.style.top = '';
+                bestSwap.style.left = '';
+                bestSwap.style.width = '';
+                bestSwap.style.height = '';
                 bestSwap.style.transform = '';
                 bestSwap.style.zIndex = '';
-                bestSwap.style.height = '';
+                bestSwap.style.transition = 'none';
 
                 void bestSwap.offsetWidth;
-
                 bestSwap.style.transition = 'all 0.75s ease';
             }, 600);
         }
@@ -879,10 +896,8 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         if (!bestSwap) return firstGhost;
 
         return new Promise(resolve => {
-            bestSwap.style.minHeight = '';
-            bestSwap.dataset.lockedHeight = '0';
-
             let startHeight = bestSwap.offsetHeight;
+            let startWidth = bestSwap.offsetWidth;
             let targetHeight = firstGhost.offsetHeight;
 
             let swapRect = bestSwap.getBoundingClientRect();
@@ -890,17 +905,32 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             let dx = gRectFinal.left - swapRect.left;
             let dy = gRectFinal.top - swapRect.top;
 
+            const spacer = document.createElement('div');
+            spacer.style.width = startWidth + 'px';
+            spacer.style.height = startHeight + 'px';
+            spacer.style.visibility = 'hidden';
+            bestSwap.parentNode.insertBefore(spacer, bestSwap);
+
+            bestSwap.style.minHeight = '';
+            bestSwap.dataset.lockedHeight = '0';
+            bestSwap.style.position = 'fixed';
+            bestSwap.style.margin = '0';
+            bestSwap.style.top = swapRect.top + 'px';
+            bestSwap.style.left = swapRect.left + 'px';
+            bestSwap.style.width = startWidth + 'px';
             bestSwap.style.height = startHeight + 'px';
+            bestSwap.style.zIndex = '100';
+
             void bestSwap.offsetHeight;
 
             bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
             bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
             bestSwap.style.height = targetHeight + 'px';
-            bestSwap.style.zIndex = '10';
 
             setTimeout(() => {
                 const parent = firstGhost.parentNode;
                 if (!parent) {
+                    spacer.remove();
                     resolve(firstGhost);
                     return;
                 }
@@ -914,10 +944,16 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 t1.remove();
                 t2.remove();
 
-                bestSwap.style.transition = 'none';
+                spacer.remove();
+                bestSwap.style.position = '';
+                bestSwap.style.margin = '';
+                bestSwap.style.top = '';
+                bestSwap.style.left = '';
+                bestSwap.style.width = '';
+                bestSwap.style.height = '';
                 bestSwap.style.transform = '';
                 bestSwap.style.zIndex = '';
-                bestSwap.style.height = '';
+                bestSwap.style.transition = 'none';
 
                 void bestSwap.offsetWidth;
                 bestSwap.style.transition = 'all 0.75s ease';
@@ -992,14 +1028,23 @@ if (action.type === 'replace_server') {
                 setTimeout(() => {
                     if (el.parentNode !== grid) return;
 
-                    const ghost = document.createElement('div');
-                    ghost.className = 'server-card ghost-card';
-                    ghost.style.visibility = 'hidden'; 
-                    ghost.id = 'ghost-' + Date.now();
-                    ghost.style.order = el.style.order;
-                    el.replaceWith(ghost);
+                const departingHeight = el.offsetHeight;
 
-                    optimizeGhostPlacement(ghost, grid, newData);
+                const ghost = document.createElement('div');
+                ghost.className = 'server-card ghost-card';
+                ghost.style.visibility = 'hidden'; 
+                ghost.id = 'ghost-' + Date.now();
+                ghost.style.order = el.style.order;
+                ghost.style.minHeight = departingHeight + 'px';
+                el.replaceWith(ghost);
+
+                optimizeGhostPlacement(ghost, grid, newData);
+
+                // Smoothly release the held height so lines below ease upward
+                setTimeout(() => {
+                    ghost.style.transition = 'min-height 0.75s ease-in-out';
+                    ghost.style.minHeight = '0px';
+                }, 100);
 
                 }, 750); 
             }
@@ -1141,7 +1186,7 @@ if (action.type === 'replace_server') {
                 }
             }
         }
-        else if (action.type === 'update_server_meta') {
+        else if (action.type === 'update_server_meta_shrink' || action.type === 'update_server_meta_grow') {
             const serverEl = document.getElementById(getServerId(action.server));
             if (serverEl) {
                 ensureNoShrink(serverEl);
@@ -1236,7 +1281,36 @@ if (action.type === 'replace_server') {
 
         for (const [id, newSrv] of newServers) {
             if (oldServers.has(id)) {
-                actions.push({ type: 'update_server_meta', server: newSrv });
+                const serverEl = document.getElementById(id);
+                let metaType = 'update_server_meta_grow'; // default to grow (safe)
+
+                if (serverEl) {
+                    const headerDiv = serverEl.querySelector('.server-header');
+                    const footerDiv = serverEl.querySelector('.server-footer');
+                    const oldHeight = (headerDiv ? headerDiv.offsetHeight : 0)
+                                    + (footerDiv ? footerDiv.offsetHeight : 0);
+
+                    const tempHeader = document.createElement('div');
+                    tempHeader.style.cssText = 'position:absolute;visibility:hidden;width:'
+                        + (serverEl.offsetWidth) + 'px;';
+                    tempHeader.innerHTML = renderServerHeader(newSrv);
+
+                    const tempFooter = document.createElement('div');
+                    tempFooter.style.cssText = tempHeader.style.cssText;
+                    tempFooter.innerHTML = renderServerFooter(newSrv);
+
+                    document.body.appendChild(tempHeader);
+                    document.body.appendChild(tempFooter);
+                    const newHeight = tempHeader.offsetHeight + tempFooter.offsetHeight;
+                    tempHeader.remove();
+                    tempFooter.remove();
+
+                    if (newHeight <= oldHeight) {
+                        metaType = 'update_server_meta_shrink';
+                    }
+                }
+
+                actions.push({ type: metaType, server: newSrv });
             }
         }
 
@@ -1295,6 +1369,19 @@ if (action.type === 'replace_server') {
                 actions.push({ type: 'add_musician', newId: newM.mId, serverId: newM.serverId, client: newM.client, occurrence: newM.occurrence });
             }
         }
+
+        // Shrink before grow: removals and shrinking meta first, then growing meta and adds
+        const typePriority = {
+            'replace_server':            0,
+            'remove_server':             1,
+            'remove_musician':           2,
+            'update_server_meta_shrink': 3,
+            'migrate_musician':          4,
+            'update_server_meta_grow':   5,
+            'add_musician':              6,
+            'add_server':                7
+        };
+        actions.sort((a, b) => (typePriority[a.type] ?? 99) - (typePriority[b.type] ?? 99));
 
         for (const action of actions) {
             await executeAction(action, newData);
