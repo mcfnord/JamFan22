@@ -181,6 +181,12 @@ namespace JamFan22.Pages
                 var richCache = await _analyzer.GetCensusCacheAsync();
                 await _analyzer.LoadConnectedLoungesAsync();
 
+                var bogusCities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "AWS",
+                    // "GCP", "Azure", "EC2", "DigitalOcean", "Linode", "Vultr", etc.
+                };
+
                 foreach (var s in sortedByDistanceAway)
                 {
                     string serverAddress          = s.serverIpAddress + ":" + s.serverPort;
@@ -304,12 +310,17 @@ namespace JamFan22.Pages
                     if (fSuppress) continue;
 
                     // ── Build API server object ───────────────────────────────
+                    string cleanCity = bogusCities.Aggregate(s.city ?? "", (c, bad) =>
+                        System.Text.RegularExpressions.Regex.Replace(c, @"\b" + System.Text.RegularExpressions.Regex.Escape(bad) + @"\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).Trim();
+                    if (string.IsNullOrWhiteSpace(cleanCity))
+                        cleanCity = await _geoService.GetCityFromIpAsync(s.serverIpAddress);
+
                     var apiSvr = new ApiServer {
                         category      = s.category,
                         serverIpAddress = s.serverIpAddress,
                         serverPort    = s.serverPort,
                         name          = s.name,
-                        city          = s.city,
+                        city          = cleanCity,
                         country       = s.country,
                         distanceAway  = s.distanceAway,
                         zone          = s.zone,
