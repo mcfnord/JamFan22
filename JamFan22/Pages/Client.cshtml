@@ -26,8 +26,7 @@
 
     .grid > div:hover {
         transform: scale(1.07);
-        box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.3); 
-        cursor: pointer; 
+        box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.3);
     }
 
     .grid > div {
@@ -106,6 +105,24 @@ body {
         padding-top: 0;
         padding-bottom: 0;
     }
+
+    @@keyframes subtle-settle {
+        0%   { filter: brightness(1.0); }
+        50%  { filter: brightness(1.06); }
+        100% { filter: brightness(1.0); }
+    }
+
+    @@keyframes new-arrival-breathe {
+        0%   { text-shadow: 0 0 0px rgba(100, 200, 255, 0); }
+        50%  { text-shadow: 0 0 6px rgba(100, 200, 255, 0.3); }
+        100% { text-shadow: 0 0 0px rgba(100, 200, 255, 0); }
+    }
+
+    .just-arrived {
+        animation: new-arrival-breathe 3s ease-in-out 10;
+        /* 10 loops × 3s = 30 seconds of gentle breathing */
+    }
+
 </style>
 
 <div id="system-status" class="@(string.IsNullOrEmpty(Model.SystemStatus) ? "hidden" : "")" style="font-family: Arial, Helvetica, sans-serif; margin-bottom: 1rem;">
@@ -599,7 +616,7 @@ body {
         return html;
     }
     
-    function createServerElement(server) {
+    function createServerElement(server, skipClients = false) {
         const serverDiv = document.createElement('div');
         serverDiv.id = getServerId(server);
         serverDiv.className = 'server-card';
@@ -626,7 +643,7 @@ body {
         
         const clientsDiv = document.createElement('div');
         clientsDiv.className = 'server-clients';
-        if (server.clients) {
+        if (server.clients && !skipClients) {
             const counts = {};
             server.clients.forEach(client => {
                 const hashKey = (client.name || "") + (client.country || "");
@@ -657,6 +674,49 @@ body {
         cardHeightObserver.observe(serverDiv);
 
         return serverDiv;
+    }
+
+    async function staggerAddMusicians(server) {
+        const serverId = getServerId(server);
+        const serverEl = document.getElementById(serverId);
+        if (!serverEl || !server.clients) return;
+
+        const clientsDiv = serverEl.querySelector('.server-clients');
+        if (!clientsDiv) return;
+
+        const counts = {};
+        for (const client of server.clients) {
+            const hashKey = (client.name || "") + (client.country || "");
+            counts[hashKey] = (counts[hashKey] || 0);
+            const occ = counts[hashKey]++;
+
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = renderMusician(client, serverId, occ);
+            const el = tempDiv.firstChild;
+
+            el.style.transition = 'none';
+            el.style.opacity = '0';
+            el.style.transform = 'scale(1.1)';
+            el.style.maxHeight = '0px';
+            el.style.marginBottom = '0px';
+            el.style.textShadow = '0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(255,255,255,0.8)';
+
+            clientsDiv.appendChild(el);
+            void el.offsetWidth;
+
+            el.style.transition = 'all 0.75s ease-in';
+            el.style.opacity = '1';
+            el.style.transform = 'scale(1)';
+            el.style.maxHeight = '50px';
+            el.style.marginBottom = '2px';
+            el.style.textShadow = '0 0 0px rgba(255,255,255,0)';
+
+            await new Promise(r => setTimeout(r, 350 + Math.random() * 200));
+            setTimeout(() => {
+                el.style.animation = 'subtle-settle 0.8s ease-in-out 1';
+                el.addEventListener('animationend', () => { el.style.animation = ''; }, { once: true });
+            }, 750);
+        }
     }
 
 function optimizeGhostPlacement(ghost, grid, idealData) {
@@ -968,7 +1028,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         
 if (action.type === 'replace_server') {
             const el = document.getElementById(action.removeId);
-            const newEl = createServerElement(action.addServer);
+            const newEl = createServerElement(action.addServer, true);
             if (el) {
                 // 1. The Wind-Up: Elevate, glow, and spin 2.25 times (810 degrees)
                 el.style.zIndex = '100'; // Bring to front so it doesn't clip neighboring cards
@@ -998,8 +1058,9 @@ if (action.type === 'replace_server') {
                             newEl.style.filter = '';
                             newEl.style.zIndex = '';
                         }, 500);
+                        setTimeout(() => staggerAddMusicians(action.addServer), 600);
                     }
-                }, 600); // Wait exactly for the edge-on moment (600ms)
+                }, 800); // Was 600 — added 200ms hold at edge-on
             } else {
                 // Fallback if the old element isn't in the DOM for some reason
                 newEl.style.transition = 'none';
@@ -1050,7 +1111,7 @@ if (action.type === 'replace_server') {
             }
         }
         else if (action.type === 'add_server') {
-            const el = createServerElement(action.server);
+            const el = createServerElement(action.server, true);
 
             el.style.transition = 'none';
             el.style.opacity = '0';
@@ -1076,6 +1137,7 @@ if (action.type === 'replace_server') {
             el.style.filter = 'brightness(1) drop-shadow(0 0 0 white)';
             
             setTimeout(() => el.style.filter = '', 750);
+            setTimeout(() => staggerAddMusicians(action.server), 800);
         }
         else if (action.type === 'remove_musician') {
             const el = document.getElementById(action.mId);
@@ -1123,6 +1185,10 @@ if (action.type === 'replace_server') {
                     el.style.textShadow = '0 0 0px rgba(255,255,255,0)';
                     
                     setTimeout(() => el.style.textShadow = '', 750);
+                    setTimeout(() => {
+                        el.style.animation = 'subtle-settle 0.8s ease-in-out 1';
+                        el.addEventListener('animationend', () => { el.style.animation = ''; }, { once: true });
+                    }, 800);
                 }
             }
         }
@@ -1211,7 +1277,12 @@ if (action.type === 'replace_server') {
                 
                 const footerDiv = serverEl.querySelector('.server-footer');
                 if (footerDiv) {
-                    animateMetaUpdate(footerDiv, renderServerFooter(action.server));
+                    const newFooterHtml = renderServerFooter(action.server);
+                    const tempCheck = document.createElement('div');
+                    tempCheck.innerHTML = newFooterHtml;
+                    if (footerDiv.innerHTML !== tempCheck.innerHTML) {
+                        footerDiv.innerHTML = newFooterHtml;
+                    }
                 }
             }
         }
@@ -1386,7 +1457,7 @@ if (action.type === 'replace_server') {
         for (const action of actions) {
             await executeAction(action, newData);
             if (['add_musician', 'remove_musician', 'migrate_musician', 'add_server', 'remove_server', 'replace_server'].includes(action.type)) {
-                await new Promise(r => setTimeout(r, 1200)); 
+                await new Promise(r => setTimeout(r, 1500 + Math.random() * 800));
             }
         }
     }
@@ -1504,11 +1575,13 @@ if (action.type === 'replace_server') {
         if (loginHash) {
             const meElements = document.getElementsByClassName(loginHash);
             if (meElements.length > 0) {
+                let orderVal = -1;
                 for (let i = 0; i < meElements.length; i++) {
                     const serverCard = meElements[i].closest('.server-card');
                     if (serverCard) {
                         serverCard.style.border = "thick solid SteelBlue";
-                        serverCard.style.order = "-1";
+                        serverCard.style.order = String(orderVal);
+                        orderVal--;
                     }
                 }
             }
