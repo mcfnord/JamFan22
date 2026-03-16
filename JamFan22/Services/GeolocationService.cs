@@ -34,6 +34,7 @@ namespace JamFan22.Services
         private static readonly System.Threading.SemaphoreSlim _ipApiSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static DateTime _lastIpApiCall = DateTime.MinValue;
         public static Dictionary<string, (LatLong Location, DateTime Expiry)> m_ipApiCache48 = new Dictionary<string, (LatLong, DateTime)>();
+        public static Dictionary<string, string> m_ipCityCache = new Dictionary<string, string>();
 
         private async Task<LatLong> GetIpApiLatLonAsync(string ip)
         {
@@ -73,6 +74,7 @@ namespace JamFan22.Services
                     {
                         var loc = new LatLong(jsonGeo["lat"].ToString(), jsonGeo["lon"].ToString());
                         m_ipApiCache48[ip4] = (loc, DateTime.Now.AddHours(48));
+                        m_ipCityCache[ip4] = jsonGeo["city"]?.ToString() ?? "";
                         return loc;
                     }
                 }
@@ -87,6 +89,15 @@ namespace JamFan22.Services
             }
             
             return new LatLong("0", "0");
+        }
+
+        public async Task<string> GetCityFromIpAsync(string ip)
+        {
+            string ip4 = (ip ?? "").Replace("::ffff:", "");
+            if (m_ipCityCache.TryGetValue(ip4, out var city))
+                return city;
+            await GetIpApiLatLonAsync(ip4); // populates m_ipCityCache as a side effect
+            return m_ipCityCache.TryGetValue(ip4, out var city2) ? city2 : "";
         }
 
         public async Task<LatLong> SmartGeoLocateAsync(string ip)
