@@ -234,4 +234,32 @@ app.MapGet("/halos/", async (HttpContext context) =>
     return ret;
 });
 
+app.MapPost("/api/hide", async (HttpContext context) =>
+{
+    var req = await context.Request.ReadFromJsonAsync<HideRequest>();
+    string clientIP = context.Connection.RemoteIpAddress?.ToString() ?? "24.18.55.230";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) { clientIP = xff.Split(',')[0].Trim(); }
+    if (!clientIP.Contains("::ffff")) clientIP = "::ffff:" + clientIP;
+
+    var guids = JamFan22.IdentityManager.GetAllAssociatedGuids(clientIP);
+    bool shouldHide = req?.hide ?? false;
+
+    string actionText = shouldHide ? "HIDING" : "UNHIDING";
+    Console.WriteLine($"\n[HIDE DIAGNOSTICS] {actionText} {guids.Count} GUID(s) for IP: {clientIP}");
+    foreach(var g in guids)
+    {
+        Console.WriteLine($" -> {g}");
+    }
+    Console.WriteLine("--------------------------------------------------\n");
+
+    JamFan22.HiddenPersonaManager.SetHidden(guids, shouldHide);
+    return Results.Ok();
+});
+
 app.Run();
+
+public class HideRequest
+{
+    public bool hide { get; set; }
+}
