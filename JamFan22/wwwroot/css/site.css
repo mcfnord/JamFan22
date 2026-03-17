@@ -164,3 +164,72 @@ hr {
         animation: gpuPulse 8s infinite ease-in-out;
         will-change: opacity, transform;
     }
+
+/* ========================================= */
+/* DARK MODE OVERRIDES                       */
+/* ========================================= */
+body.dark-mode {
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+body.dark-mode .grid > div {
+    color: #e0e0e0;
+}
+
+body.dark-mode .grid > div.zone-E       { background: #1d3a26 !important; } /* Europe — dark forest green */
+body.dark-mode .grid > div.zone-N       { background: #1a2d3d !important; } /* North America — dark slate blue */
+body.dark-mode .grid > div.zone-A       { background: #3a3015 !important; } /* Asia — dark amber */
+body.dark-mode .grid > div.zone-S       { background: #2d1f3d !important; } /* South America — dark plum */
+body.dark-mode .grid > div.zone-default { background: #1a3035 !important; } /* Other — dark teal */
+
+body.dark-mode .server-header {
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+body.dark-mode .collapsible {
+    background-color: #333;
+    color: #ddd;
+}
+
+body.dark-mode .active, body.dark-mode .collapsible:hover {
+    background-color: #444;
+}
+
+body.dark-mode .content {
+    background-color: #1e1e1e;
+    color: #ddd;
+}
+
+body.dark-mode .split-tab-container {
+    background-color: #333;
+}
+
+body.dark-mode #btn-servers, body.dark-mode #btn-info {
+    color: #ddd;
+    border-right-color: #555;
+}
+
+body.dark-mode table th {
+    background-color: #333;
+    color: #ddd;
+    border-color: #555;
+}
+
+body.dark-mode table td {
+    color: #bbb;
+    border-color: #555;
+}
+
+body.dark-mode a {
+    color: #66b3ff;
+}
+
+/* ========================================= */
+/* NEARBY ONLY LOGIC                         */
+/* ========================================= */
+#client-grid.nearby-only-active .distant-server {
+    display: none !important;
+}
