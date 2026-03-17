@@ -148,7 +148,20 @@ namespace JamFan22.Pages
                 string ipDerivedHashWithSemicolon = await _analyzer.GetIPDerivedHashAsync(ipAddress);
                 string cleanHash = ipDerivedHashWithSemicolon.Replace("\"", "").Replace(";", "");
                 if (cleanHash != "null" && !string.IsNullOrEmpty(cleanHash))
+                {
                     Response.Headers.Append("X-IP-Derived-Hash", cleanHash);
+
+                    var expiry = JamFan22.HiddenPersonaManager.GetExpiry(cleanHash);
+                    if (expiry.HasValue)
+                    {
+                        var unixMs = new DateTimeOffset(expiry.Value).ToUnixTimeMilliseconds();
+                        Response.Headers.Append("X-Hide-Expiry", unixMs.ToString());
+                    }
+                    else
+                    {
+                        Response.Headers.Append("X-Hide-Expiry", "0");
+                    }
+                }
 
                 if (JamulusCacheManager.ListServicesOffline.Count > 0)
                 {
@@ -223,6 +236,7 @@ namespace JamFan22.Pages
 
                                     if (cleanName.Length == 0 && (slimmerInst == "" || slimmerInst == " Streamer")) continue;
                                     if (JamulusAnalyzer.NukeThisUsername(cleanName, inst, s.name.ToLower().Contains("cbvb"))) continue;
+                                    if (HiddenPersonaManager.IsHidden(guid)) continue;
 
                                     bubbleUsers.Add(new ApiClient {
                                         name = cleanName, country = country, instrument = slimmerInst.Trim(),
@@ -236,6 +250,7 @@ namespace JamFan22.Pages
                     // ── Server suppression ────────────────────────────────────
                     var filteredUsersForRules = s.whoObjectFromSourceData?
                         .Where(cat => !JamulusAnalyzer.NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
+                        .Where(cat => !HiddenPersonaManager.IsHidden(EncounterTracker.GetHash(cat.name, cat.country, cat.instrument)))
                         .ToList() ?? new List<Client>();
 
                     int  totalVisibleUsers = filteredUsersForRules.Count + bubbleUsers.Count;
@@ -322,7 +337,7 @@ namespace JamFan22.Pages
                         name          = s.name,
                         city          = cleanCity,
                         country       = s.country,
-                        distanceAway  = s.distanceAway,
+                        distanceAway  = s.trueDistance,
                         zone          = s.zone,
                         usercount     = s.usercount,
                         maxusercount  = s.maxusercount,
@@ -398,6 +413,7 @@ namespace JamFan22.Pages
                     {
                         var sortedFilteredUsers = s.whoObjectFromSourceData
                             .Where(cat => !JamulusAnalyzer.NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
+                            .Where(cat => !HiddenPersonaManager.IsHidden(EncounterTracker.GetHash(cat.name, cat.country, cat.instrument)))
                             .OrderByDescending(guy => { string h = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument); double d = _tracker.DurationHereInMins(serverAddress, h); return d < 0 ? 0 : d; })
                             .ThenBy(guy => guy.name)
                             .ToList();
