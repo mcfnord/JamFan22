@@ -42,7 +42,6 @@
     @using Microsoft.AspNetCore.Http
     @using JamFan22
     @{
-        bool chatTestMode = Context.Request.Query.ContainsKey("chatTestMode");
         string ip = Context.Connection.RemoteIpAddress?.ToString();
         if (ip != null && (ip.Contains("127.0.0.1") || ip.Contains("::1")))
         {
@@ -53,10 +52,11 @@
                 if (!ip.Contains("::ffff")) ip = "::ffff:" + ip;
             }
         }
-        string persona = ip != null ? ChatPersonaManager.GetPersona(ip, chatTestMode) : null;
+        string persona = ip != null ? IdentityManager.GetPersona(ip) : null;
+        bool isChatEnabled = !System.IO.File.Exists("killchat.txt");
     }
 
-    @if (persona != null)
+    @if (persona != null && isChatEnabled)
     {
         <div id="chatPopup" style="position: fixed; bottom: 10px; right: 10px; width: calc(100% - 20px); max-width: 65px; background: white; border: 1px solid #ccc; z-index: 1000; box-shadow: 0 0 10px rgba(0,0,0,0.5); border-radius: 5px; transition: max-width 0.2s ease-in-out;">
             <div id="chatHeader" style="background: #007bff; color: white; padding: 2px 10px; cursor: pointer; border-radius: 5px 5px 0 0; font-size: 14px; line-height: 1.2; white-space: nowrap; overflow: hidden;" onclick="toggleChat()">Chat</div>
