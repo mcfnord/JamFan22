@@ -9,12 +9,20 @@ namespace JamFan22.Pages
     {
         private readonly JamulusCacheManager _cacheManager;
 
+        public bool HasResolvedPersona { get; set; }
+
         public ClientModel(JamulusCacheManager cacheManager)
         {
             _cacheManager = cacheManager;
         }
 
-        public void OnGet() { }
+        public void OnGet()
+        {
+            string ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var xff = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (xff != null) ip = xff.Split(',')[0].Trim();
+            HasResolvedPersona = IdentityManager.GetPersonaDetails(ip) != null;
+        }
 
         public string SystemStatus
         {

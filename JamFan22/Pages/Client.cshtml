@@ -138,9 +138,22 @@ body {
     </div>
 </div>
 
-<hr />
-
 <div id="split-tabs-section">
+    <div style="margin-bottom: 10px; font-family: Arial, Helvetica, sans-serif; font-size: 14px;">
+        <label style="cursor: pointer; margin-right: 15px;">
+            <input type="checkbox" id="chk-nearby-only" /> Nearby Only
+        </label>
+        <label style="cursor: pointer; margin-right: 15px;">
+            <input type="checkbox" id="chk-dark-mode" /> Dark Mode
+        </label>
+        @if (Model.HasResolvedPersona) {
+        <label style="cursor: pointer;" id="lbl-hide-24">
+            <input type="checkbox" id="chk-hide-24" />
+            <span id="text-hide-24">Hide</span>
+        </label>
+        }
+    </div>
+
     <div class="split-tab-container" style="display: flex; background-color: #eee; border-radius: 10px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
         <button type="button" id="btn-servers" style="flex: 1; padding: 15px; border: none; background: transparent; font-weight: bold; color: #444; border-right: 2px solid #ccc; outline: none; font-size: 16px; cursor: pointer; transition: background-color 0.2s;">Servers</button>
         <button type="button" id="btn-info" style="flex: 1; padding: 15px; border: none; background: transparent; font-weight: bold; color: #444; outline: none; font-size: 16px; cursor: pointer; transition: background-color 0.2s;">Info</button>
@@ -170,6 +183,70 @@ body {
     let currentData = [];
     let isAnimating = false;
     let activeHotties = []; // Added to store our hotties list
+
+    // --- NEW: 24 Hour Hide State Management (Server-Synced) ---
+    const chkHide24 = document.getElementById("chk-hide-24");
+    const txtHide24 = document.getElementById("text-hide-24");
+    let serverHideExpiry = 0; // Driven entirely by API headers
+
+    function updateHideUI() {
+        if (!chkHide24) return;
+
+        if (!serverHideExpiry) {
+            chkHide24.checked = false;
+            txtHide24.innerText = "Hide";
+            return;
+        }
+
+        let now = Date.now();
+        let diff = serverHideExpiry - now;
+
+        if (diff <= 0) {
+            chkHide24.checked = false;
+            serverHideExpiry = 0;
+            txtHide24.innerText = "Hide";
+            return;
+        }
+
+        let hours = Math.floor(diff / (1000 * 60 * 60));
+        if (hours <= 0) {
+            chkHide24.checked = false;
+            serverHideExpiry = 0;
+            txtHide24.innerText = "Hide";
+            setServerHideState(false);
+            return;
+        }
+        chkHide24.checked = true;
+        txtHide24.innerText = "Hide";
+    }
+
+    setInterval(updateHideUI, 60000);
+    updateHideUI();
+
+    if (chkHide24) {
+        chkHide24.addEventListener("change", function() {
+            let isChecked = this.checked;
+
+            // Optimistic UI update while server processes the POST
+            if (isChecked) {
+                serverHideExpiry = Date.now() + (24 * 60 * 60 * 1000);
+            } else {
+                serverHideExpiry = 0;
+            }
+
+            updateHideUI();
+            setServerHideState(isChecked);
+        });
+    }
+
+    function setServerHideState(isHidden) {
+        fetch('/api/hide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hide: isHidden })
+        }).catch(e => console.error(e));
+    }
+    // ------------------------------------------
 
     // Fetch the hotties for the current user
     async function fetchHotties() {
@@ -623,13 +700,19 @@ body {
         serverDiv.style.position = 'relative';
         serverDiv.style.transition = 'all 0.75s ease';
 
+        // Tag distant servers and store metadata
+        if (server.distanceAway >= 3000) {
+            serverDiv.classList.add('distant-server');
+        }
+        serverDiv.dataset.distance = server.distanceAway || 0;
+
         let bgColor = '';
         switch (server.zone) {
-            case 'E': bgColor = '#AFFFC6'; break;
-            case 'N': bgColor = '#C1F1FF'; break;
-            case 'A': bgColor = '#FFF0AA'; break;
-            case 'S': bgColor = '#E8D8F8'; break;
-            default: bgColor = '#D9F9F9'; break;
+            case 'E': bgColor = '#AFFFC6'; serverDiv.classList.add('zone-E'); break;
+            case 'N': bgColor = '#C1F1FF'; serverDiv.classList.add('zone-N'); break;
+            case 'A': bgColor = '#FFF0AA'; serverDiv.classList.add('zone-A'); break;
+            case 'S': bgColor = '#E8D8F8'; serverDiv.classList.add('zone-S'); break;
+            default:  bgColor = '#D9F9F9'; serverDiv.classList.add('zone-default'); break;
         }
         serverDiv.style.background = bgColor;
 
@@ -1030,6 +1113,19 @@ if (action.type === 'replace_server') {
             const el = document.getElementById(action.removeId);
             const newEl = createServerElement(action.addServer, true);
             if (el) {
+
+                // Visibility Boundary Check: if the swap crosses the Nearby Only boundary,
+                // a 3D flip will snap the layout — delegate to smooth ghost-card logic instead
+                const isNearbyOnly = document.getElementById("chk-nearby-only")?.checked;
+                const oldIsHidden = isNearbyOnly && el.classList.contains('distant-server');
+                const newIsHidden = isNearbyOnly && newEl.classList.contains('distant-server');
+
+                if (oldIsHidden !== newIsHidden) {
+                    executeAction({ type: 'remove_server', id: action.removeId }, newData);
+                    executeAction({ type: 'add_server', server: action.addServer }, newData);
+                    return;
+                }
+
                 // 1. The Wind-Up: Elevate, glow, and spin 2.25 times (810 degrees)
                 el.style.zIndex = '100'; // Bring to front so it doesn't clip neighboring cards
                 el.style.transition = 'transform 0.6s cubic-bezier(0.55, 0.085, 0.68, 0.53), filter 0.6s ease-in';
@@ -1093,7 +1189,13 @@ if (action.type === 'replace_server') {
 
                 const ghost = document.createElement('div');
                 ghost.className = 'server-card ghost-card';
-                ghost.style.visibility = 'hidden'; 
+
+                // Pass the invisible cloak to the ghost so CSS grid gap doesn't snap open for distant servers
+                if (el.classList.contains('distant-server')) {
+                    ghost.classList.add('distant-server');
+                }
+
+                ghost.style.visibility = 'hidden';
                 ghost.id = 'ghost-' + Date.now();
                 ghost.style.order = el.style.order;
                 ghost.style.minHeight = departingHeight + 'px';
@@ -1101,10 +1203,12 @@ if (action.type === 'replace_server') {
 
                 optimizeGhostPlacement(ghost, grid, newData);
 
-                // Smoothly release the held height so lines below ease upward
+                // Smoothly release the held height, padding, and border so lines below ease upward
                 setTimeout(() => {
-                    ghost.style.transition = 'min-height 0.75s ease-in-out';
+                    ghost.style.transition = 'min-height 0.75s ease-in-out, padding 0.75s ease-in-out';
                     ghost.style.minHeight = '0px';
+                    ghost.style.padding = '0px';
+                    ghost.style.border = 'none';
                 }, 100);
 
                 }, 750); 
@@ -1460,6 +1564,11 @@ if (action.type === 'replace_server') {
                 await new Promise(r => setTimeout(r, 1500 + Math.random() * 800));
             }
         }
+
+        // Clean up any unused ghost cards left behind in the DOM
+        document.querySelectorAll('.ghost-card').forEach(ghost => {
+            ghost.remove();
+        });
     }
 
     let lastFullRefresh = Date.now();
@@ -1701,8 +1810,13 @@ if (action.type === 'replace_server') {
     function updateServersList(data) {
         const container = document.getElementById("servers-table-container");
         if (!container) return;
-        
-        const sortedData = [...data].sort((a, b) => {
+
+        // Filter if Nearby Only is checked
+        const chkNearby = document.getElementById("chk-nearby-only");
+        const showNearbyOnly = chkNearby ? chkNearby.checked : false;
+        const filteredData = showNearbyOnly ? data.filter(s => s.distanceAway < 3000) : data;
+
+        const sortedData = [...filteredData].sort((a, b) => {
             const nameA = a.name ? a.name.toLowerCase() : "";
             const nameB = b.name ? b.name.toLowerCase() : "";
             return nameA.localeCompare(nameB);
@@ -1718,104 +1832,136 @@ if (action.type === 'replace_server') {
         container.innerHTML = html;
     }
 
-    async function fetchAndRender() {
-        if (isAnimating) return;
+async function fetchAndRender() {
+    if (isAnimating) return;
+    isAnimating = true; // <-- MOVE THE LOCK HERE (Before the await)
 
-        try {
-            const response = await fetch('/api' + window.location.search, { cache: 'no-store' });
+    try {
+        const response = await fetch('/api' + window.location.search, { cache: 'no-store' });
 
-            const systemStatus = response.headers.get("X-System-Status");
-            if (systemStatus !== null) {
-                const statusDiv = document.getElementById("system-status");
-                if (statusDiv) {
-                    if (systemStatus.trim() === "" || systemStatus.trim() === "OK") {
-                        // Slide and fade out
-                        statusDiv.classList.add("hidden");
-                        // Clear the content after the animation completes
-                        setTimeout(() => { if (statusDiv.classList.contains("hidden")) statusDiv.innerHTML = ""; }, 500);
-                    } else {
-                        // Update content and slide/fade in
-                        statusDiv.innerHTML = systemStatus;
-                        statusDiv.classList.remove("hidden");
-                    }
+        const systemStatus = response.headers.get("X-System-Status");
+        if (systemStatus !== null) {
+            const statusDiv = document.getElementById("system-status");
+            if (statusDiv) {
+                if (systemStatus.trim() === "" || systemStatus.trim() === "OK") {
+                    statusDiv.classList.add("hidden");
+                    setTimeout(() => { if (statusDiv.classList.contains("hidden")) statusDiv.innerHTML = ""; }, 500);
+                } else {
+                    statusDiv.innerHTML = systemStatus;
+                    statusDiv.classList.remove("hidden");
                 }
             }
+        }
 
-            const headerHash = response.headers.get("X-IP-Derived-Hash");
-            if (headerHash) {
-                ipDerivedLoginHash = headerHash;
-            }
+        const headerHash = response.headers.get("X-IP-Derived-Hash");
+        if (headerHash) {
+            ipDerivedLoginHash = headerHash;
+        }
 
-            let data = await response.json();
-            
-            if (Array.isArray(data)) {
-                data.forEach(server => {
-                    if (server.clients) {
-                        server.clients = server.clients.filter(client => {
-                            if (!client.name || !client.instrument) return true;
-                            if (client.name.toLowerCase().includes('obby') && client.instrument === 'Streamer') {
-                                return false;
-                            }
-                            return true;
-                        });
+        const expiryHeader = response.headers.get("X-Hide-Expiry");
+        if (expiryHeader) {
+            serverHideExpiry = parseInt(expiryHeader, 10);
+            updateHideUI();
+        }
+
+        let data = await response.json();
+        
+        if (Array.isArray(data)) {
+            data.forEach(server => {
+                if (server.clients) {
+                    server.clients = server.clients.filter(client => {
+                        if (!client.name || !client.instrument) return true;
+                        if (client.name.toLowerCase().includes('obby') && client.instrument === 'Streamer') {
+                            return false;
+                        }
+                        return true;
+                    });
+                }
+            });
+        }
+
+        const now = Date.now();
+        if (currentData.length === 0 || now - lastFullRefresh > 1560000) {
+            const grid = document.getElementById('client-grid');
+            grid.innerHTML = '';
+            data.forEach(server => {
+                grid.appendChild(createServerElement(server));
+            });
+            currentData = data;
+            lastFullRefresh = now;
+        } else {
+            // isAnimating is already true, just process the diff
+            await processDiff(currentData, data);
+            currentData = data;
+
+            // Clean up ghosts and re-index surviving elements to match the exact API state
+            const activeServerElements = document.querySelectorAll('.server-card');
+            activeServerElements.forEach(serverEl => {
+                const clientsDiv = serverEl.querySelector('.server-clients');
+                if (!clientsDiv) return;
+
+                const domNodes = Array.from(clientsDiv.querySelectorAll('.musician-container'))
+                                              .filter(el => el.style.maxHeight !== '0px');
+
+                const counts = {};
+                domNodes.forEach(el => {
+                    const baseId = el.id.substring(0, el.id.lastIndexOf('-'));
+                    counts[baseId] = (counts[baseId] || 0);
+                    
+                    const correctId = baseId + '-' + counts[baseId]++;
+                    if (el.id !== correctId) {
+                        el.id = correctId;  
                     }
                 });
-            }
-
-            const now = Date.now();
-            if (currentData.length === 0 || now - lastFullRefresh > 1560000) {
-                const grid = document.getElementById('client-grid');
-                grid.innerHTML = '';
-                data.forEach(server => {
-                    grid.appendChild(createServerElement(server));
-                });
-                currentData = data;
-                lastFullRefresh = now;
-            } else {
-                isAnimating = true;
-                await processDiff(currentData, data);
-                currentData = data;
-                isAnimating = false;
-// Clean up ghosts and re-index surviving elements to match the exact API state
-const activeServerElements = document.querySelectorAll('.server-card');
-activeServerElements.forEach(serverEl => {
-    const clientsDiv = serverEl.querySelector('.server-clients');
-    if (!clientsDiv) return;
-
-    // Filter out items actively animating out
-    const domNodes = Array.from(clientsDiv.querySelectorAll('.musician-container'))
-                          .filter(el => el.style.maxHeight !== '0px');
-
-    const counts = {};
-    domNodes.forEach(el => {
-        // Extract the base string from the ID (remove the -0, -1 suffix)
-        const baseId = el.id.substring(0, el.id.lastIndexOf('-'));
-        counts[baseId] = (counts[baseId] || 0);
-        
-        // Force the ID suffix to mathematically match the current physical DOM count
-        const correctId = baseId + '-' + counts[baseId]++;
-        if (el.id !== correctId) {
-            el.id = correctId; // Silently re-sync the DOM identifier 
+            });                
         }
-    });
-});                
-            }
 
-            refreshHighlights();
-            runDOMDiagnostics(data);
-            preventLineWrap(); // Ensure no names are wrapped to two lines
-            updateServersList(data); // Populate the Servers tab
+        refreshHighlights();
+        runDOMDiagnostics(data);
+        preventLineWrap(); 
+        updateServersList(data); 
 
-        } catch(e) {
-            console.error("Failed to fetch API:", e);
-            isAnimating = false;
-        }
+    } catch(e) {
+        console.error("Failed to fetch API:", e);
+    } finally {
+        isAnimating = false; // <-- GUARANTEE THE RELEASE HERE
     }
+}
 
     fetchAndRender();
     setInterval(fetchAndRender, 20000);
 
     document.addEventListener("DOMContentLoaded", function () {
+        // --- Dark Mode & Nearby Only State Management ---
+        const chkDarkMode = document.getElementById("chk-dark-mode");
+        const chkNearbyOnly = document.getElementById("chk-nearby-only");
+        const clientGrid = document.getElementById("client-grid");
+
+        const isDarkMode = localStorage.getItem("darkMode") === "true";
+        const isNearbyOnly = localStorage.getItem("nearbyOnly") === "true";
+
+        if (chkDarkMode) chkDarkMode.checked = isDarkMode;
+        if (chkNearbyOnly) chkNearbyOnly.checked = isNearbyOnly;
+
+        if (isDarkMode) document.body.classList.add("dark-mode");
+        if (isNearbyOnly && clientGrid) clientGrid.classList.add("nearby-only-active");
+
+        if (chkDarkMode) {
+            chkDarkMode.addEventListener("change", function() {
+                localStorage.setItem("darkMode", this.checked);
+                document.body.classList.toggle("dark-mode", this.checked);
+            });
+        }
+
+        if (chkNearbyOnly) {
+            chkNearbyOnly.addEventListener("change", function() {
+                localStorage.setItem("nearbyOnly", this.checked);
+                if (clientGrid) clientGrid.classList.toggle("nearby-only-active", this.checked);
+                if (currentData.length > 0) updateServersList(currentData);
+            });
+        }
+        // --- END Dark Mode & Nearby Only ---
+
         // Default logic for any remaining standard collapsibles (like Nearby Musicians)
         var coll = document.getElementsByClassName("collapsible");
         for (var i = 0; i < coll.length; i++) {
