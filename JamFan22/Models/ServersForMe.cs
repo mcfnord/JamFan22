@@ -2,7 +2,7 @@ namespace JamFan22.Models
 {
     public class ServersForMe
     {
-        public ServersForMe(string cat, string ip, long port, string na, string ci, string cou, int distance, char earthZone, string w, Client[] originallyWho, int peoplenow, int maxpeople)
+        public ServersForMe(string cat, string ip, long port, string na, string ci, string cou, int distance, int trueDist, char earthZone, string w, Client[] originallyWho, int peoplenow, int maxpeople)
         {
             category = cat;
             serverIpAddress = ip;
@@ -11,6 +11,7 @@ namespace JamFan22.Models
             city = ci;
             country = cou;
             distanceAway = distance;
+            trueDistance = trueDist;
             zone = earthZone;
             who = w;
             whoObjectFromSourceData = originallyWho;
@@ -24,6 +25,7 @@ namespace JamFan22.Models
         public string city { get; set; }
         public string country { get; set; }
         public int distanceAway { get; set; }
+        public int trueDistance { get; set; }
         public char zone { get; set; }
         public string who { get; set; }
         public Client[] whoObjectFromSourceData { get; set; } 
