@@ -49,6 +49,8 @@ namespace JamFan22.Services
         // ── Lounge / listen-link state (static, shared) ───────────────────────
 
         public static Dictionary<string, string> m_connectedLounges   = new Dictionary<string, string>();
+        private static DateTime _loungesCacheExpiry = DateTime.MinValue;
+        private static readonly SemaphoreSlim _loungeLock = new SemaphoreSlim(1, 1);
         public static List<string>               m_listenLinkDeployment = new List<string>();
         public static int                        m_snippetsDeployed    = 0;
 
@@ -128,40 +130,44 @@ namespace JamFan22.Services
 
         // ── Duration display ──────────────────────────────────────────────────
 
-        public string DurationHere(string server, string who, string nationCode)
+public string DurationHere(string server, string who, string nationCode)
+{
+    Debug.Assert(who.Length == "b707dc8fc6516826fbe9b4aa84d1553a".Length);
+    string hash = who + server;
+    if (!EncounterTracker.m_connectionFirstSighting.ContainsKey(hash)) return "";
+
+    string show = "";
+    while (true)
+    {
+        TimeSpan ts = DateTime.Now.Subtract(EncounterTracker.m_connectionFirstSighting[hash]);
+
+        if (ts.TotalMinutes > 99) break;
+
+        if (ts.TotalMinutes > 5)
         {
-            Debug.Assert(who.Length == "b707dc8fc6516826fbe9b4aa84d1553a".Length);
-            string hash = who + server;
-            if (!EncounterTracker.m_connectionFirstSighting.ContainsKey(hash)) return "";
-
-            string show = "";
-            while (true)
-            {
-                TimeSpan ts = DateTime.Now.Subtract(EncounterTracker.m_connectionFirstSighting[hash]);
-
-                if (ts.TotalMinutes > 99) break;
-
-                if (ts.TotalMinutes > 5)
-                {
-                    int tot = (int)ts.TotalMinutes;
-                    show = "<div style='text-align: right; font-size: 0.8em;'>(" + tot + "m)</div>";
-                    break;
-                }
-
-                if (ts.TotalMinutes > 1)
-                {
-                    string phrase = LocalizedText(nationCode, "just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade&nbsp;angekommen", "appena&nbsp;arrivato");
-                    show = "<b><div style='text-align: right; font-size: 0.8em;'>(" + phrase + ")</div></b>";
-                }
-                else
-                {
-                    show = "<div style='text-align: right; font-size: 0.8em;'>(" + (int)ts.TotalMinutes + "m)</div>";
-                }
-                break;
-            }
-
-            return " <font size='-1'><i>" + show + "</i></font>";
+            int tot = (int)ts.TotalMinutes;
+            show = "<div style='text-align: right; font-size: 0.8em;'>(" + tot + "m)</div>";
+            break;
         }
+
+        if (ts.TotalMinutes > 1)
+        {
+            string phrase = LocalizedText(nationCode, "just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade&nbsp;angekommen", "appena&nbsp;arrivato");
+            show = "<b><div style='text-align: right; font-size: 0.8em;'>(" + phrase + ")</div></b>";
+        }
+        else
+        {
+            show = "<div style='text-align: right; font-size: 0.8em;'>(" + (int)ts.TotalMinutes + "m)</div>";
+        }
+        break;
+    }
+
+    // NEW: Return empty string if there's nothing to show
+    if (string.IsNullOrEmpty(show)) return "";
+
+    return " <font size='-1'><i>" + show + "</i></font>";
+}
+
 
         // ── Listen-link helpers ───────────────────────────────────────────────
 
@@ -174,25 +180,51 @@ namespace JamFan22.Services
 
         public async Task LoadConnectedLoungesAsync()
         {
+            if (DateTime.UtcNow < _loungesCacheExpiry && m_connectedLounges.Count > 0)
+                return;
+
+            await _loungeLock.WaitAsync();
             try
             {
-                using var client = new HttpClient();
-                var response = await client.GetAsync("https://jamulus.live/lounges.json");
-                response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                var data = JsonSerializer.Deserialize<Dictionary<string, string>>(responseBody);
-                foreach (var kvp in data)
-                    m_connectedLounges[kvp.Value] = kvp.Key;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to load lounges.json: {ex.Message}");
-            }
+                if (DateTime.UtcNow < _loungesCacheExpiry && m_connectedLounges.Count > 0)
+                    return;
 
-            m_connectedLounges["https://lobby.jam.voixtel.net.br/"] = "179.228.137.154:22124";
-            m_connectedLounges["http://1.onj.me:32123/"]            = "139.162.251.38:22124";
-            m_connectedLounges["http://3.onj.me:8000/jamulus4"]     = "69.164.213.250:22124";
-            m_connectedLounges["https://StudioD.live"]               = "\t24.199.127.71:22224";
+                var freshLounges = new Dictionary<string, string>();
+
+                // mjth.live format: { "IP:PORT": "https://..." }
+                try
+                {
+                    using var client = new HttpClient();
+                    var response = await client.GetAsync("https://mjth.live/lounges.json");
+                    response.EnsureSuccessStatusCode();
+                    string body = await response.Content.ReadAsStringAsync();
+                    var data = JsonSerializer.Deserialize<Dictionary<string, string>>(body);
+                    if (data != null)
+                    {
+                        foreach (var kvp in data)
+                            freshLounges[kvp.Value] = kvp.Key; // swap: URL → IP:PORT
+                    }
+                    Console.WriteLine($"[LoadConnectedLoungesAsync] Loaded {data?.Count ?? 0} entries from mjth.live/lounges.json");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to load mjth.live/lounges.json: {ex.Message}");
+                }
+
+                // Hard-coded fallbacks (only added if the remote source didn't already supply them)
+                freshLounges.TryAdd("https://lobby.jam.voixtel.net.br/", "179.228.137.154:22124");
+                freshLounges.TryAdd("http://1.onj.me:32123/",            "139.162.251.38:22124");
+                freshLounges.TryAdd("http://3.onj.me:8000/jamulus4",     "69.164.213.250:22124");
+                freshLounges.TryAdd("https://StudioD.live",               "24.199.127.71:22224");
+
+                m_connectedLounges = freshLounges;
+                _loungesCacheExpiry = DateTime.UtcNow.AddHours(24);
+                Console.WriteLine($"[LoadConnectedLoungesAsync] Cached {m_connectedLounges.Count} total lounge mappings for 24 hours.");
+            }
+            finally
+            {
+                _loungeLock.Release();
+            }
         }
 
         public async Task<string> GetListenHtmlAsync(ServersForMe s)
@@ -246,12 +278,14 @@ namespace JamFan22.Services
                     if (latAmOverrides.Contains(serverCountry, StringComparer.OrdinalIgnoreCase))
                         zone = 'S';
 
+                    int trueDist = dist;
+
                     dist = CalculateBoostedDistance(server, dist, clientResult.FirstUserHash);
                     if (dist < 250) dist = 250;
 
                     m_allMyServers.Add(new ServersForMe(
                         key, server.ip, server.port, server.name, server.city, serverCountry,
-                        dist, zone, clientResult.WhoHtml, server.clients, people, (int)server.maxclients
+                        dist, trueDist, zone, clientResult.WhoHtml, server.clients, people, (int)server.maxclients
                     ));
                     totalAdded++;
                 }
@@ -392,28 +426,58 @@ namespace JamFan22.Services
             m_snippetsDeployed = 0;
         }
 
-        static Dictionary<string, List<string>> m_predicted = new Dictionary<string, List<string>>();
-        static int m_lastMinSampledPredictions = -1;
-
-        public Dictionary<string, List<string>> Predicted => m_predicted;
-
-        public async Task UpdatePredictionsIfNeededAsync()
+        public class Prediction
         {
-            if (m_lastMinSampledPredictions == DateTime.Now.Minute) return;
-            if ((DateTime.Now.Minute % 5) == 4)
+            public DateTime ArrivalTime { get; set; }
+            public string Guid { get; set; }
+            public string Name { get; set; }
+            public string Server { get; set; }
+        }
+
+        private static List<Prediction> _cachedPredictions = new List<Prediction>();
+        private static DateTime _predictionsCacheTime = DateTime.MinValue;
+        private static readonly SemaphoreSlim _predLock = new SemaphoreSlim(1, 1);
+
+        public async Task<List<Prediction>> GetActivePredictionsAsync()
+        {
+            if (DateTime.UtcNow < _predictionsCacheTime.AddSeconds(30)) return _cachedPredictions;
+
+            await _predLock.WaitAsync();
+            try
             {
-                m_lastMinSampledPredictions = DateTime.Now.Minute;
-                try
+                if (DateTime.UtcNow < _predictionsCacheTime.AddSeconds(30)) return _cachedPredictions;
+
+                var preds = new List<Prediction>();
+                if (File.Exists("predicted.csv"))
                 {
-                    using var http = new HttpClient();
-                    string json = await http.GetStringAsync("https://jamulus.live/soon.json");
+                    var epoch = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    var lines = await File.ReadAllLinesAsync("predicted.csv");
+                    foreach (var line in lines)
+                    {
+                        var fields = line.Split(',');
+                        // Field 0: Mins, Field 1: Guid, Field 2: Name, Field 3: ServerName
+                        if (fields.Length > 3 && long.TryParse(fields[0].Trim(), out long mins))
+                        {
+                            preds.Add(new Prediction
+                            {
+                                ArrivalTime = epoch.AddMinutes(mins),
+                                Guid = fields[1].Trim(),
+                                Name = System.Net.WebUtility.UrlDecode(fields[2].Trim()),
+                                Server = System.Net.WebUtility.UrlDecode(fields[3].Trim())
+                            });
+                        }
+                    }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to update predictions: {ex.Message}");
-                    m_lastMinSampledPredictions = -1;
-                }
+                _cachedPredictions = preds;
+                _predictionsCacheTime = DateTime.UtcNow;
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetActivePredictionsAsync] Error reading predicted.csv: {ex.Message}");
+            }
+            finally { _predLock.Release(); }
+
+            return _cachedPredictions;
         }
 
         // ── Preloaded data cache ──────────────────────────────────────────────
