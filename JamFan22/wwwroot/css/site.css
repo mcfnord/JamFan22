@@ -230,6 +230,6 @@ body.dark-mode a {
 /* ========================================= */
 /* NEARBY ONLY LOGIC                         */
 /* ========================================= */
-#client-grid.nearby-only-active .distant-server {
+#client-grid.nearby-only-active .distant-server:not(.my-active-server) {
     display: none !important;
 }

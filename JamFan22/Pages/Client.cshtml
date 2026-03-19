@@ -18,6 +18,12 @@
         /* Added a subtle white glow directly under the line for an etched/3D effect */
         box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4); 
     }
+    .musician {
+        display: inline-block;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
     .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -918,6 +924,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 t2.remove();
 
                 spacer.remove();
+                ghost.style.minHeight = startHeight + 'px';
                 bestSwap.style.position = '';
                 bestSwap.style.margin = '';
                 bestSwap.style.top = '';
@@ -1088,6 +1095,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 t2.remove();
 
                 spacer.remove();
+                firstGhost.style.minHeight = startHeight + 'px';
                 bestSwap.style.position = '';
                 bestSwap.style.margin = '';
                 bestSwap.style.top = '';
@@ -1204,12 +1212,13 @@ if (action.type === 'replace_server') {
                 optimizeGhostPlacement(ghost, grid, newData);
 
                 // Smoothly release the held height, padding, and border so lines below ease upward
-                setTimeout(() => {
+                /* setTimeout(() => {
                     ghost.style.transition = 'min-height 0.75s ease-in-out, padding 0.75s ease-in-out';
                     ghost.style.minHeight = '0px';
                     ghost.style.padding = '0px';
                     ghost.style.border = 'none';
                 }, 100);
+                */
 
                 }, 750); 
             }
@@ -1566,9 +1575,11 @@ if (action.type === 'replace_server') {
         }
 
         // Clean up any unused ghost cards left behind in the DOM
+        /*
         document.querySelectorAll('.ghost-card').forEach(ghost => {
             ghost.remove();
         });
+        */
     }
 
     let lastFullRefresh = Date.now();
@@ -1677,6 +1688,7 @@ if (action.type === 'replace_server') {
         const allCards = document.getElementsByClassName("server-card");
         for(let i=0; i<allCards.length; i++) {
             allCards[i].style.border = "";
+            allCards[i].classList.remove("my-active-server"); // <-- ADD THIS
             // REMOVED: allCards[i].style.order = ""; <-- By not resetting this, it stays at -1!
         }
 
@@ -1690,6 +1702,7 @@ if (action.type === 'replace_server') {
                     if (serverCard) {
                         serverCard.style.border = "thick solid SteelBlue";
                         serverCard.style.order = String(orderVal);
+                        serverCard.classList.add("my-active-server"); // <-- ADD THIS
                         orderVal--;
                     }
                 }
@@ -1718,18 +1731,16 @@ if (action.type === 'replace_server') {
     
     function preventLineWrap() {
         const musicians = document.querySelectorAll('span.musician');
-        
+
         musicians.forEach(span => {
-            // Force inline-block so offsetHeight accurately reflects wrapped text lines
-            span.style.display = 'inline-block';
-            
-            // Reset to 1em to recalculate properly (especially needed on window resize)
+            // Reset to 1em to recalculate properly
             let currentSize = 1.0;
             span.style.fontSize = currentSize + 'em';
-            
-            // A single line is typically ~20-25px tall. If it wraps, it jumps > 35px.
-            // We shrink by 5% increments until it fits or hits our readability floor (0.65em).
-            while (span.offsetHeight > 30 && currentSize > 0.65) {
+
+            const parentWidth = span.parentElement.clientWidth;
+
+            // Check horizontal overflow instead of vertical height
+            while (span.scrollWidth > parentWidth && currentSize > 0.65) {
                 currentSize -= 0.05;
                 span.style.fontSize = currentSize + 'em';
             }
@@ -1832,6 +1843,22 @@ if (action.type === 'replace_server') {
         container.innerHTML = html;
     }
 
+function purgeTrailingGhosts() {
+    const grid = document.getElementById('client-grid');
+    if (!grid) return;
+    
+    const children = Array.from(grid.children);
+    // Walk backward from the end of the grid
+    for (let i = children.length - 1; i >= 0; i--) {
+        if (children[i].classList.contains('ghost-card')) {
+            children[i].remove();
+        } else {
+            // As soon as we hit a real, visible server card, stop purging
+            break; 
+        }
+    }
+}    
+
 async function fetchAndRender() {
     if (isAnimating) return;
     isAnimating = true; // <-- MOVE THE LOCK HERE (Before the await)
@@ -1920,6 +1947,7 @@ async function fetchAndRender() {
         runDOMDiagnostics(data);
         preventLineWrap(); 
         updateServersList(data); 
+        purgeTrailingGhosts(); // Ensure any leftover ghosts at the end of the grid are removed after updates
 
     } catch(e) {
         console.error("Failed to fetch API:", e);
