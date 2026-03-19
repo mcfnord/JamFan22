@@ -11,6 +11,8 @@ namespace JamFan22
         private static readonly List<ChatMessage> _history = new List<ChatMessage>();
         private static readonly object _historyLock = new object();
 
+        public static bool IsFeatureEnabled => !System.IO.File.Exists("killchat.txt");
+
         public class ChatMessage
         {
             public DateTime Timestamp { get; set; }
@@ -22,7 +24,7 @@ namespace JamFan22
         {
             var httpContext = Context.GetHttpContext();
             ip = httpContext?.Connection.RemoteIpAddress?.ToString();
-            
+
             if (ip != null && (ip.Contains("127.0.0.1") || ip.Contains("::1")))
             {
                 var xff = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
@@ -33,22 +35,12 @@ namespace JamFan22
                 }
             }
 
-            bool chatTestMode = false;
-            if (httpContext != null && httpContext.Request.Query.TryGetValue("chatTestMode", out var testModeValues))
-            {
-                 chatTestMode = testModeValues.Count > 0 && testModeValues.First() == "true";
-            }
-            if (httpContext != null && httpContext.Request.Query.ContainsKey("chatTestMode"))
-            {
-                chatTestMode = true;
-            }
-
-            return ChatPersonaManager.GetPersonaDetails(ip, chatTestMode);
+            return IdentityManager.GetPersonaDetails(ip);
         }
 
         public IEnumerable<ChatMessage> GetHistory()
         {
-            if (!ChatPersonaManager.IsFeatureEnabled) return Enumerable.Empty<ChatMessage>();
+            if (!IsFeatureEnabled) return Enumerable.Empty<ChatMessage>();
 
             var details = GetCallerPersona(out _);
             if (details == null) return Enumerable.Empty<ChatMessage>();
@@ -61,7 +53,7 @@ namespace JamFan22
 
         public async Task SendMessage(string user, string message)
         {
-            if (!ChatPersonaManager.IsFeatureEnabled) return;
+            if (!IsFeatureEnabled) return;
 
             var details = GetCallerPersona(out string ip);
             if (details == null)

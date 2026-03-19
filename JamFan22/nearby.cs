@@ -155,10 +155,13 @@ namespace JamFan22
 private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
         {
             // Get all data (from cache or file)
-            var rawLiveGuids = await GetLiveGuidsFromApiAsync(); 
-            var lastSeenMap = await GetLastSeenMap(); 
-            var accruedTimeMap = await GetAccruedTimeMap(); 
+            var rawLiveGuids = await GetLiveGuidsFromApiAsync();
+            rawLiveGuids.RemoveWhere(g => HiddenPersonaManager.IsHidden(g));
+
+            var lastSeenMap = await GetLastSeenMap();
+            var accruedTimeMap = await GetAccruedTimeMap();
             var predictedUsers = GetPredictedUsers();
+            predictedUsers.RemoveAll(p => HiddenPersonaManager.IsHidden(p.Guid));
 
             // --- 1. NEW: DETAILED PREDICTION DIAGNOSTICS ---
             // We fetch the CSV data early here to inspect the predicted users
