@@ -110,10 +110,8 @@ namespace JamFan22.Pages
                     {
                         try
                         {
-                            string url      = $"http://ip-api.com/json/{ipAddress}";
-                            string response = await httpClient.GetStringAsync(url);
-                            var json        = Newtonsoft.Json.Linq.JObject.Parse(response);
-                            string code     = (string)json["countryCode"];
+                            var json   = await Services.IpAnalyticsService.FetchIpApiAsync(ipAddress);
+                            string code = (string)json?["countryCode"];
 
                             if (!string.IsNullOrEmpty(code))
                             {

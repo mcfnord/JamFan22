@@ -15,40 +15,79 @@ namespace JamFan22.Services
 
         private static readonly HttpClient httpClient = new HttpClient();
 
-        // ── Rate-limit back-off ───────────────────────────────────────────────
+        // ── Unified ip-api.com gate (shared by all callers) ──────────────────
 
-        private static DateTime _backoffUntil   = DateTime.MinValue;
-        private static int      _currentBackoffMs = 1000;
-        private static readonly object _backoffLock = new object();
+        // ── Swap this one line to redirect all geolocation traffic to a new provider ──
+        private static string _geoEndpoint = "http://ip-api.com/json/";
 
-        public static async Task<string> FetchWithBackoffAsync(HttpClient client, string url, CancellationToken cancellationToken = default)
+        private static readonly object _ipApiLock = new object();
+        private static DateTime _ipApiNextAllowed = DateTime.MinValue;
+        private static int _ipApiBackoffSeconds = 1;
+        private static readonly ConcurrentDictionary<string, (JObject Json, DateTime Expiry)> _ipApiCache
+            = new ConcurrentDictionary<string, (JObject, DateTime)>();
+
+        /// <summary>
+        /// Single shared gate for all ip-api.com lookups. Returns null if throttled or on error.
+        /// Results are cached for 48 hours — callers never need their own ip-api caches.
+        /// </summary>
+        public static async Task<JObject> FetchIpApiAsync(string ip, CancellationToken ct = default)
         {
-            lock (_backoffLock)
+            ip = ip.Replace("::ffff:", "");
+
+            if (_ipApiCache.TryGetValue(ip, out var cached) && DateTime.UtcNow < cached.Expiry)
+                return cached.Json;
+
+            lock (_ipApiLock)
             {
-                if (DateTime.Now < _backoffUntil)
-                    throw new Exception($"Rate limit active. Fast-failing request to {url} until {_backoffUntil}.");
+                if (DateTime.UtcNow < _ipApiNextAllowed)
+                {
+                    Console.WriteLine($"[ip-api] THROTTLED: {ip}, retry after {(_ipApiNextAllowed - DateTime.UtcNow).TotalSeconds:F0}s");
+                    return null;
+                }
+                _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds);
             }
 
-            HttpResponseMessage response;
             try
             {
-                response = await client.GetAsync(url, cancellationToken);
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-            {
-                lock (_backoffLock) { _backoffUntil = DateTime.Now.AddMilliseconds(_currentBackoffMs); _currentBackoffMs *= 2; }
-                throw new Exception($"429 Too Many Requests exception for {url}. Backing off.", ex);
-            }
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                linked.CancelAfter(TimeSpan.FromSeconds(3));
 
-            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-            {
-                lock (_backoffLock) { _backoffUntil = DateTime.Now.AddMilliseconds(_currentBackoffMs); _currentBackoffMs *= 2; }
-                throw new Exception($"429 Too Many Requests for {url}. Backing off.");
-            }
+                var response = await httpClient.GetAsync($"{_geoEndpoint}{ip}", linked.Token);
 
-            response.EnsureSuccessStatusCode();
-            lock (_backoffLock) { _currentBackoffMs = 1000; }
-            return await response.Content.ReadAsStringAsync(cancellationToken);
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
+                    Console.WriteLine($"[ip-api] 429 for {ip}, backoff now {_ipApiBackoffSeconds}s");
+                    return null;
+                }
+
+                response.EnsureSuccessStatusCode();
+                string body = await response.Content.ReadAsStringAsync(ct);
+                var json = JObject.Parse(body);
+
+                if (json["status"]?.ToString() != "success")
+                {
+                    lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
+                    Console.WriteLine($"[ip-api] non-success for {ip}: {json["message"]}, backoff now {_ipApiBackoffSeconds}s");
+                    return null;
+                }
+
+                lock (_ipApiLock) { _ipApiBackoffSeconds = 1; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(1); }
+                _ipApiCache[ip] = (json, DateTime.UtcNow.AddHours(48));
+                Console.WriteLine($"[ip-api] success for {ip}: {json["city"]}, {json["countryCode"]}");
+                return json;
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine($"[ip-api] timeout for {ip}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
+                Console.WriteLine($"[ip-api] error for {ip}: {ex.Message}, backoff now {_ipApiBackoffSeconds}s");
+                return null;
+            }
         }
 
         // ── Country code cache (shared with ApiModel) ─────────────────────────
@@ -58,10 +97,7 @@ namespace JamFan22.Services
         public static ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache
             = new ConcurrentDictionary<string, (string, DateTime)>();
 
-        // ── IP-API caches ─────────────────────────────────────────────────────
-
-        public static Dictionary<string, JObject> m_ipapiOutputs = new Dictionary<string, JObject>();
-        static int m_hourLastFlushed = -1;
+        // ── ASN cache ─────────────────────────────────────────────────────────
 
         public static Dictionary<string, DateTime> m_ArnOfIpGoodUntil = new Dictionary<string, DateTime>();
         public static Dictionary<string, string>   m_ArnOfIp          = new Dictionary<string, string>();
@@ -69,57 +105,20 @@ namespace JamFan22.Services
         // ── IP detail lookup ──────────────────────────────────────────────────
 
         public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
-        {
-            if (DateTime.Now.Hour != m_hourLastFlushed)
-            {
-                m_ipapiOutputs.Clear();
-                m_hourLastFlushed = DateTime.Now.Hour;
-            }
-
-            if (m_ipapiOutputs.ContainsKey(clientIP))
-                return m_ipapiOutputs[clientIP];
-
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-                Console.WriteLine("1 Requesting: http://ip-api.com/json/" + clientIP);
-                string st = await FetchWithBackoffAsync(httpClient, "http://ip-api.com/json/" + clientIP, cts.Token);
-                JObject json = JObject.Parse(st);
-                m_ipapiOutputs[clientIP] = json;
-                return json;
-            }
-            catch (OperationCanceledException)
-            {
-                Console.WriteLine($"ip-api.com lookup TIMED OUT for {clientIP}.");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"ip-api.com lookup FAILED for {clientIP}: {ex.Message}");
-                return null;
-            }
-        }
+            => await FetchIpApiAsync(clientIP);
 
         public static async Task<string> AsnOfThisIpAsync(string ip)
         {
         RE_SAMPLE:
             if (!m_ArnOfIpGoodUntil.ContainsKey(ip))
             {
-                Console.WriteLine("2 Requesting: http://ip-api.com/json/" + ip);
-                string endpoint = "http://ip-api.com/json/" + ip;
-                using var client = new HttpClient();
-
-                string st;
-                try { st = await FetchWithBackoffAsync(client, endpoint); }
-                catch (Exception ex)
+                var jsonGeo = await FetchIpApiAsync(ip);
+                if (jsonGeo == null)
                 {
-                    Console.WriteLine($"ip-api.com ASN lookup failed for {ip}: {ex.Message}");
                     m_ArnOfIp[ip] = null;
                     m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(5);
                     return null;
                 }
-
-                JObject jsonGeo = JObject.Parse(st);
                 var rnd = new Random();
                 m_ArnOfIp[ip] = jsonGeo["as"]?.ToString();
                 m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(rnd.Next(60 * 22, 60 * 26));
@@ -185,23 +184,8 @@ namespace JamFan22.Services
 
             if (evenSmarterCity == "AWS" || evenSmarterCity == "Linode Cloud")
             {
-                if (!m_ipapiOutputs.ContainsKey(ipAddress))
-                {
-                    try
-                    {
-                        var client = new HttpClient();
-                        Console.WriteLine("3 Requesting: http://ip-api.com/json/" + ipAddress);
-                        string st = await FetchWithBackoffAsync(client, "http://ip-api.com/json/" + ipAddress);
-                        m_ipapiOutputs[ipAddress] = JObject.Parse(st);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"ip-api.com failed: {ex.Message}");
-                        return evenSmarterCity;
-                    }
-                }
-
-                if (m_ipapiOutputs.TryGetValue(ipAddress, out JObject json) && json["city"] != null)
+                var json = await FetchIpApiAsync(ipAddress);
+                if (json?["city"] != null)
                     return json["city"].ToString();
             }
 

@@ -127,49 +127,6 @@ app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext cont
             JamulusCacheManager.JamulusListURLs,
             JamulusCacheManager.LastReportedList);
 
-        if (result && guid != "No Name")
-        {
-            foreach (var key in JamulusCacheManager.JamulusListURLs.Keys)
-            {
-                var serversOnList = System.Text.Json.JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(JamulusCacheManager.LastReportedList[key]);
-                foreach (var server in serversOnList)
-                {
-                    if (server.clients == null) continue;
-                    foreach (var guy in server.clients)
-                    {
-                        string stringHashOfGuy = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument);
-                        if (guid == stringHashOfGuy && guy.city != "" && guy.country != "")
-                        {
-                            var geoService = context.RequestServices.GetRequiredService<JamFan22.Services.GeolocationService>();
-                            var (success, lat, lon) = await geoService.CallOpenCageCachedAsync(guy.city + ", " + guy.country);
-
-                            if (success)
-                            {
-                                string ipaddr = context.Request.HttpContext.Connection.RemoteIpAddress.ToString();
-                                if (ipaddr.Contains("127.0.0.1") || ipaddr.Contains("::1"))
-                                {
-                                    ipaddr = context.Request.HttpContext.Request.Headers["X-Forwarded-For"];
-                                    if (ipaddr != null && !ipaddr.Contains("::ffff"))
-                                        ipaddr = "::ffff:" + ipaddr;
-                                    Console.WriteLine("Due to localhost IP, switched to XFF IP: " + ipaddr);
-                                }
-
-                                if (ipaddr != null)
-                                {
-                                    JamFan22.Services.GeolocationService.m_ipAddrToLatLong[ipaddr] = new JamFan22.Models.LatLong(lat, lon);
-                                    Console.Write("From " + ipaddr + " ");
-                                    Console.Write(result + " / ");
-                                    Console.Write(guy.city + ", " + guy.country + " ");
-                                    Console.WriteLine(lat + ", " + lon);
-                                }
-                                else { Console.WriteLine("no ipaddr. could be bug."); }
-                            }
-                            else { Console.WriteLine("Failed to map " + guy.city + ", " + guy.country + " to a lat-long."); }
-                        }
-                    }
-                }
-            }
-        }
 
         if (EncounterTracker.m_timeTogether != null)
         {

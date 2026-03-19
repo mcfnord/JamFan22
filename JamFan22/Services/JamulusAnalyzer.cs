@@ -39,7 +39,6 @@ namespace JamFan22.Services
 
         // ── Shared HTTP client ────────────────────────────────────────────────
 
-        public static readonly HttpClient httpClient = new HttpClient();
 
         // ── Server/snapshot lists (re-initialized per request) ────────────────
 
@@ -377,7 +376,7 @@ public string DurationHere(string server, string who, string nationCode)
             LatLong location = await _geoService.PlaceToLatLonAsync(place.ToUpper(), usersPlace.ToUpper(), serverIp);
             int dist = 0; char zone = ' ';
 
-            if (location != null && (location.lat.Length > 1 || location.lon.Length > 1))
+            if (location != null)
             {
                 dist = await _geoService.DistanceFromClientAsync(location.lat, location.lon);
                 zone = _geoService.ContinentOfLatLong(location.lat, location.lon);
@@ -620,9 +619,7 @@ public string DurationHere(string server, string who, string nationCode)
             public string countryCode2;
         }
 
-        static Dictionary<string, MyUserGeoCandy> userIpCachedItems = new Dictionary<string, MyUserGeoCandy>();
         static int m_conditionsDelta = 0;
-        static string GEOAPIFY_MYSTERY_STRING = null;
 
         public void UpdateUserStatistics(string ipAddress, MyUserGeoCandy geoData)
         {
@@ -663,33 +660,14 @@ public string DurationHere(string server, string who, string nationCode)
 
         public async Task<MyUserGeoCandy> GetOrAddUserGeoDataAsync(string ipAddress)
         {
-            if (userIpCachedItems.TryGetValue(ipAddress, out var cachedCandy))
-                return cachedCandy;
+            var json = await IpAnalyticsService.FetchIpApiAsync(ipAddress);
+            if (json == null) return null;
 
-            try
+            return new MyUserGeoCandy
             {
-                GEOAPIFY_MYSTERY_STRING ??= await File.ReadAllTextAsync("secretGeoApifykey.txt");
-
-                string ipv4Address = ipAddress.Replace("::ffff:", "");
-                string endpoint    = $"https://api.geoapify.com/v1/ipinfo?ip={ipv4Address}&apiKey={GEOAPIFY_MYSTERY_STRING}";
-                string jsonResponse = await httpClient.GetStringAsync(endpoint);
-                JObject jsonGeo    = JObject.Parse(jsonResponse);
-
-                var newCandy = new MyUserGeoCandy
-                {
-                    city          = (string)jsonGeo["city"]?["name"],
-                    countryCode2  = (string)jsonGeo["country"]?["iso_code"]
-                };
-
-                userIpCachedItems[ipAddress] = newCandy;
-                Console.WriteLine($"Cached new location: {newCandy.city}, {newCandy.countryCode2}");
-                return newCandy;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error fetching geolocation for {ipAddress}: {ex.Message}");
-                return null;
-            }
+                city         = (string)json["city"],
+                countryCode2 = (string)json["countryCode"],
+            };
         }
 
         // ── IP→GUID resolution ────────────────────────────────────────────────

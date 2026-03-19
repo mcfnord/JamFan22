@@ -15,8 +15,6 @@ namespace JamFan22
 {
     public class MusicianFinder
     {
-        private static readonly HttpClient HttpClient = new HttpClient();
-        private static readonly ConcurrentDictionary<string, CacheItem<IpApiDetails>> IpCache = new ConcurrentDictionary<string, CacheItem<IpApiDetails>>();
         
         // --- Caching Fields ---
         private static CacheItem<Dictionary<string, double>> _accruedTimeCache;
@@ -38,11 +36,6 @@ namespace JamFan22
         private static readonly ConcurrentDictionary<string, byte> _allTimePredictedGuids = new ConcurrentDictionary<string, byte>();
         private static readonly ConcurrentDictionary<string, byte> _allTimeArrivedGuids = new ConcurrentDictionary<string, byte>();
 
-        // --- IP API Throttle Fields ---
-        private static DateTime _lastIpApiCall = DateTime.MinValue;
-        private static TimeSpan _ipApiDelay = TimeSpan.FromSeconds(1);
-        private static readonly object _ipApiLock = new object();
-        // ------------------------------
 
         private static readonly TextInfo TextCaseInfo = new CultureInfo("en-US", false).TextInfo;
 
@@ -1296,62 +1289,19 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
         {
             string ipAddress = ip.Contains("::ffff:") ? ip.Substring(ip.LastIndexOf(':') + 1) : ip.Split(':')[0];
 
-            if (IpCache.TryGetValue(ipAddress, out var cachedItem) && !cachedItem.IsExpired)
-            {
-                return cachedItem.Data;
-            }
+            var json = await Services.IpAnalyticsService.FetchIpApiAsync(ipAddress);
+            if (json == null)
+                return new IpApiDetails { status = "throttled" };
 
-            // --- Throttle Logic ---
-            lock (_ipApiLock)
+            return new IpApiDetails
             {
-                var now = DateTime.UtcNow;
-                if (now - _lastIpApiCall < _ipApiDelay)
-                {
-                    Console.WriteLine($"[GetIpDetailsAsync] THROTTLED: Call for {ipAddress} blocked. Next call allowed after {_ipApiDelay.TotalSeconds:F0}s.");
-                    return new IpApiDetails { status = "throttled" }; 
-                }
-                _lastIpApiCall = now; 
-            }
-            // --- End Lock ---
-
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-            try
-            {
-                var response = await HttpClient.GetStringAsync($"http://ip-api.com/json/{ipAddress}");
-                stopwatch.Stop();
-                var details = JsonSerializer.Deserialize<IpApiDetails>(response);
-
-                if (details?.status == "success")
-                {
-                    Console.WriteLine($"[GetIpDetailsAsync] API SUCCESS for {ipAddress} ({stopwatch.ElapsedMilliseconds}ms): City={details.city}, Lat={details.lat}, Lon={details.lon}");
-                    _ipApiDelay = TimeSpan.FromSeconds(1); 
-                    IpCache[ipAddress] = new CacheItem<IpApiDetails>(details);
-                    return details;
-                }
-                else
-                {
-                    var newDelay = _ipApiDelay.TotalSeconds * 2;
-                    Console.WriteLine($"[GetIpDetailsAsync] API FAILED for {ipAddress} ({stopwatch.ElapsedMilliseconds}ms): {details?.status}. Doubling delay to {newDelay}s.");
-                    _ipApiDelay *= 2; 
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                stopwatch.Stop();
-                var newDelay = _ipApiDelay.TotalSeconds * 2;
-                Console.WriteLine($"[GetIpDetailsAsync] HTTP Error for {ipAddress} ({stopwatch.ElapsedMilliseconds}ms): {ex.Message}. Doubling delay to {newDelay}s.");
-                _ipApiDelay *= 2;
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                var newDelay = _ipApiDelay.TotalSeconds * 2;
-                Console.WriteLine($"[GetIpDetailsAsync] General error for {ipAddress} ({stopwatch.ElapsedMilliseconds}ms): {ex.Message}. Doubling delay to {newDelay}s.");
-                _ipApiDelay *= 2;
-            }
-
-            return new IpApiDetails { status = "fail" }; 
+                status      = json["status"]?.ToString(),
+                city        = json["city"]?.ToString(),
+                regionName  = json["regionName"]?.ToString(),
+                countryCode = json["countryCode"]?.ToString(),
+                lat         = (double?)json["lat"] ?? 0,
+                lon         = (double?)json["lon"] ?? 0,
+            };
         }
 
         private static string GetGuid(string name, string country, string instrument)

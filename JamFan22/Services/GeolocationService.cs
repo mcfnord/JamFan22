@@ -17,87 +17,29 @@ namespace JamFan22.Services
         // Statics preserved for global caching across requests
         public static Dictionary<string, LatLong> m_PlaceNameToLatLong = new Dictionary<string, LatLong>();
         public static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
-        private static Dictionary<string, LatLong> m_openCageCache = new Dictionary<string, LatLong>();
-        
         private static DateTime _lastGeolocCacheFlush = DateTime.Now;
         private static DateTime _lastRequestTimestamp = DateTime.Now;
         private static readonly object _flushLock = new object();
 
-        private static readonly string GEOAPIFY_MYSTERY_STRING = System.IO.File.Exists("secretGeoApifykey.txt") ? System.IO.File.ReadAllText("secretGeoApifykey.txt").Trim() : "";
-
-        public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
+public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
         {
             _httpClient = httpClient;
             _httpContextAccessor = httpContextAccessor;
         }
 
-        private static readonly System.Threading.SemaphoreSlim _ipApiSemaphore = new System.Threading.SemaphoreSlim(1, 1);
-        private static DateTime _lastIpApiCall = DateTime.MinValue;
-        public static Dictionary<string, (LatLong Location, DateTime Expiry)> m_ipApiCache48 = new Dictionary<string, (LatLong, DateTime)>();
-        public static Dictionary<string, string> m_ipCityCache = new Dictionary<string, string>();
-
-        private async Task<LatLong> GetIpApiLatLonAsync(string ip)
+        private async Task<LatLong?> GetIpApiLatLonAsync(string ip)
         {
-            if (string.IsNullOrEmpty(ip) || ip.Length < 5) return new LatLong("0", "0");
-            
-            string ip4 = ip.Replace("::ffff:", "");
-            
-            if (m_ipApiCache48.TryGetValue(ip4, out var cached))
-            {
-                if (DateTime.Now < cached.Expiry)
-                    return cached.Location;
-            }
+            if (string.IsNullOrEmpty(ip) || ip.Length < 5) return null;
 
-            await _ipApiSemaphore.WaitAsync();
-            try
-            {
-                if (m_ipApiCache48.TryGetValue(ip4, out var cachedDoubleCheck))
-                {
-                    if (DateTime.Now < cachedDoubleCheck.Expiry)
-                        return cachedDoubleCheck.Location;
-                }
-
-                var timeSinceLast = DateTime.Now - _lastIpApiCall;
-                if (timeSinceLast.TotalSeconds < 1.5)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1.5) - timeSinceLast);
-                }
-
-                string endpoint = "http://ip-api.com/json/" + ip4;
-                _lastIpApiCall = DateTime.Now;
-
-                using (var cts = new System.Threading.CancellationTokenSource(2000))
-                {
-                    string s = await _httpClient.GetStringAsync(endpoint, cts.Token);
-                    JObject jsonGeo = JObject.Parse(s);
-                    if (jsonGeo["status"]?.ToString() == "success")
-                    {
-                        var loc = new LatLong(jsonGeo["lat"].ToString(), jsonGeo["lon"].ToString());
-                        m_ipApiCache48[ip4] = (loc, DateTime.Now.AddHours(48));
-                        m_ipCityCache[ip4] = jsonGeo["city"]?.ToString() ?? "";
-                        return loc;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error fetching IP geo for {ip}: {ex.Message}");
-            }
-            finally
-            {
-                _ipApiSemaphore.Release();
-            }
-            
-            return new LatLong("0", "0");
+            var json = await Services.IpAnalyticsService.FetchIpApiAsync(ip);
+            if (json == null) return null;
+            return new LatLong(json["lat"].ToString(), json["lon"].ToString());
         }
 
         public async Task<string> GetCityFromIpAsync(string ip)
         {
-            string ip4 = (ip ?? "").Replace("::ffff:", "");
-            if (m_ipCityCache.TryGetValue(ip4, out var city))
-                return city;
-            await GetIpApiLatLonAsync(ip4); // populates m_ipCityCache as a side effect
-            return m_ipCityCache.TryGetValue(ip4, out var city2) ? city2 : "";
+            var json = await Services.IpAnalyticsService.FetchIpApiAsync(ip);
+            return json?["city"]?.ToString() ?? "";
         }
 
         public async Task<LatLong> SmartGeoLocateAsync(string ip)
@@ -106,16 +48,8 @@ namespace JamFan22.Services
                 return cached;
 
             var loc = await GetIpApiLatLonAsync(ip);
-            
-            if (loc.lat != "0" || loc.lon != "0") 
-            {
-                m_ipAddrToLatLong[ip] = loc;
-                return loc;
-            }
-            
-            var errorLocation = new LatLong("0", "0");
-            m_ipAddrToLatLong[ip] = errorLocation;
-            return errorLocation;
+            if (loc != null) m_ipAddrToLatLong[ip] = loc;
+            return loc;
         }
 
         public async Task<int> DistanceFromClientAsync(string lat, string lon)
@@ -141,7 +75,8 @@ namespace JamFan22.Services
                 }
             }
 
-            LatLong location = await SmartGeoLocateAsync(clientIP);
+            LatLong? location = await SmartGeoLocateAsync(clientIP);
+            if (location == null) return 0;
 
             double clientLatitude = double.Parse(location.lat);
             double clientLongitude = double.Parse(location.lon);
@@ -215,63 +150,10 @@ namespace JamFan22.Services
             // Removed the userPlace fallback that was spoofing server locations
             if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp)) return cachedIp;
 
-            // Entirely rely on ip-api.com for server location, ignoring stated city.
             LatLong loc = await GetIpApiLatLonAsync(ipAddr);
-            m_ipAddrToLatLong[ipAddr] = loc;
-            
+            if (loc != null) m_ipAddrToLatLong[ipAddr] = loc;
             return loc;
         }
 
-        public async Task<(bool Success, string Lat, string Lon)> CallOpenCageAsync(string placeName)
-        {
-            if (placeName.Length < 3 || placeName == "MOON" || !Regex.IsMatch(placeName, "[a-zA-Z]"))
-                return (false, null, null);
-
-            try
-            {
-                string encodedplace = System.Web.HttpUtility.UrlEncode(placeName);
-                string endpoint = string.Format("https://api.opencagedata.com/geocode/v1/json?q={0}&key=4fc3b2001d984815a8a691e37a28064c", encodedplace);
-
-                string s = await _httpClient.GetStringAsync(endpoint);
-
-                JObject latLongJson = JObject.Parse(s);
-                if (latLongJson["results"].HasValues)
-                {
-                    string typeOfMatch = (string)latLongJson["results"][0]["components"]["_type"];
-                    string[] validTypes = { "neighbourhood", "village", "city", "county", "municipality", "administrative", "state", "boundary", "country" };
-                    if (Array.IndexOf(validTypes, typeOfMatch) >= 0)
-                    {
-                        string lat = (string)latLongJson["results"][0]["geometry"]["lat"];
-                        string lon = (string)latLongJson["results"][0]["geometry"]["lng"];
-                        return (true, lat, lon);
-                    }
-                }
-                return (false, null, null);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error calling OpenCage for {placeName}: {ex.Message}");
-                return (false, null, null);
-            }
-        }
-
-        public async Task<(bool Success, string Lat, string Lon)> CallOpenCageCachedAsync(string placeName)
-        {
-            if (m_openCageCache.TryGetValue(placeName, out var cached))
-            {
-                return cached == null ? (false, null, null) : (true, cached.lat, cached.lon);
-            }
-
-            var (success, lat, lon) = await CallOpenCageAsync(placeName);
-
-            if (success)
-            {
-                m_openCageCache[placeName] = new LatLong(lat, lon);
-                return (true, lat, lon);
-            }
-
-            m_openCageCache[placeName] = null;
-            return (false, null, null);
-        }
     }
 }
