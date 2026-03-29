@@ -5,6 +5,7 @@ AS60068 Datacamp Limited
 AS208172 Proton AG
 AS199218 Proton AG
 AS16509 Amazon.com, Inc.
+!35.165.140.129/32
 AS396982 Google LLC
 AS14061 DigitalOcean, LLC
 AS31898 Oracle Corporation

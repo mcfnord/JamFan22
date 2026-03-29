@@ -2,9 +2,7 @@ using JamFan22.Models;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
 using System.Net.Http;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace JamFan22.Services
@@ -14,12 +12,6 @@ namespace JamFan22.Services
         private readonly HttpClient _httpClient;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
-        // Statics preserved for global caching across requests
-        public static Dictionary<string, LatLong> m_PlaceNameToLatLong = new Dictionary<string, LatLong>();
-        public static Dictionary<string, LatLong> m_ipAddrToLatLong = new Dictionary<string, LatLong>();
-        private static DateTime _lastGeolocCacheFlush = DateTime.Now;
-        private static DateTime _lastRequestTimestamp = DateTime.Now;
-        private static readonly object _flushLock = new object();
 
 public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
         {
@@ -42,16 +34,6 @@ public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContex
             return json?["city"]?.ToString() ?? "";
         }
 
-        public async Task<LatLong> SmartGeoLocateAsync(string ip)
-        {
-            if (m_ipAddrToLatLong.TryGetValue(ip, out var cached))
-                return cached;
-
-            var loc = await GetIpApiLatLonAsync(ip);
-            if (loc != null) m_ipAddrToLatLong[ip] = loc;
-            return loc;
-        }
-
         public async Task<int> DistanceFromClientAsync(string lat, string lon)
         {
             var serverLatitude = float.Parse(lat);
@@ -59,7 +41,7 @@ public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContex
 
             var context = _httpContextAccessor.HttpContext;
             string clientIP = context.Connection.RemoteIpAddress.ToString();
-            
+
             if ((clientIP.Length < 5) || clientIP.Contains("127.0.0.1") || clientIP.Contains("::1"))
             {
                 var xff = (string)context.Request.Headers["X-Forwarded-For"];
@@ -75,7 +57,7 @@ public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContex
                 }
             }
 
-            LatLong? location = await SmartGeoLocateAsync(clientIP);
+            LatLong? location = await GetIpApiLatLonAsync(clientIP);
             if (location == null) return 0;
 
             double clientLatitude = double.Parse(location.lat);
@@ -122,37 +104,9 @@ public GeolocationService(HttpClient httpClient, IHttpContextAccessor httpContex
             return 'O';
         }
 
-        public async Task<LatLong> PlaceToLatLonAsync(string serverPlace, string userPlace, string ipAddr)
+        public async Task<LatLong> PlaceToLatLonAsync(string ipAddr)
         {
-            ipAddr = ipAddr.Trim();
-            serverPlace = serverPlace.Trim();
-            userPlace = userPlace.Trim();
-
-            var now = DateTime.Now;
-            var timeSinceLastRequest = now - _lastRequestTimestamp;
-            _lastRequestTimestamp = now;
-
-            if (timeSinceLastRequest.TotalSeconds > 30 && (now - _lastGeolocCacheFlush).TotalHours > 6)
-            {
-                lock (_flushLock)
-                {
-                    if ((now - _lastGeolocCacheFlush).TotalHours > 6)
-                    {
-                        Console.WriteLine($"[Cache Cleanup] Server silent for {timeSinceLastRequest.TotalSeconds:F1}s. Flushing Geolocation Cache.");
-                        m_PlaceNameToLatLong.Clear();
-                        m_ipAddrToLatLong.Clear();
-                        _lastGeolocCacheFlush = now;
-                    }
-                }
-            }
-
-            if (m_PlaceNameToLatLong.TryGetValue(serverPlace.ToUpper(), out var cachedServerPlace)) return cachedServerPlace;
-            // Removed the userPlace fallback that was spoofing server locations
-            if (m_ipAddrToLatLong.TryGetValue(ipAddr, out var cachedIp)) return cachedIp;
-
-            LatLong loc = await GetIpApiLatLonAsync(ipAddr);
-            if (loc != null) m_ipAddrToLatLong[ipAddr] = loc;
-            return loc;
+            return await GetIpApiLatLonAsync(ipAddr.Trim());
         }
 
     }

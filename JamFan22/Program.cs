@@ -1,6 +1,7 @@
 using JamFan22;
 using JamFan22.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.ResponseCompression;
 using Newtonsoft.Json.Linq;
 using System.Net.Mime;
 using System.Text;
@@ -28,6 +29,12 @@ builder.WebHost.UseKestrel(serverOptions =>
 });
 
 // Add services to the container.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
 builder.Services.AddRazorPages();
 builder.Services.AddSignalR();
 
@@ -53,6 +60,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+app.UseResponseCompression();
 app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
@@ -110,6 +118,8 @@ app.MapGet("/api/nearby", async (HttpContext context) =>
         }
         else { clientIP = "24.18.55.230"; }
     }
+
+    Console.WriteLine($"[VISIT] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {clientIP}");
 
     var finder = new JamFan22.MusicianFinder();
     string htmlResult = await finder.FindMusiciansHtmlAsync(clientIP);

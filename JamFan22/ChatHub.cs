@@ -47,6 +47,11 @@ namespace JamFan22
 
             lock (_historyLock)
             {
+                if (_history.Any() && (DateTime.UtcNow - _history.Last().Timestamp).TotalHours > 1)
+                {
+                    _history.Clear();
+                }
+
                 return _history.ToList();
             }
         }
@@ -78,9 +83,12 @@ namespace JamFan22
 
             lock (_historyLock)
             {
+                if (_history.Any() && (DateTime.UtcNow - _history.Last().Timestamp).TotalHours > 1)
+                {
+                    _history.Clear();
+                }
+
                 _history.Add(chatMsg);
-                var cutoff = DateTime.UtcNow.AddHours(-1);
-                _history.RemoveAll(m => m.Timestamp < cutoff);
             }
 
             await Clients.All.SendAsync("ReceiveMessage", realName, message, chatMsg.Timestamp);

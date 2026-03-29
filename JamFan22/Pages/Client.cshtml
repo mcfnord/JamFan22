@@ -147,10 +147,10 @@ body {
 <div id="split-tabs-section">
     <div style="margin-bottom: 10px; font-family: Arial, Helvetica, sans-serif; font-size: 14px;">
         <label style="cursor: pointer; margin-right: 15px;">
-            <input type="checkbox" id="chk-nearby-only" /> Nearby Only
+            <input type="checkbox" id="chk-nearby-only" /> <span id="lbl-nearby-only">Nearby Only</span>
         </label>
         <label style="cursor: pointer; margin-right: 15px;">
-            <input type="checkbox" id="chk-dark-mode" /> Dark Mode
+            <input type="checkbox" id="chk-dark-mode" /> <span id="lbl-dark-mode">Dark Mode</span>
         </label>
         @if (Model.HasResolvedPersona) {
         <label style="cursor: pointer;" id="lbl-hide-24">
@@ -166,26 +166,30 @@ body {
     </div>
 
     <div id="content-servers" class="content" style="display: none;">
-        <p style="padding-top: 15px;">
-            Sometimes when you can't find the server in Jamulus, you can paste the server's address into the <b>Server Address</b>
-            field on the <b>Connection Setup</b> dialog box.
-        </p>
         <div id="servers-table-container">@Html.Raw(@Model.ShowServerByIPPortForView)</div>
     </div>
 
     <div id="content-info" class="content" style="display: none;">
-        <p style="padding-top: 15px;">This web page shows who is on every public Jamulus server.</p>
-        <p>Click a musician's name to select them. Selected names stay selected (until someone changes their name). You'll also see green lines around people you jam with the most.</p>
-        <p>This web page collects details about users on public Jamulus servers, including IP addresses. As a public service, this web page associates a geographic region with each IP address. All these details are erased after 15 days. The IP addresses are never shared. This web page complies with GDPR, Europe's privacy law.</p>
-        <ul>
-            <li>To prevent details about servers you join from being shared with this web page, block <i>outgoing</i> UDP traffic to <code>24.199.107.192</code> using your router or computer firewall.</li>
-            <li>To prevent details about musicians that join your server from being shared, block <i>incoming</i> UDP traffic from <code>137.184.43.255</code>. If you do this, your server will not appear on this web page.</li>
-        </ul>
-        <p>You can reach this web page's team at <b>jamfan.x.jrd@xoxy.net</b></p>
+        @Html.Raw(Model.InfoHtml)
     </div>
 </div>
 
 <script>
+    const NATION = '@Model.NationCode';
+    const _lang = ({'TW':'CN','HK':'CN','BE':'FR','CH':'FR','MX':'ES','AR':'ES','CO':'ES','CL':'ES','PE':'ES','VE':'ES','EC':'ES','GT':'ES','CU':'ES','BO':'ES','DO':'ES','HN':'ES','PY':'ES','SV':'ES','NI':'ES','CR':'ES','PA':'ES','UY':'ES','SR':'NL','AW':'NL','CW':'NL','SX':'NL'})[NATION] || NATION;
+    const TRANSLATIONS = {
+        'EN': { 'nearby-only': 'Nearby Only', 'dark-mode': 'Dark Mode', 'hide': 'Hide', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Nearby', 'highlight': 'Click to highlight, Ctrl-Click to track many' },
+        'CN': { 'nearby-only': '仅附近', 'dark-mode': '深色模式', 'hide': '隐藏', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人' },
+        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อน', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน' },
+        'DE': { 'nearby-only': 'Nur in der Nähe', 'dark-mode': 'Dunkelmodus', 'hide': 'Ausblenden', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen' },
+        'IT': { 'nearby-only': 'Solo vicini', 'dark-mode': 'Modalità scura', 'hide': 'Nascondi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti' },
+        'FR': { 'nearby-only': 'Proximité uniquement', 'dark-mode': 'Mode sombre', 'hide': 'Masquer', 'servers': 'Serveurs', 'info': 'Info', 'nearby': 'À proximité', 'highlight': 'Cliquer pour surligner, Ctrl+Clic pour en suivre plusieurs' },
+        'ES': { 'nearby-only': 'Solo cerca', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultar', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios' },
+        'NL': { 'nearby-only': 'Alleen dichtbij', 'dark-mode': 'Donkere modus', 'hide': 'Verbergen', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Dichtbij', 'highlight': 'Klik om te markeren, Ctrl+Klik om meerdere te volgen' },
+    };
+    function T(key) { return (TRANSLATIONS[_lang] || TRANSLATIONS['EN'])[key] ?? TRANSLATIONS['EN'][key]; }
+
+
     let currentData = [];
     let isAnimating = false;
     let activeHotties = []; // Added to store our hotties list
@@ -692,7 +696,7 @@ body {
 
         let html = `<div class="musician-container" id="${mId}" style="max-height: 50px; overflow: hidden; transition: all 0.75s ease-in-out; margin-bottom: 0px;">`;
         
-        html += `<span class="musician${arrivalClass}${hashClass}" id="${clickHash}" style="cursor: pointer;" title="Click to highlight, Ctrl-Click for green">`;
+        html += `<span class="musician${arrivalClass}${hashClass}" id="${clickHash}" style="cursor: pointer;" title="${T('highlight')}">`;
         
         html += `<span style='${fontSizeStyle}'><b>${client.name}</b> ${instrumentDisplay}</span>`;
         html += `</span></div>`;
@@ -704,7 +708,7 @@ body {
         serverDiv.id = getServerId(server);
         serverDiv.className = 'server-card';
         serverDiv.style.position = 'relative';
-        serverDiv.style.transition = 'all 0.75s ease';
+        serverDiv.style.transition = 'all 0.6s ease';
 
         // Tag distant servers and store metadata
         if (server.distanceAway >= 3000) {
@@ -809,11 +813,11 @@ body {
     }
 
 function optimizeGhostPlacement(ghost, grid, idealData) {
-        if (!idealData) return;
+        if (!idealData) return false;
 
         let nodes = Array.from(grid.children);
         let ghostIndex = nodes.indexOf(ghost);
-        if (ghostIndex === -1) return;
+        if (ghostIndex === -1) return false;
 
         let idealMap = {};
         idealData.forEach((srv, i) => {
@@ -850,7 +854,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             }
         }
 
-        if (!easternCandidate && !southernCandidate) return;
+        if (!easternCandidate && !southernCandidate) return false;
 
         function calcError(swapIdx) {
             let err = 0;
@@ -878,7 +882,9 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         evaluateSwap(easternCandidate, easternIndex);
         evaluateSwap(southernCandidate, southernIndex);
 
-        if (bestSwap) {
+        if (!bestSwap) return false;
+
+        {
             let startHeight = bestSwap.offsetHeight;
             let startWidth = bestSwap.offsetWidth;
             let targetHeight = ghost.offsetHeight;
@@ -939,6 +945,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 bestSwap.style.transition = 'all 0.75s ease';
             }, 600);
         }
+        return true;
     }
 
     async function evaluateAndSwapForAdd(firstGhost, grid, idealData, newServerId) {
@@ -1209,7 +1216,15 @@ if (action.type === 'replace_server') {
                 ghost.style.minHeight = departingHeight + 'px';
                 el.replaceWith(ghost);
 
-                optimizeGhostPlacement(ghost, grid, newData);
+                let swapped = optimizeGhostPlacement(ghost, grid, newData);
+                if (!swapped) {
+                    // Sudden-death: scan all existing ghosts top-to-bottom for a viable slide
+                    const allGhosts = Array.from(grid.querySelectorAll('.ghost-card'));
+                    for (const otherGhost of allGhosts) {
+                        if (otherGhost === ghost) continue;
+                        if (optimizeGhostPlacement(otherGhost, grid, newData)) break;
+                    }
+                }
 
                 // Smoothly release the held height, padding, and border so lines below ease upward
                 /* setTimeout(() => {
@@ -1960,6 +1975,14 @@ async function fetchAndRender() {
     setInterval(fetchAndRender, 20000);
 
     document.addEventListener("DOMContentLoaded", function () {
+        // --- UI Localisation ---
+        document.getElementById('lbl-nearby-only').textContent = T('nearby-only');
+        document.getElementById('lbl-dark-mode').textContent = T('dark-mode');
+        const hideSpan = document.getElementById('text-hide-24');
+        if (hideSpan) hideSpan.textContent = T('hide');
+        document.getElementById('btn-servers').textContent = T('servers');
+        document.getElementById('btn-info').textContent = T('info');
+
         // --- Dark Mode & Nearby Only State Management ---
         const chkDarkMode = document.getElementById("chk-dark-mode");
         const chkNearbyOnly = document.getElementById("chk-nearby-only");
@@ -2008,7 +2031,7 @@ async function fetchAndRender() {
                         // Save state as open
                         localStorage.setItem("nearbyTabState", "open");
                     } else {
-                        this.innerText = "Nearby";
+                        this.innerText = T('nearby');
                         this.style.textAlign = "center";
                         this.style.fontSize = "10px";
                         this.style.lineHeight = "16px";
@@ -2027,7 +2050,7 @@ async function fetchAndRender() {
         if (nearbyTabState === "closed" && nearbyBtn && nearbyContent) {
             nearbyBtn.classList.remove("active");
             nearbyContent.style.display = "none";
-            nearbyBtn.innerText = "Nearby";
+            nearbyBtn.innerText = T('nearby');
             nearbyBtn.style.textAlign = "center";
             nearbyBtn.style.fontSize = "10px";
             nearbyBtn.style.lineHeight = "16px";

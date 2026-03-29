@@ -341,7 +341,7 @@ namespace JamFan22.Pages
                         maxusercount  = s.maxusercount,
                         activeJitsi   = _analyzer.FindActiveJitsiOfJSvr(serverAddress),
                         newServerHtml = _analyzer.NoticeNewbs(serverAddress)
-                            ? $"({JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "New server", "新伺服器", "เซิร์ฟเวอร์ใหม่", "Neuer Server", "Nuovo server")}.)"
+                            ? $"({JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "New server", "新伺服器", "เซิร์ฟเวอร์ใหม่", "Neuer Server", "Nuovo server", "Nouveau serveur", "Nuevo servidor", "Nieuwe server")}.)"
                             : "",
                         listenHtml    = await _analyzer.GetListenHtmlAsync(s)
                     };
@@ -384,7 +384,7 @@ namespace JamFan22.Pages
 
                     if (currentLeavers.Count > 0)
                     {
-                        string byeText = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Bye", "再見", "ลาก่อน", "Tschüss", "Ciao");
+                        string byeText = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Bye", "再見", "ลาก่อน", "Tschüss", "Ciao", "Salut", "Adiós", "Doei");
                         apiSvr.leaversHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>{byeText} {string.Join("&nbsp;&middot;&nbsp;", currentLeavers)}</i></div>";
                     }
 
@@ -429,13 +429,13 @@ namespace JamFan22.Pages
 
                         if (sortedFilteredUsers.Count > 1)
                         {
-                            string translatedPhrase = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Just&nbsp;gathered.", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen.", "appena&nbsp;connessi.");
+                            string translatedPhrase = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "just&nbsp;gathered", "成員皆剛加入", "เพิ่งรวมตัว", "soeben&nbsp;angekommen", "appena&nbsp;connessi", "vient&nbsp;de&nbsp;se&nbsp;former", "recién&nbsp;reunidos", "net&nbsp;samengekomen");
                             if (allNew && sortedFilteredUsers.Count > 0)
-                                apiSvr.jamStatusHtml = "(" + (s.usercount == s.maxusercount ? JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full. ", "滿房。 ", "เต็ม ", "Volls. ", "Pieno. ") : "") + translatedPhrase + ")";
+                                apiSvr.jamStatusHtml = "(" + (s.usercount == s.maxusercount ? JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full, ", "滿房，", "เต็ม, ", "Voll, ", "Pieno, ", "Plein, ", "Lleno, ", "Vol, ") : "") + translatedPhrase + ")";
                             else if (s.usercount == s.maxusercount)
-                                apiSvr.jamStatusHtml = "<b>(" + JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full", "滿房", "เต็ม", "Voll", "piena") + ")</b>";
+                                apiSvr.jamStatusHtml = "<b>(" + JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "Full", "滿房", "เต็ม", "Voll", "piena", "Plein", "Lleno", "Vol") + ")</b>";
                             else if (s.usercount + 1 == s.maxusercount)
-                                apiSvr.jamStatusHtml = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)");
+                                apiSvr.jamStatusHtml = JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "(Almost full)", "(即將滿房)", "(เกือบเต็ม)", "(fast voll)", "(quasi pieno)", "(Presque plein)", "(Casi lleno)", "(Bijna vol)");
                             else
                                 apiSvr.jamStatusHtml = "";
                             apiSvr.serverDurationHtml = "";
@@ -479,6 +479,8 @@ namespace JamFan22.Pages
 
                 stopwatch.Stop();
                 _analyzer.AdjustPerformanceDelta(stopwatch.Elapsed);
+                var rssLine = System.IO.File.ReadAllLines("/proc/self/status").FirstOrDefault(l => l.StartsWith("VmRSS"));
+                Console.WriteLine($"[RSS] {rssLine?.Split(':')[1].Trim() ?? "?"} elapsed={stopwatch.Elapsed.TotalSeconds:F2}s");
 
                 JamulusAnalyzer.m_safeServerSnapshot = JamulusAnalyzer.m_allMyServers.ToList();
                 return new JsonResult(apiResponse);

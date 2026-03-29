@@ -63,8 +63,8 @@ namespace JamFan22
                                             allAssociated[clientIp].Add(guid);
                                         }
 
-                                        // STRICT NET: Only >= 28 strength for UI Enablement and Chat Identity
-                                        if (strength >= 28)
+                                        // STRICT NET: Only >= 16 strength for UI Enablement and Chat Identity
+                                        if (strength >= 16)
                                         {
                                             if (long.TryParse(parts[0].Trim(), out long minute))
                                             {

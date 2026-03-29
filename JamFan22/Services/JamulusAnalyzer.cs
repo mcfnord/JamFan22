@@ -115,7 +115,7 @@ namespace JamFan22.Services
 
         // ── Localisation ──────────────────────────────────────────────────────
 
-        public static string LocalizedText(string nationCode, string english, string chinese, string thai, string german, string italian)
+        public static string LocalizedText(string nationCode, string english, string chinese, string thai, string german, string italian, string french, string spanish, string dutch)
         {
             switch (nationCode)
             {
@@ -123,6 +123,9 @@ namespace JamFan22.Services
                 case "TH": return thai;
                 case "DE": return german;
                 case "IT": return italian;
+                case "FR": case "BE": case "CH": return french;
+                case "ES": case "MX": case "AR": case "CO": case "CL": case "PE": case "VE": case "EC": case "GT": case "CU": case "BO": case "DO": case "HN": case "PY": case "SV": case "NI": case "CR": case "PA": case "UY": return spanish;
+                case "NL": return dutch;
             }
             return english;
         }
@@ -151,7 +154,7 @@ public string DurationHere(string server, string who, string nationCode)
 
         if (ts.TotalMinutes > 1)
         {
-            string phrase = LocalizedText(nationCode, "just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade&nbsp;angekommen", "appena&nbsp;arrivato");
+            string phrase = LocalizedText(nationCode, "just&nbsp;arrived", "剛加入", "เพิ่งมา", "gerade&nbsp;angekommen", "appena&nbsp;arrivato", "vient&nbsp;d'arriver", "recién&nbsp;llegado", "net&nbsp;aangekomen");
             show = "<b><div style='text-align: right; font-size: 0.8em;'>(" + phrase + ")</div></b>";
         }
         else
@@ -373,7 +376,7 @@ public string DurationHere(string server, string who, string nationCode)
 
         public async Task<(int dist, char zone)> CalculateServerDistanceAndZoneAsync(string place, string usersPlace, string serverIp)
         {
-            LatLong location = await _geoService.PlaceToLatLonAsync(place.ToUpper(), usersPlace.ToUpper(), serverIp);
+            LatLong location = await _geoService.PlaceToLatLonAsync(serverIp);
             int dist = 0; char zone = ' ';
 
             if (location != null)
@@ -628,8 +631,8 @@ public string DurationHere(string server, string who, string nationCode)
             if (m_clientIPLastVisit.TryGetValue(ipAddress, out var lastRefresh))
             {
                 var secondsSince = (DateTime.Now - lastRefresh).TotalSeconds;
-                var lowerBound   = 120 + m_conditionsDelta - 30;
-                var upperBound   = 120 + m_conditionsDelta + 30;
+                var lowerBound   = 20 - 5;
+                var upperBound   = 20 + 5;
 
                 if (secondsSince > lowerBound && secondsSince < upperBound)
                 {

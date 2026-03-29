@@ -58,6 +58,23 @@ namespace JamFan22.Services
 
         public static Dictionary<string, DateTime> m_serverFirstSeen = new Dictionary<string, DateTime>();
 
+        // GUIDs already persisted to censusgeo.csv — prevents unbounded file growth from duplicate appends
+        private static readonly HashSet<string> _censusgeoWritten = new HashSet<string>(StringComparer.Ordinal);
+        private static bool _censusgeoWrittenLoaded = false;
+
+        private static void EnsureCensusgeoWrittenLoaded()
+        {
+            if (_censusgeoWrittenLoaded) return;
+            _censusgeoWrittenLoaded = true;
+            const string path = "data/censusgeo.csv";
+            if (!File.Exists(path)) return;
+            foreach (var line in File.ReadLines(path))
+            {
+                int comma = line.IndexOf(',');
+                if (comma > 0) _censusgeoWritten.Add(line.Substring(0, comma));
+            }
+        }
+
         public static SemaphoreSlim m_serializerMutex = new SemaphoreSlim(1, 1);
 
         private static readonly HttpClient s_refreshClient = new HttpClient(
@@ -250,6 +267,7 @@ namespace JamFan22.Services
                         var serverCsvBuilder  = new System.Text.StringBuilder();
                         var censusCsvBuilder  = new System.Text.StringBuilder();
                         var censusGeoCsvBuilder = new System.Text.StringBuilder();
+                        EnsureCensusgeoWrittenLoaded();
 
                         foreach (var key in JamulusListURLs.Keys)
                         {
@@ -287,12 +305,13 @@ namespace JamFan22.Services
                                         + server.ip + ":" + server.port
                                         + Environment.NewLine);
 
-                                    censusGeoCsvBuilder.Append(stringHashOfGuy + ","
-                                        + System.Web.HttpUtility.UrlEncode(guy.name) + ","
-                                        + guy.instrument + ","
-                                        + System.Web.HttpUtility.UrlEncode(guy.city) + ","
-                                        + System.Web.HttpUtility.UrlEncode(guy.country)
-                                        + Environment.NewLine);
+                                    if (_censusgeoWritten.Add(stringHashOfGuy))
+                                        censusGeoCsvBuilder.Append(stringHashOfGuy + ","
+                                            + System.Web.HttpUtility.UrlEncode(guy.name) + ","
+                                            + guy.instrument + ","
+                                            + System.Web.HttpUtility.UrlEncode(guy.city) + ","
+                                            + System.Web.HttpUtility.UrlEncode(guy.country)
+                                            + Environment.NewLine);
 
                                     if (!EncounterTracker.m_userServerViewTracker.ContainsKey(stringHashOfGuy))
                                         EncounterTracker.m_userServerViewTracker[stringHashOfGuy] = new HashSet<string>();
@@ -366,6 +385,8 @@ namespace JamFan22.Services
                         m_serializerMutex.Release();
                     }
 
+                    var rssLine = System.IO.File.ReadAllLines("/proc/self/status").FirstOrDefault(l => l.StartsWith("VmRSS"));
+                    Console.WriteLine($"[RSS-bg] {rssLine?.Split(':')[1].Trim() ?? "?"}");
                     int secs = fMissingSamplePresent ? 2 : 5;
                     await Task.Delay(secs * 1000, stoppingToken);
                 }

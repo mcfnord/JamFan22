@@ -223,6 +223,39 @@ namespace JamFan22.Services
                     catch (KeyNotFoundException) { throw; }
                 }
 
+                // ── Evict stale sighting records (unseen for >2 hours) ────────────
+                {
+                    var staleKeys = m_connectionLatestSighting
+                        .Where(kvp => kvp.Value < DateTime.Now.AddHours(-2))
+                        .Select(kvp => kvp.Key)
+                        .ToList();
+                    foreach (var key in staleKeys)
+                    {
+                        m_connectionFirstSighting.Remove(key);
+                        m_connectionLatestSighting.Remove(key);
+                    }
+                }
+
+                // ── Evict inactive users from O(N²) co-jammer and meeting dicts ──
+                {
+                    // m_timeTogetherUpdated keys are 64-char strings: GUID_A (32) + GUID_B (32).
+                    // Extract all GUIDs that still appear in at least one active pair.
+                    var activeGuids = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var key in m_timeTogetherUpdated.Keys)
+                    {
+                        activeGuids.Add(key.Substring(0, 32));
+                        activeGuids.Add(key.Substring(32, 32));
+                    }
+
+                    foreach (var guid in m_userConnectDurationPerUser.Keys
+                                          .Where(g => !activeGuids.Contains(g)).ToList())
+                        m_userConnectDurationPerUser.Remove(guid);
+
+                    foreach (var key in m_everywhereWeHaveMet.Keys
+                                         .Where(k => !m_timeTogetherUpdated.ContainsKey(k)).ToList())
+                        m_everywhereWeHaveMet.Remove(key);
+                }
+
                 {
                     var sortedByLongest = m_timeTogether.OrderByDescending(x => x.Value).ToList();
                     string jsonString = JsonSerializer.Serialize(sortedByLongest);
@@ -257,6 +290,20 @@ namespace JamFan22.Services
                     System.Threading.Thread.Sleep(1000);
                     File.WriteAllText(GUID_NAME_PAIRS, JsonSerializer.Serialize(m_guidNamePairs.OrderBy(x => x.Value).ToList()));
                 }
+
+                // ── Memory diagnostic snapshot (once per minute) ──────────────────
+                int perUserInnerTotal = 0;
+                foreach (var v in m_userConnectDurationPerUser.Values) perUserInnerTotal += v.Count;
+                Console.WriteLine(
+                    $"[MEM] timeTogether={m_timeTogether.Count} " +
+                    $"sightings={m_connectionFirstSighting.Count} " +
+                    $"everywhereWeHaveMet={m_everywhereWeHaveMet.Count} " +
+                    $"everywhereIveJoinedYou={m_everywhereIveJoinedYou.Count} " +
+                    $"perUser.outer={m_userConnectDurationPerUser.Count} perUser.innerTotal={perUserInnerTotal} " +
+                    $"perServer.outer={m_userConnectDurationPerServer.Count} " +
+                    $"connectDuration={m_userConnectDuration.Count} " +
+                    $"serverViewTracker={m_userServerViewTracker.Count} " +
+                    $"guidNames={m_guidNamePairs.Count}");
             }
         }
 
