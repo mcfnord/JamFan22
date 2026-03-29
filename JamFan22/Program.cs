@@ -8,6 +8,10 @@ using System.Threading;
 
 var hottiesSemaphore = new SemaphoreSlim(1, 1);
 
+Console.WriteLine($"[STARTUP] JamFan22 starting. PID={Environment.ProcessId} Time={DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+StreamRequestManager.Load();
+StreamGate.Load();
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.UseKestrel(serverOptions =>
@@ -189,6 +193,33 @@ app.MapGet("/halos/", async (HttpContext context) =>
     ret = ret.Substring(0, ret.Length - 2);
     ret += "]";
     return ret;
+});
+
+app.MapGet("/stream", (HttpContext context) =>
+{
+    string clientIP = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) { clientIP = xff.Split(',')[0].Trim(); }
+    if (!clientIP.Contains("::ffff")) clientIP = "::ffff:" + clientIP;
+
+    bool isWeekly = context.Request.Query.ContainsKey("weekly");
+    string message = StreamGate.TryRequestStream(clientIP, isWeekly);
+
+    Console.WriteLine($"[STREAM] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {clientIP} weekly={isWeekly} => {message}");
+    return Results.Text(message, "text/plain");
+});
+
+app.MapGet("/reset", (HttpContext context) =>
+{
+    string clientIP = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) { clientIP = xff.Split(',')[0].Trim(); }
+    if (!clientIP.Contains("::ffff")) clientIP = "::ffff:" + clientIP;
+
+    string message = StreamGate.ResetStream(clientIP);
+
+    Console.WriteLine($"[STREAM-RESET] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {clientIP} => {message}");
+    return Results.Text(message, "text/plain");
 });
 
 app.MapPost("/api/hide", async (HttpContext context) =>

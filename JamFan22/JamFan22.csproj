@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.EC2" Version="3.7.*" />
     <PackageReference Include="IpGeoLocation.IpGeoLocation" Version="1.0.9" />
     <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel.Https" Version="2.2.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
