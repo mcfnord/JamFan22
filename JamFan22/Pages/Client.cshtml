@@ -40,6 +40,7 @@
         padding: 0.25rem 0.5rem 0.1rem 0.5rem; /* Reduced top and bottom padding */
         border-radius: 0.5rem; /* Tighter corner curve */
         font-family: Arial, Helvetica, sans-serif;
+        transition: transform 0.1s ease, box-shadow 0.1s ease;
     }
 
 /* Mobile: tighter gaps and no height locking */
@@ -876,6 +877,28 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         const evaluateSwap = (candidate, idx) => {
             if (!candidate) return;
             let err = calcError(idx);
+
+            // --- NEW: Prioritize collapsing the final line ---
+            if (candidate === southernCandidate) {
+                let cRect = candidate.getBoundingClientRect();
+                let rowCount = 0;
+
+                // Count how many real cards are on the same row
+                for (let i = 0; i < nodes.length; i++) {
+                    if (!nodes[i].classList.contains('ghost-card')) {
+                        if (Math.abs(nodes[i].getBoundingClientRect().top - cRect.top) < 20) {
+                            rowCount++;
+                        }
+                    }
+                }
+
+                // If it's the only card on the line, make it the ultimate winner
+                if (rowCount === 1) {
+                    err -= 10000;
+                }
+            }
+            // -------------------------------------------------
+
             if (err < minErr) { minErr = err; bestSwap = candidate; }
         };
 
@@ -949,11 +972,11 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
     }
 
     async function evaluateAndSwapForAdd(firstGhost, grid, idealData, newServerId) {
-        if (!idealData) return firstGhost;
+        if (!idealData) return { node: firstGhost, didSwap: false };
 
         let nodes = Array.from(grid.children);
         let ghostIndex = nodes.indexOf(firstGhost);
-        if (ghostIndex === -1) return firstGhost;
+        if (ghostIndex === -1) return { node: firstGhost, didSwap: false };
 
         let idealMap = {};
         idealData.forEach((srv, i) => {
@@ -1014,7 +1037,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             }
         }
 
-        if (!easternCandidate && !southernCandidate && !westernCandidate && !northernCandidate) return firstGhost;
+        if (!easternCandidate && !southernCandidate && !westernCandidate && !northernCandidate) return { node: firstGhost, didSwap: false };
 
         function calcErrorForAdd(ghostGetsId, swappedIndex) {
             let err = 0;
@@ -1050,7 +1073,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         evaluateSwapAdd(westernCandidate, westernIndex);
         evaluateSwapAdd(northernCandidate, northernIndex);
 
-        if (!bestSwap) return firstGhost;
+        if (!bestSwap) return { node: firstGhost, didSwap: false };
 
         return new Promise(resolve => {
             let startHeight = bestSwap.offsetHeight;
@@ -1088,7 +1111,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 const parent = firstGhost.parentNode;
                 if (!parent) {
                     spacer.remove();
-                    resolve(firstGhost);
+                    resolve({ node: firstGhost, didSwap: false });
                     return;
                 }
 
@@ -1116,7 +1139,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 void bestSwap.offsetWidth;
                 bestSwap.style.transition = 'all 0.75s ease';
 
-                resolve(firstGhost);
+                resolve({ node: firstGhost, didSwap: true });
             }, 600);
         });
     }
@@ -1217,12 +1240,13 @@ if (action.type === 'replace_server') {
                 el.replaceWith(ghost);
 
                 let swapped = optimizeGhostPlacement(ghost, grid, newData);
-                if (!swapped) {
+                if (swapped) { _gridRelocatedFlag = true; }
+                else {
                     // Sudden-death: scan all existing ghosts top-to-bottom for a viable slide
                     const allGhosts = Array.from(grid.querySelectorAll('.ghost-card'));
                     for (const otherGhost of allGhosts) {
                         if (otherGhost === ghost) continue;
-                        if (optimizeGhostPlacement(otherGhost, grid, newData)) break;
+                        if (optimizeGhostPlacement(otherGhost, grid, newData)) { _gridRelocatedFlag = true; break; }
                     }
                 }
 
@@ -1251,7 +1275,9 @@ if (action.type === 'replace_server') {
             if (firstGhost) {
                 const newServerId = getServerId(action.server);
                 // Pause the queue, measure options, and animate the swap if needed
-                firstGhost = await evaluateAndSwapForAdd(firstGhost, grid, newData, newServerId);
+                let swapResult = await evaluateAndSwapForAdd(firstGhost, grid, newData, newServerId);
+                if (swapResult.didSwap) _gridRelocatedFlag = true;
+                firstGhost = swapResult.node;
                 firstGhost.replaceWith(el);
             } else {
                 grid.appendChild(el);
@@ -1417,6 +1443,7 @@ if (action.type === 'replace_server') {
     }
 
     async function processDiff(oldData, newData) {
+        _gridRelocatedFlag = false;
         const actions = [];
         const oldServers = new Map(oldData.map(s => [getServerId(s), s]));
         const newServers = new Map(newData.map(s => [getServerId(s), s]));
@@ -1589,16 +1616,21 @@ if (action.type === 'replace_server') {
             }
         }
 
-        // Clean up any unused ghost cards left behind in the DOM
-        /*
-        document.querySelectorAll('.ghost-card').forEach(ghost => {
-            ghost.remove();
-        });
-        */
+        return {
+            gridChanged: actions.some(a => [
+                'add_server',
+                'remove_server',
+                'replace_server',
+                'add_musician',
+                'remove_musician'
+            ].includes(a.type)),
+            gridRelocated: _gridRelocatedFlag
+        };
     }
 
     let lastFullRefresh = Date.now();
     let ipDerivedLoginHash = null;
+    let _gridRelocatedFlag = false;
 
     // --- LOCAL STORAGE & HIGHLIGHT LOGIC ---
     function getTrackedPeople(collection) {
@@ -1742,6 +1774,24 @@ if (action.type === 'replace_server') {
                 }
             }
         });
+
+        requestAnimationFrame(() => {
+            const yellows = getTrackedPeople("trackedPeople").filter(h => h);
+            const greens  = getTrackedPeople("advancedTrackedPeople").filter(h => h);
+            const allTracked = [...new Set([...yellows, ...greens])];
+            if (allTracked.length === 0) return;
+            const vh = window.innerHeight;
+            let online = 0, visible = 0, hidden = 0;
+            for (const hash of allTracked) {
+                const els = document.getElementsByClassName(hash);
+                if (els.length === 0) continue;
+                online++;
+                const rect = els[0].getBoundingClientRect();
+                if (rect.top >= 0 && rect.bottom <= vh) visible++;
+                else hidden++;
+            }
+            Tracker.log('friend_visibility', { tracked: allTracked.length, online, visible, hidden });
+        });
     }
     
     function preventLineWrap() {
@@ -1858,6 +1908,182 @@ if (action.type === 'replace_server') {
         container.innerHTML = html;
     }
 
+    function flipSwap(a, b) {
+        return new Promise(resolve => {
+            let rectA = a.getBoundingClientRect();
+            let rectB = b.getBoundingClientRect();
+
+            // True DOM swap (handles non-adjacent elements like south neighbors)
+            const aNext = a.nextSibling, bNext = b.nextSibling;
+            const parent = a.parentNode;
+            const marker = document.createComment('s');
+            parent.insertBefore(marker, a);
+            if (bNext === a) { parent.insertBefore(a, b); }
+            else             { parent.insertBefore(a, bNext); }
+            parent.insertBefore(b, marker);
+            marker.remove();
+
+            let newRectA = a.getBoundingClientRect();
+            let newRectB = b.getBoundingClientRect();
+
+            a.style.transition = b.style.transition = 'none';
+            a.style.zIndex = '100'; b.style.zIndex = '101';
+            a.style.transform = `translate(${rectA.left - newRectA.left}px, ${rectA.top - newRectA.top}px)`;
+            b.style.transform = `translate(${rectB.left - newRectB.left}px, ${rectB.top - newRectB.top}px)`;
+
+            requestAnimationFrame(() => {
+                a.style.transition = b.style.transition = 'transform 0.5s ease';
+                a.style.transform = b.style.transform = '';
+
+                setTimeout(() => {
+                    a.style.transition = b.style.transition = a.style.zIndex = b.style.zIndex = '';
+                    resolve();
+                }, 500);
+            });
+        });
+    }
+
+    async function optimizeGrid(grid) {
+        let nodes = Array.from(grid.querySelectorAll('.server-card'));
+
+        const getZone = (n) => {
+            if (!n || n.classList.contains('ghost-card')) return 'ghost';
+            return (n.className.match(/zone-[A-Z]|zone-default/) || [])[0];
+        };
+
+        const getPriority = (node) => {
+            if (!node || node.classList.contains('ghost-card')) return 0;
+            let score = 0;
+            if (node.querySelector('.friend-arrived')) score += 2.0;
+            return score;
+        };
+
+        let rects = new Map();
+        nodes.forEach(n => rects.set(n, n.getBoundingClientRect()));
+
+        const getNeighbors = (node) => {
+            let r = rects.get(node);
+            let n = null, s = null, e = null, w = null;
+            let nw = null, ne = null, sw = null, se = null;
+
+            nodes.forEach(other => {
+                if (node === other) return;
+                let or = rects.get(other);
+
+                if (Math.abs(r.top - or.top) < 20) {
+                    if (or.left < r.left && (!w || or.left > rects.get(w).left)) w = other;
+                    if (or.left > r.left && (!e || or.left < rects.get(e).left)) e = other;
+                }
+                if (Math.abs(r.left - or.left) < 20) {
+                    if (or.top < r.top && (!n || or.top > rects.get(n).top)) n = other;
+                    if (or.top > r.top && (!s || or.top < rects.get(s).top)) s = other;
+                }
+            });
+
+            let nRect = n ? rects.get(n) : null;
+            let sRect = s ? rects.get(s) : null;
+
+            nodes.forEach(other => {
+                if (node === other) return;
+                let or = rects.get(other);
+
+                if (nRect && Math.abs(or.top - nRect.top) < 20) {
+                    if (or.left < nRect.left && (!nw || or.left > rects.get(nw).left)) nw = other;
+                    if (or.left > nRect.left && (!ne || or.left < rects.get(ne).left)) ne = other;
+                }
+                if (sRect && Math.abs(or.top - sRect.top) < 20) {
+                    if (or.left < sRect.left && (!sw || or.left > rects.get(sw).left)) sw = other;
+                    if (or.left > sRect.left && (!se || or.left < rects.get(se).left)) se = other;
+                }
+            });
+
+            return { n, s, e, w, nw, ne, sw, se };
+        };
+
+        const calcScore = (node, neighbors, swapA = null, swapB = null) => {
+            let z = getZone(node);
+            if (z === 'ghost') return 0;
+
+            // Intercept the neighbor to see what its zone WILL be after the swap
+            const getFutureZone = (neighbor) => {
+                if (!neighbor) return null;
+                if (neighbor === swapA) return getZone(swapB);
+                if (neighbor === swapB) return getZone(swapA);
+                return getZone(neighbor);
+            };
+
+            let score = 0;
+            if (getFutureZone(neighbors.n)  === z) score += 1.0;
+            if (getFutureZone(neighbors.s)  === z) score += 1.0;
+            if (getFutureZone(neighbors.e)  === z) score += 1.0;
+            if (getFutureZone(neighbors.w)  === z) score += 1.0;
+            if (getFutureZone(neighbors.nw) === z) score += 0.4;
+            if (getFutureZone(neighbors.ne) === z) score += 0.4;
+            if (getFutureZone(neighbors.sw) === z) score += 0.4;
+            if (getFutureZone(neighbors.se) === z) score += 0.4;
+            return score;
+        };
+
+        let bestMove = null;
+        let maxNetGain = 0;
+
+        for (let a of nodes) {
+            let neighborsA = getNeighbors(a);
+            let swapCandidates = [neighborsA.e, neighborsA.s].filter(Boolean);
+
+            for (let b of swapCandidates) {
+                if (a.classList.contains('ghost-card') && b.classList.contains('ghost-card')) continue;
+
+                let contentA = a.classList.contains('ghost-card') ? 0 : (a.querySelector('.server-inner')?.offsetHeight || 0) + 6;
+                let contentB = b.classList.contains('ghost-card') ? 0 : (b.querySelector('.server-inner')?.offsetHeight || 0) + 6;
+                let lhA = parseFloat(a.dataset.lockedHeight) || a.offsetHeight;
+                let lhB = parseFloat(b.dataset.lockedHeight) || b.offsetHeight;
+
+                if (b === neighborsA.s) {
+                    if (!a.classList.contains('ghost-card') && contentA > lhB) continue;
+                    if (!b.classList.contains('ghost-card') && contentB > lhA) continue;
+                }
+
+                let neighborsB = getNeighbors(b);
+                // Current score evaluates reality (no swap parameters)
+                let currentScore  = calcScore(a, neighborsA) + calcScore(b, neighborsB);
+
+                // Swapped score evaluates the hypothetical future (pass a and b to intercept DOM reality)
+                let swappedScore  = calcScore(b, neighborsA, a, b) + calcScore(a, neighborsB, a, b);
+                let gravityBias = 0;
+
+                if (a.classList.contains('ghost-card')) {
+                    gravityBias = 0.1;
+                    if (b === neighborsA.s && !b.classList.contains('ghost-card')) {
+                        let bRowReals  = nodes.filter(n => n !== b && !n.classList.contains('ghost-card') && Math.abs(rects.get(n).top - rects.get(b).top) < 20);
+                        let bBelowReals = nodes.filter(n => !n.classList.contains('ghost-card') && rects.get(n).top > rects.get(b).top + 20);
+                        if (bRowReals.length === 0 && bBelowReals.length === 0) gravityBias = 999.0;
+                    }
+                }
+                if (b.classList.contains('ghost-card')) gravityBias = -1.1;
+
+                let priorityBias = getPriority(b) - getPriority(a);
+                let netGain = (swappedScore + gravityBias + priorityBias) - currentScore;
+                if (netGain > maxNetGain) { maxNetGain = netGain; bestMove = { a, b }; }
+            }
+        }
+
+        if (bestMove) {
+            let { a, b } = bestMove;
+            if (a.classList.contains('ghost-card') || b.classList.contains('ghost-card')) {
+                let tempMinH = a.style.minHeight;
+                a.style.minHeight = b.style.minHeight;
+                b.style.minHeight = tempMinH;
+                let tempLh = a.dataset.lockedHeight;
+                a.dataset.lockedHeight = b.dataset.lockedHeight;
+                b.dataset.lockedHeight = tempLh;
+            }
+            await flipSwap(a, b);
+            return true;
+        }
+        return false;
+    }
+
 function purgeTrailingGhosts() {
     const grid = document.getElementById('client-grid');
     if (!grid) return;
@@ -1923,6 +2149,8 @@ async function fetchAndRender() {
         }
 
         const now = Date.now();
+        let gridChanged = false;
+
         if (currentData.length === 0 || now - lastFullRefresh > 1560000) {
             const grid = document.getElementById('client-grid');
             grid.innerHTML = '';
@@ -1931,9 +2159,20 @@ async function fetchAndRender() {
             });
             currentData = data;
             lastFullRefresh = now;
+            gridChanged = true;
+            requestAnimationFrame(() => {
+                const cards = Array.from(grid.querySelectorAll('.server-card:not(.ghost-card)'));
+                if (cards.length === 0) return;
+                const tops = cards.map(c => c.getBoundingClientRect().top);
+                const firstTop = tops[0];
+                const cols = tops.filter(t => Math.abs(t - firstTop) < 5).length;
+                const rows = Math.ceil(cards.length / cols);
+                Tracker.log('grid_layout', { cols, rows, total: cards.length });
+            });
         } else {
-            // isAnimating is already true, just process the diff
-            await processDiff(currentData, data);
+            let diffResult = await processDiff(currentData, data);
+            gridChanged = diffResult.gridChanged || false;
+            if (diffResult.gridRelocated) gridChanged = false;
             currentData = data;
 
             // Clean up ghosts and re-index surviving elements to match the exact API state
@@ -1963,6 +2202,10 @@ async function fetchAndRender() {
         preventLineWrap(); 
         updateServersList(data); 
         purgeTrailingGhosts(); // Ensure any leftover ghosts at the end of the grid are removed after updates
+
+        if (gridChanged) {
+            await optimizeGrid(document.getElementById('client-grid'));
+        }
 
     } catch(e) {
         console.error("Failed to fetch API:", e);
@@ -2035,8 +2278,8 @@ async function fetchAndRender() {
                         this.style.textAlign = "center";
                         this.style.fontSize = "10px";
                         this.style.lineHeight = "16px";
-                        // Save state as closed
-                        localStorage.setItem("nearbyTabState", "closed");
+                        // Save state as closed with timestamp
+                        localStorage.setItem("nearbyTabState", "closed:" + Date.now());
                     }
                 }
             });
@@ -2047,7 +2290,14 @@ async function fetchAndRender() {
         var nearbyBtn = document.getElementById("nearby-btn");
         var nearbyContent = document.getElementById("nearby-content");
 
-        if (nearbyTabState === "closed" && nearbyBtn && nearbyContent) {
+        var nearbyIsClosed = false;
+        if (nearbyTabState && nearbyTabState.startsWith("closed:")) {
+            var closedAt = parseInt(nearbyTabState.split(":")[1], 10);
+            if (Date.now() - closedAt < 96 * 60 * 60 * 1000) nearbyIsClosed = true;
+            else localStorage.removeItem("nearbyTabState");
+        }
+
+        if (nearbyIsClosed && nearbyBtn && nearbyContent) {
             nearbyBtn.classList.remove("active");
             nearbyContent.style.display = "none";
             nearbyBtn.innerText = T('nearby');
@@ -2102,6 +2352,7 @@ async function fetchAndRender() {
     }
 
     function ShowDistantRows() {
+        Tracker.log('click_more');
         var distantRows = document.getElementsByClassName('distant-row');
         for (var i = distantRows.length - 1; i >= 0; i--) {
             distantRows[i].classList.remove('distant-row');
@@ -2120,11 +2371,111 @@ async function fetchAndRender() {
 // Re-evaluate line wrapping and release height locks if the user resizes the browser window
 window.addEventListener('resize', () => {
     preventLineWrap();
-    
+
     // Clear the high-water marks so cards can naturally shrink back down
     document.querySelectorAll('.server-card').forEach(card => {
         card.style.minHeight = '';
         card.dataset.lockedHeight = '0';
     });
 });
+
+const Tracker = {
+    sessionStart: Date.now(),
+    hoverTimer: null,
+    queue: [],
+    fgStart: document.hidden ? null : Date.now(),
+    fgTotal: 0,
+    lastInput: 0,
+    activeTotal: 0,
+    lastActiveCheck: Date.now(),
+
+    log: function(action, data = {}) {
+        this.queue.push({ a: action, t: Date.now(), ...data });
+    },
+
+    flush: function() {
+        if (this.queue.length === 0) return;
+        const payload = {
+            h: getCurrentUserHash() || "anon",
+            d: document.getElementById("chk-dark-mode")?.checked ? 1 : 0,
+            n: document.getElementById("chk-nearby-only")?.checked ? 1 : 0,
+            events: this.queue
+        };
+        const blob = new Blob([JSON.stringify(payload)], { type: 'text/plain' });
+        navigator.sendBeacon('/api/track', blob);
+        this.queue = [];
+    },
+
+    init: function() {
+        this.log("session_start", { ua: navigator.userAgent, w: window.innerWidth, wh: window.innerHeight, dpr: window.devicePixelRatio, wd: navigator.webdriver ? 1 : 0, tp: navigator.maxTouchPoints });
+
+        document.addEventListener("click", (e) => {
+            let listenLnk = e.target.closest(".listenlink");
+            if (listenLnk) { this.log("click_listen", { u: listenLnk.href }); return; }
+
+            let musician = e.target.closest("span.musician");
+            if (musician) { this.log("click_musician", { id: musician.id, c: (e.ctrlKey || e.metaKey) ? 1 : 0 }); return; }
+
+            if (e.target.id === "chk-dark-mode")   this.log("ui_dark",    { s: e.target.checked ? 1 : 0 });
+            if (e.target.id === "chk-nearby-only") this.log("ui_nearby",  { s: e.target.checked ? 1 : 0 });
+            if (e.target.id === "chk-hide-24")     this.log("ui_hide",    { s: e.target.checked ? 1 : 0 });
+            if (e.target.id === "btn-servers")     this.log("tab_switch", { tab: "servers" });
+            if (e.target.id === "btn-info")        this.log("tab_switch", { tab: "info" });
+        });
+
+        const _scrollSeen = new Set();
+        window.addEventListener('scroll', () => {
+            const pct = Math.round((window.scrollY + window.innerHeight) / document.body.scrollHeight * 100);
+            for (const t of [25, 50, 75, 100]) {
+                if (pct >= t && !_scrollSeen.has(t)) { _scrollSeen.add(t); Tracker.log('scroll_depth', { pct: t }); }
+            }
+        }, { passive: true });
+
+        const markInput = () => { this.lastInput = Date.now(); };
+        document.addEventListener("mousemove", markInput);
+        document.addEventListener("keydown",   markInput);
+        document.addEventListener("touchstart", markInput);
+
+        document.addEventListener("visibilitychange", () => {
+            const now = Date.now();
+            if (document.hidden) {
+                if (this.fgStart !== null) { this.fgTotal += now - this.fgStart; this.fgStart = null; }
+                this.log("tab_hidden");
+            } else {
+                this.fgStart = now;
+                this.log("tab_visible");
+            }
+        });
+
+        setInterval(() => {
+            const now = Date.now();
+            const wasActive = (now - this.lastInput) < 60000 && !document.hidden;
+            if (wasActive) this.activeTotal += now - this.lastActiveCheck;
+            this.lastActiveCheck = now;
+        }, 5000);
+
+        document.addEventListener("mouseover", (e) => {
+            let card = e.target.closest(".server-card");
+            if (card) this.hoverTimer = setTimeout(() => this.log("hover_server", { id: card.id }), 800);
+        });
+
+        document.addEventListener("mouseout", (e) => {
+            if (e.target.closest(".server-card")) clearTimeout(this.hoverTimer);
+        });
+
+        setInterval(() => this.flush(), 15000);
+
+        window.addEventListener("pagehide", () => {
+            const now = Date.now();
+            if (this.fgStart !== null) this.fgTotal += now - this.fgStart;
+            const sec    = Math.round((now - this.sessionStart) / 1000);
+            const fg_sec = Math.round(this.fgTotal / 1000);
+            const act_sec = Math.round(this.activeTotal / 1000);
+            this.log("session_end", { sec, fg_sec, act_sec });
+            this.flush();
+        });
+    }
+};
+
+document.addEventListener("DOMContentLoaded", () => Tracker.init());
 </script>
