@@ -9,6 +9,11 @@ using System.Threading;
 
 var hottiesSemaphore = new SemaphoreSlim(1, 1);
 
+// Telemetry state
+int _currentTelemetryMinute = JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt();
+var _seenEvents = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
+var _telemetryLock = new object();
+
 Console.WriteLine($"[STARTUP] JamFan22 starting. PID={Environment.ProcessId} Time={DateTime.Now:yyyy-MM-dd HH:mm:ss}");
 StreamRequestManager.Load();
 StreamGate.Load();
@@ -23,7 +28,7 @@ builder.WebHost.UseKestrel(serverOptions =>
         port = p;
 
     if (port == 443)
-        serverOptions.ListenAnyIP(port, listenOptions => listenOptions.UseHttps("keyJan26.pfx", "jamfan"));
+        serverOptions.ListenAnyIP(port, listenOptions => listenOptions.UseHttps("keyApr26.pfx", "jamfan"));
     else
         serverOptions.ListenAnyIP(port);
 });
@@ -255,9 +260,59 @@ app.MapPost("/api/hide", async (HttpContext context) =>
     return Results.Ok();
 });
 
+app.MapPost("/api/track", async (HttpContext context) =>
+{
+    string clientIP = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) { clientIP = xff.Split(',')[0].Trim(); }
+    if (!clientIP.Contains("::ffff")) clientIP = "::ffff:" + clientIP;
+
+    using var reader = new System.IO.StreamReader(context.Request.Body);
+    var rawBody = await reader.ReadToEndAsync();
+    int nowMinute = JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt();
+
+    if (nowMinute != _currentTelemetryMinute)
+    {
+        _seenEvents.Clear();
+        _currentTelemetryMinute = nowMinute;
+    }
+
+    try
+    {
+        var payload = System.Text.Json.JsonSerializer.Deserialize<TelemetryPayload>(rawBody);
+        if (payload != null && payload.events.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            lock (_telemetryLock)
+            {
+                foreach (var evt in payload.events.EnumerateArray())
+                {
+                    string rawEvent = evt.GetRawText();
+                    string key = $"{clientIP}|{payload.h}|{rawEvent}";
+                    if (_seenEvents.TryAdd(key, 1))
+                    {
+                        var line = $"{nowMinute},{clientIP},{payload.h},{payload.d},{payload.n},{rawEvent.Replace("\n", "")}";
+                        System.IO.File.AppendAllText("data/telemetry.log", line + Environment.NewLine);
+                    }
+                }
+            }
+        }
+    }
+    catch (System.Text.Json.JsonException) { }
+
+    return Results.Ok();
+});
+
 app.Run();
 
 public class HideRequest
 {
     public bool hide { get; set; }
+}
+
+public class TelemetryPayload
+{
+    public string h { get; set; }
+    public int d { get; set; }
+    public int n { get; set; }
+    public System.Text.Json.JsonElement events { get; set; }
 }
