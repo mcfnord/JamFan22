@@ -294,13 +294,15 @@ namespace JamFan22.Services
                 // ── Memory diagnostic snapshot (once per minute) ──────────────────
                 int perUserInnerTotal = 0;
                 foreach (var v in m_userConnectDurationPerUser.Values) perUserInnerTotal += v.Count;
+                int perServerInnerTotal = 0;
+                foreach (var v in m_userConnectDurationPerServer.Values) perServerInnerTotal += v.Count;
                 Console.WriteLine(
                     $"[MEM] timeTogether={m_timeTogether.Count} " +
                     $"sightings={m_connectionFirstSighting.Count} " +
                     $"everywhereWeHaveMet={m_everywhereWeHaveMet.Count} " +
                     $"everywhereIveJoinedYou={m_everywhereIveJoinedYou.Count} " +
                     $"perUser.outer={m_userConnectDurationPerUser.Count} perUser.innerTotal={perUserInnerTotal} " +
-                    $"perServer.outer={m_userConnectDurationPerServer.Count} " +
+                    $"perServer.outer={m_userConnectDurationPerServer.Count} perServer.innerTotal={perServerInnerTotal} " +
                     $"connectDuration={m_userConnectDuration.Count} " +
                     $"serverViewTracker={m_userServerViewTracker.Count} " +
                     $"guidNames={m_guidNamePairs.Count}");

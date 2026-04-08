@@ -34,6 +34,7 @@ namespace JamFan22
                 if (DateTime.UtcNow < expiry) return expiry;
                 _hiddenGuids.TryRemove(guid, out _);
             }
+            if (_hiddenGuids.Count > 0) Console.WriteLine($"[MEM-hidden] hiddenGuids={_hiddenGuids.Count}");
             return null;
         }
     }

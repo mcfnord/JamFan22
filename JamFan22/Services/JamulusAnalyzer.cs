@@ -513,6 +513,9 @@ public string DurationHere(string server, string who, string nationCode)
                     m_lastDataLoadTime = DateTime.Now;
                     Console.WriteLine("Data file reload complete.");
 
+                    // ── Memory diagnostics for visitor stats ──────────────────
+                    Console.WriteLine($"[MEM-data] IPVisit={m_clientIPLastVisit.Count} IPLegit={m_clientIPsDeemedLegit.Count} NationLegit={m_countriesDeemedLegit.Count} NationCounts={m_countryRefreshCounts.Count}");
+
                     System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
                     GC.Collect(2, GCCollectionMode.Forced, true, true);
                     GC.WaitForPendingFinalizers();
