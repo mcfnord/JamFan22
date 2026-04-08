@@ -1084,144 +1084,47 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
 
         private async Task<Dictionary<string, DateTime>> GetLastSeenMap()
         {
-            if (_lastSeenMapCache != null && !_lastSeenMapCache.IsExpired)
+            if (Services.EncounterTracker.m_timeTogetherUpdated != null)
             {
-                return _lastSeenMapCache.Data;
-            }
-
-            var lastSeenMap = new Dictionary<string, DateTime>();
-            const string fileName = "timeTogetherLastUpdates.json";
-            const int cacheDurationSeconds = 30; 
-            
-            int maxRetries = 2; 
-            int delayMs = 250; 
-
-            for (int i = 0; i < maxRetries; i++)
-            {
-                try
+                var dict = new Dictionary<string, DateTime>(Services.EncounterTracker.m_timeTogetherUpdated);
+                var allUpdates = new List<(string Guid, DateTime LastSeen)>();
+                foreach (var kvp in dict)
                 {
-                    var json = File.ReadAllText(fileName); 
-                    var records = JsonSerializer.Deserialize<List<LastUpdateRecordRaw>>(json);
-                    
-                    if (records == null)
+                    string key = kvp.Key;
+                    if (key != null && key.Length == 64)
                     {
-                        lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); }
-                        return lastSeenMap;
+                        string guidA = key.Substring(0, 32);
+                        string guidB = key.Substring(32, 32);
+                        allUpdates.Add((guidA, kvp.Value));
+                        allUpdates.Add((guidB, kvp.Value));
                     }
-
-                    var allUpdates = new List<(string Guid, DateTime LastSeen)>();
-                    foreach (var record in records)
-                    {
-                        if (record.Key.Length != 64) continue;
-                        if (DateTime.TryParse(record.Value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var parsedDate))
-                        {
-                            allUpdates.Add((record.Key.Substring(0, 32), parsedDate));
-                            allUpdates.Add((record.Key.Substring(32, 32), parsedDate));
-                        }
-                    }
-                    
-                    var finalMap = allUpdates
-                        .GroupBy(u => u.Guid)
-                        .ToDictionary(g => g.Key, g => g.Max(item => item.LastSeen));
-                    
-                    lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(finalMap, TimeSpan.FromSeconds(cacheDurationSeconds)); }
-                    return finalMap;
                 }
-                catch (JsonException ex)
-                {
-                    Console.WriteLine($"[GetLastSeenMap] Warning: Failed to parse {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
-                    if (i < maxRetries - 1) await Task.Delay(delayMs); 
-                }
-                catch (IOException ex)
-                {
-                    Console.WriteLine($"[GetLastSeenMap] Warning: Failed to read {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
-                    if (i < maxRetries - 1) await Task.Delay(delayMs);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-                    lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
-                    return lastSeenMap;
-                }
+                return allUpdates.GroupBy(u => u.Guid).ToDictionary(g => g.Key, g => g.Max(item => item.LastSeen));
             }
-
-            Console.WriteLine($"[GetLastSeenMap] CRITICAL ERROR: All {maxRetries} retry attempts failed for {fileName}.");
-            lock (_cacheLock) { _lastSeenMapCache = new CacheItem<Dictionary<string, DateTime>>(lastSeenMap, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
-            return lastSeenMap;
+            return new Dictionary<string, DateTime>();
         }
 
         private async Task<Dictionary<string, double>> GetAccruedTimeMap()
         {
-            if (_accruedTimeCache != null && !_accruedTimeCache.IsExpired)
+            if (Services.EncounterTracker.m_timeTogether != null)
             {
-                return _accruedTimeCache.Data;
-            }
-
-            var accruedTime = new Dictionary<string, double>();
-            const string fileName = "timeTogether.json";
-            const int cacheDurationSeconds = 30; 
-
-            int maxRetries = 2;
-            int delayMs = 250;
-
-            for (int i = 0; i < maxRetries; i++)
-            {
-                try
+                var dict = new Dictionary<string, TimeSpan>(Services.EncounterTracker.m_timeTogether);
+                var accruedTime = new Dictionary<string, double>();
+                foreach (var kvp in dict)
                 {
-                    var json = File.ReadAllText(fileName);
-                    var records = JsonSerializer.Deserialize<List<TimeRecord>>(json);
-                    
-                    if (records == null)
+                    string key = kvp.Key;
+                    if (key != null && key.Length == 64)
                     {
-                        lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); }
-                        return accruedTime;
+                        string guidA = key.Substring(0, 32);
+                        string guidB = key.Substring(32, 32);
+                        double minutes = kvp.Value.TotalMinutes;
+                        accruedTime[guidA] = accruedTime.GetValueOrDefault(guidA, 0) + minutes;
+                        accruedTime[guidB] = accruedTime.GetValueOrDefault(guidB, 0) + minutes;
                     }
-
-                    foreach (var record in records)
-                    {
-                        if (record.Key.Length != 64) continue;
-                        
-                        if (TimeSpan.TryParse(record.Value, CultureInfo.InvariantCulture, out TimeSpan duration))
-                        {
-                            string guidA = record.Key.Substring(0, 32);
-                            string guidB = record.Key.Substring(32, 32);
-                            
-                            double minutes = duration.TotalMinutes;
-                            
-                            accruedTime[guidA] = accruedTime.GetValueOrDefault(guidA, 0) + minutes;
-                            accruedTime[guidB] = accruedTime.GetValueOrDefault(guidB, 0) + minutes;
-                        }
-                        else
-                        {
-                            Console.WriteLine($"[GetAccruedTimeMap] Warning: Could not parse TimeSpan value: {record.Value}");
-                        }
-                    }
-                    
-                    lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); }
-                    Console.WriteLine($"[GetAccruedTimeMap] Successfully loaded {accruedTime.Count} unique GUIDs from {fileName}.");
-                    return accruedTime; 
                 }
-                catch (JsonException ex)
-                {
-                    Console.WriteLine($"[GetAccruedTimeMap] Warning: Failed to parse {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
-                    if (i < maxRetries - 1) await Task.Delay(delayMs);
-                }
-                catch (IOException ex)
-                {
-                    Console.WriteLine($"[GetAccruedTimeMap] Warning: Failed to read {fileName} on attempt {i + 1}/{maxRetries}. Error: {ex.Message}");
-                    if (i < maxRetries - 1) await Task.Delay(delayMs);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[GetAccruedTimeMap] CRITICAL ERROR reading or parsing {fileName}. Error: {ex.Message}");
-                    lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
-                    return accruedTime; 
-                }
+                return accruedTime;
             }
-            
-            Console.WriteLine($"[GetAccruedTimeMap] CRITICAL ERROR: All {maxRetries} retry attempts failed for {fileName}.");
-            lock (_cacheLock) { _accruedTimeCache = new CacheItem<Dictionary<string, double>>(accruedTime, TimeSpan.FromSeconds(cacheDurationSeconds)); } 
-            return accruedTime;
+            return new Dictionary<string, double>();
         }
 
         private async Task<Dictionary<string, string>> GetGuidCensusMapAsync()
@@ -1233,7 +1136,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
 
             var censusMap = new Dictionary<string, string>();
             const string fileName = "data/censusgeo.csv";
-            const int cacheDurationMinutes = 5; 
+            const int cacheDurationMinutes = 1440; // Changed from 5 to 1440 (24 hours) since it's just a fallback for historical names.
 
             int maxRetries = 2; 
             int delayMs = 250; 
