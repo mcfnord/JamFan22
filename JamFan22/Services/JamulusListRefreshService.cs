@@ -24,8 +24,11 @@ namespace JamFan22.Services
             try { await Task.Delay(6000, stoppingToken); }
             catch (OperationCanceledException) { return; }
 
+            int restartCount = 0;
             while (!stoppingToken.IsCancellationRequested)
             {
+                if (restartCount > 0)
+                    _logger.LogWarning("RefreshThreadTask restarted (count: {N}) at {Time:u}.", restartCount, DateTime.UtcNow);
                 try
                 {
                     await _cacheManager.RefreshThreadTask(stoppingToken);
@@ -36,6 +39,7 @@ namespace JamFan22.Services
                     try { await Task.Delay(30000, stoppingToken); }
                     catch (OperationCanceledException) { break; }
                 }
+                restartCount++;
             }
 
             _logger.LogInformation("JamulusListRefreshService is stopping.");

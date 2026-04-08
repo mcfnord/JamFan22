@@ -180,11 +180,17 @@ namespace JamFan22.Services
                 try
                 {
                     var serverStates = new Dictionary<string, Task<string>>();
+                    var fetchStarted = DateTime.UtcNow;
 
                     foreach (var key in JamulusListURLs.Keys)
                         serverStates.Add(key, s_refreshClient.GetStringAsync(JamulusListURLs[key], stoppingToken));
 
                     await Task.WhenAll(serverStates.Values);
+
+                    var fetchMs = (DateTime.UtcNow - fetchStarted).TotalMilliseconds;
+                    if (fetchMs > 5000)
+                        Console.WriteLine($"[WARN] Slow fetch: all {serverStates.Count} URLs took {fetchMs:F0}ms at {DateTime.UtcNow:u}");
+
                     await GenerateLiveStatusJsonAsync(serverStates);
 
                     foreach (var key in JamulusListURLs.Keys)
@@ -369,6 +375,9 @@ namespace JamFan22.Services
                         if (stopwatch.ElapsedMilliseconds > 100)
                             Console.WriteLine($"[DIAGNOSTIC] Background processing took {stopwatch.ElapsedMilliseconds}ms while holding m_serializerMutex.");
 
+                        // ── Memory diagnostics ──────────────────────────────────────────
+                        Console.WriteLine($"[MEM-bg] serverFirstSeen={m_serverFirstSeen.Count} censusgeoWritten={_censusgeoWritten.Count}");
+
                         foreach (var key in JamulusListURLs.Keys)
                         {
                             var serversOnList = JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
@@ -386,9 +395,13 @@ namespace JamFan22.Services
                     }
 
                     var rssLine = System.IO.File.ReadAllLines("/proc/self/status").FirstOrDefault(l => l.StartsWith("VmRSS"));
-                    Console.WriteLine($"[RSS-bg] {rssLine?.Split(':')[1].Trim() ?? "?"}");
+                    Console.WriteLine($"[RSS-bg] {DateTime.UtcNow:u} {rssLine?.Split(':')[1].Trim() ?? "?"}");
                     int secs = fMissingSamplePresent ? 2 : 5;
                     await Task.Delay(secs * 1000, stoppingToken);
+                }
+                catch (OperationCanceledException ex) when (ex.CancellationToken != stoppingToken)
+                {
+                    Console.WriteLine($"[WARN] RefreshThreadTask: HTTP timeout/cancel at {DateTime.UtcNow:u} — restarting loop.");
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
