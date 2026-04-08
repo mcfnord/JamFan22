@@ -935,7 +935,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
 
             void bestSwap.offsetHeight;
 
-            bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
+            bestSwap.style.transition = 'transform 0.9s ease-in-out, height 0.9s ease-in-out';
             bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
             bestSwap.style.height = targetHeight + 'px';
 
@@ -966,7 +966,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
 
                 void bestSwap.offsetWidth;
                 bestSwap.style.transition = 'all 0.75s ease';
-            }, 600);
+            }, 950);
         }
         return true;
     }
@@ -1103,7 +1103,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
 
             void bestSwap.offsetHeight;
 
-            bestSwap.style.transition = 'transform 0.6s ease, height 0.6s ease';
+            bestSwap.style.transition = 'transform 0.9s ease-in-out, height 0.9s ease-in-out';
             bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
             bestSwap.style.height = targetHeight + 'px';
 
@@ -1140,7 +1140,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
                 bestSwap.style.transition = 'all 0.75s ease';
 
                 resolve({ node: firstGhost, didSwap: true });
-            }, 600);
+            }, 950);
         });
     }
 
@@ -1182,17 +1182,17 @@ if (action.type === 'replace_server') {
                         newEl.style.filter = 'brightness(1.5) drop-shadow(0 0 20px gold)';
                         void newEl.offsetWidth; // Force browser reflow
                         
-                        // 3. The Flourish: Snap into place with a slight physical "bounce" (ease-out-back)
-                        newEl.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.5s ease-out';
+                        // 3. The Flourish: Match the 0.9s board standard
+                        newEl.style.transition = 'transform 0.9s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.9s ease-out';
                         newEl.style.transform = 'perspective(1000px) scale(1) rotateY(0deg)';
                         newEl.style.filter = 'brightness(1) drop-shadow(0 0 0 transparent)';
-                        
+
                         // Clean up inline styles once finished
                         setTimeout(() => {
                             newEl.style.filter = '';
                             newEl.style.zIndex = '';
-                        }, 500);
-                        setTimeout(() => staggerAddMusicians(action.addServer), 600);
+                        }, 950);
+                        setTimeout(() => staggerAddMusicians(action.addServer), 1000);
                     }
                 }, 800); // Was 600 — added 200ms hold at edge-on
             } else {
@@ -1215,51 +1215,78 @@ if (action.type === 'replace_server') {
         else if (action.type === 'remove_server') {
             const el = document.getElementById(action.id);
             if (el) {
-                el.style.transition = 'all 0.75s ease-out';
-                el.style.opacity = '0';
-                el.style.transform = 'translateY(-20px) scale(0.95)';
-                el.style.filter = 'blur(4px)';
-                
-                setTimeout(() => {
-                    if (el.parentNode !== grid) return;
-
-                const departingHeight = el.offsetHeight;
-
-                const ghost = document.createElement('div');
-                ghost.className = 'server-card ghost-card';
-
-                // Pass the invisible cloak to the ghost so CSS grid gap doesn't snap open for distant servers
-                if (el.classList.contains('distant-server')) {
-                    ghost.classList.add('distant-server');
-                }
-
-                ghost.style.visibility = 'hidden';
-                ghost.id = 'ghost-' + Date.now();
-                ghost.style.order = el.style.order;
-                ghost.style.minHeight = departingHeight + 'px';
-                el.replaceWith(ghost);
-
-                let swapped = optimizeGhostPlacement(ghost, grid, newData);
-                if (swapped) { _gridRelocatedFlag = true; }
-                else {
-                    // Sudden-death: scan all existing ghosts top-to-bottom for a viable slide
-                    const allGhosts = Array.from(grid.querySelectorAll('.ghost-card'));
-                    for (const otherGhost of allGhosts) {
-                        if (otherGhost === ghost) continue;
-                        if (optimizeGhostPlacement(otherGhost, grid, newData)) { _gridRelocatedFlag = true; break; }
+                // 1. Detect if we are in a single column layout
+                let isSingleColumn = true;
+                const activeCards = Array.from(grid.querySelectorAll('.server-card:not(.ghost-card)'));
+                if (activeCards.length > 1) {
+                    // If the first two cards share the same top Y-coordinate, it's multi-column
+                    if (activeCards[0].getBoundingClientRect().top === activeCards[1].getBoundingClientRect().top) {
+                        isSingleColumn = false;
                     }
                 }
 
-                // Smoothly release the held height, padding, and border so lines below ease upward
-                /* setTimeout(() => {
-                    ghost.style.transition = 'min-height 0.75s ease-in-out, padding 0.75s ease-in-out';
-                    ghost.style.minHeight = '0px';
-                    ghost.style.padding = '0px';
-                    ghost.style.border = 'none';
-                }, 100);
-                */
+                if (isSingleColumn) {
+                    // --- SINGLE COLUMN: Direct collapse, no ghosts! ---
+                    el.style.height = el.offsetHeight + 'px';
+                    el.style.minHeight = '0px'; // Override any locked heights
+                    el.style.overflow = 'hidden';
+                    
+                    void el.offsetWidth; // Force browser reflow
 
-                }, 750); 
+                    // Animate the fade out AND the height collapse simultaneously
+                    el.style.transition = 'all 0.75s ease-out, height 0.75s ease-in-out, padding 0.75s ease-in-out, margin 0.75s ease-in-out';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(-20px) scale(0.95)';
+                    el.style.filter = 'blur(4px)';
+                    
+                    // Squeeze it shut
+                    el.style.height = '0px';
+                    el.style.paddingTop = '0px';
+                    el.style.paddingBottom = '0px';
+                    el.style.marginTop = '0px';
+                    el.style.marginBottom = '0px';
+                    el.style.border = 'none';
+
+                    // Remove it from the DOM once the animation completes
+                    setTimeout(() => {
+                        if (el.parentNode === grid) el.remove();
+                    }, 750);
+                } else {
+                    // --- MULTI-COLUMN: Original Ghost Card Logic ---
+                    el.style.transition = 'all 0.75s ease-out';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(-20px) scale(0.95)';
+                    el.style.filter = 'blur(4px)';
+                    
+                    setTimeout(() => {
+                        if (el.parentNode !== grid) return;
+
+                        const departingHeight = el.offsetHeight;
+
+                        const ghost = document.createElement('div');
+                        ghost.className = 'server-card ghost-card';
+
+                        if (el.classList.contains('distant-server')) {
+                            ghost.classList.add('distant-server');
+                        }
+
+                        ghost.style.visibility = 'hidden';
+                        ghost.id = 'ghost-' + Date.now();
+                        ghost.style.order = el.style.order;
+                        ghost.style.minHeight = departingHeight + 'px';
+                        el.replaceWith(ghost);
+
+                        let swapped = optimizeGhostPlacement(ghost, grid, newData);
+                        if (swapped) { _gridRelocatedFlag = true; }
+                        else {
+                            const allGhosts = Array.from(grid.querySelectorAll('.ghost-card'));
+                            for (const otherGhost of allGhosts) {
+                                if (otherGhost === ghost) continue;
+                                if (optimizeGhostPlacement(otherGhost, grid, newData)) { _gridRelocatedFlag = true; break; }
+                            }
+                        }
+                    }, 750); 
+                }
             }
         }
         else if (action.type === 'add_server') {
@@ -1609,10 +1636,26 @@ if (action.type === 'replace_server') {
         };
         actions.sort((a, b) => (typePriority[a.type] ?? 99) - (typePriority[b.type] ?? 99));
 
+        // 1. Count how many visual events we have to process
+        const visualActionsCount = actions.filter(a =>
+            ['add_musician', 'remove_musician', 'migrate_musician', 'add_server', 'remove_server', 'replace_server'].includes(a.type)
+        ).length;
+
+        // 2. The Clamped Heartbeat:
+        // Spread across ~18 seconds.
+        // Max delay: 1800ms (so small diffs don't feel painfully slow)
+        // Min delay: 800ms (ABSOLUTE FLOOR to protect 750ms CSS transitions from snapping)
+        const calculatedPace = 18000 / Math.max(1, visualActionsCount);
+        const dynamicDelay = Math.max(800, Math.min(1800, calculatedPace));
+
         for (const action of actions) {
             await executeAction(action, newData);
+
             if (['add_musician', 'remove_musician', 'migrate_musician', 'add_server', 'remove_server', 'replace_server'].includes(action.type)) {
-                await new Promise(r => setTimeout(r, 1500 + Math.random() * 800));
+                await new Promise(r => setTimeout(r, dynamicDelay));
+            } else {
+                // Non-visual background updates (like meta text changes) happen almost instantly
+                await new Promise(r => setTimeout(r, 50));
             }
         }
 
@@ -1783,10 +1826,10 @@ if (action.type === 'replace_server') {
             const vh = window.innerHeight;
             let online = 0, visible = 0, hidden = 0;
             for (const hash of allTracked) {
-                const els = document.getElementsByClassName(hash);
-                if (els.length === 0) continue;
+                const el = document.getElementById(hash);
+                if (!el) continue;
                 online++;
-                const rect = els[0].getBoundingClientRect();
+                const rect = el.getBoundingClientRect();
                 if (rect.top >= 0 && rect.bottom <= vh) visible++;
                 else hidden++;
             }
@@ -1931,14 +1974,19 @@ if (action.type === 'replace_server') {
             a.style.transform = `translate(${rectA.left - newRectA.left}px, ${rectA.top - newRectA.top}px)`;
             b.style.transform = `translate(${rectB.left - newRectB.left}px, ${rectB.top - newRectB.top}px)`;
 
+            // STEP 2: The Double-rAF Trick to guarantee the frame is committed
             requestAnimationFrame(() => {
-                a.style.transition = b.style.transition = 'transform 0.5s ease';
-                a.style.transform = b.style.transform = '';
+                requestAnimationFrame(() => {
+                    // STEP 3: Turn on the smooth 0.9s transition and release the transform
+                    a.style.transition = b.style.transition = 'transform 0.9s cubic-bezier(0.25, 1, 0.5, 1)';
+                    a.style.transform = b.style.transform = '';
 
-                setTimeout(() => {
-                    a.style.transition = b.style.transition = a.style.zIndex = b.style.zIndex = '';
-                    resolve();
-                }, 500);
+                    // STEP 4: Clean up ONLY after the 0.9s has fully resolved
+                    setTimeout(() => {
+                        a.style.transition = b.style.transition = a.style.zIndex = b.style.zIndex = '';
+                        resolve();
+                    }, 950); // 50ms safety buffer to prevent 0.1s hover-snaps
+                });
             });
         });
     }

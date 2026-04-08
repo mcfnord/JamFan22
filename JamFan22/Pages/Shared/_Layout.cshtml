@@ -61,7 +61,7 @@
         <div id="chatPopup" style="position: fixed; bottom: 10px; right: 10px; width: calc(100% - 20px); max-width: 65px; background: white; border: 1px solid #ccc; z-index: 1000; box-shadow: 0 0 10px rgba(0,0,0,0.5); border-radius: 5px; transition: max-width 0.2s ease-in-out;">
             <div id="chatHeader" style="background: #007bff; color: white; padding: 2px 10px; cursor: pointer; border-radius: 5px 5px 0 0; font-size: 14px; line-height: 1.2; white-space: nowrap; overflow: hidden;" onclick="toggleChat()">Chat</div>
             <div id="chatBody" style="display: none; padding: 10px;">
-                <div id="messagesList" style="height: 200px; overflow-y: scroll; margin-bottom: 10px; font-size: 14px; border: 1px solid #eee; padding: 5px;"></div>
+                <div id="messagesList" style="height: 200px; overflow-y: scroll; margin-bottom: 10px; font-size: 14px; border: 1px solid #eee; padding: 5px; color: #212529;"></div>
                 <div style="display: flex;">
                     <input type="text" id="messageInput" style="flex: 1; min-width: 0; padding: 5px;" placeholder="Type a message..." />
                     <button id="sendButton" style="flex-shrink: 0; padding: 5px 10px; margin-left: 5px; font-weight: bold;">&gt;</button>
@@ -112,13 +112,6 @@
                 if (isChatOpen === "true") {
                     document.getElementById("chatBody").style.display = "block";
                     chatPopup.style.maxWidth = "300px";
-                }
-
-                // Keep green color if unread messages persist across refresh
-                var hasUnread = sessionStorage.getItem("chatUnread");
-                if (hasUnread === "true" && isChatOpen !== "true") {
-                    chatHeader.style.background = "#28a745";
-                    chatHeader.innerText = "Chats";
                 }
 
                 var connection = new signalR.HubConnectionBuilder().withUrl("/chathub").build();
