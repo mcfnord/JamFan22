@@ -34,6 +34,7 @@ FILES_TO_COPY=(
     "timeTogetherLastUpdates.json"
     "guidNamePairs.json"
     "tooltips.json"
+    "predicted.csv"
     "allSvrIpPorts.txt"
     "activeSvrIpPorts.txt"
     "serversToSample.txt"
@@ -86,4 +87,5 @@ echo ""
 cd "$TARGET_DIR"
 
 # Use the PORT environment variable we added to Program.cs
-ASPNETCORE_ENVIRONMENT=Development PORT=$TEST_PORT dotnet JamFan22.dll
+echo "Logs are being written to $TARGET_DIR/output.log"
+ASPNETCORE_ENVIRONMENT=Development PORT=$TEST_PORT dotnet JamFan22.dll > output.log 2>&1

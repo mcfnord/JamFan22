@@ -281,7 +281,7 @@ def find_imminent_hotspots(file_path='data/census.csv',
 
         days_ahead = (h_day - now_utc.dayofweek + 7) % 7
         next_time = now_utc.replace(hour=h_hour, minute=minute, second=second, microsecond=0) + timedelta(days=days_ahead)
-        if next_time < now_utc: next_time += timedelta(days=7)
+        if next_time <= now_utc: next_time += timedelta(days=7)
         pred_mins = int((next_time - EPOCH_START_UTC).total_seconds() / 60)
 
         results.append({
