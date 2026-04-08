@@ -389,6 +389,10 @@ namespace JamFan22.Pages
                     }
 
                     var now = DateTime.UtcNow;
+                    var currentNames = s.whoObjectFromSourceData?
+                        .Select(u => u.name)
+                        .Where(n => !string.IsNullOrWhiteSpace(n))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>();
                     foreach (var pred in activePredictions)
                     {
                         if (string.Equals(pred.Server, s.name, StringComparison.OrdinalIgnoreCase))
@@ -396,7 +400,8 @@ namespace JamFan22.Pages
                             double minsUntil = (pred.ArrivalTime - now).TotalMinutes;
                             if (minsUntil <= 15 && minsUntil >= -10)
                             {
-                                if (!string.IsNullOrWhiteSpace(pred.Name) && !apiSvr.soonNames.Contains(pred.Name))
+                                if (!string.IsNullOrWhiteSpace(pred.Name) && !apiSvr.soonNames.Contains(pred.Name)
+                                    && !currentNames.Contains(pred.Name))
                                     apiSvr.soonNames.Add(pred.Name);
                             }
                         }
@@ -405,6 +410,7 @@ namespace JamFan22.Pages
                     if (apiSvr.soonNames.Count > 0)
                     {
                         apiSvr.soonHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>Soon {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";
+                        apiSvr.leaversHtml = null;
                     }
 
                     if (s.whoObjectFromSourceData != null)
