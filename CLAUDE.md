@@ -24,7 +24,10 @@ systemctl restart jamfan22
 
 **CRITICAL — Two instances run as dotnet processes.** Never kill dotnet processes by PID or `pkill`. Use only:
 - `systemctl restart jamfan22` — for production (port 443)
-- `deploy-test-build.sh` kills and relaunches the debug instance (port 5000) itself — let it handle that
+- `deploy-test-build.sh` does **not** kill the old debug instance — always kill port 5000 first, then run the script:
+  ```bash
+  kill $(lsof -t -i :5000) 2>/dev/null; cd /root/JamFan22 && ./deploy-test-build.sh
+  ```
 
 To stop the debug instance specifically: `kill $(lsof -t -i :5000)`
 

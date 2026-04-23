@@ -180,7 +180,7 @@ public string DurationHere(string server, string who, string nationCode)
             return false;
         }
 
-        public async Task LoadConnectedLoungesAsync()
+        public static async Task LoadConnectedLoungesAsync()
         {
             if (DateTime.UtcNow < _loungesCacheExpiry && m_connectedLounges.Count > 0)
                 return;
@@ -239,6 +239,8 @@ public string DurationHere(string server, string who, string nationCode)
                 {
                     if (user.name.Contains("obby") || user.name == "")
                     {
+                        int musicianCount = s.whoObjectFromSourceData.Count(u => !u.name.Contains("obby") && u.name != "");
+                        if (musicianCount <= 1) return "";
                         string num = "";
                         var iPos = user.name.IndexOf("[");
                         if (iPos > 0 && '0' != user.name[iPos + 1])

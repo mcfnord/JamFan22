@@ -1,3 +1,15 @@
+// NEARBY MUSICIANS — MusicianFinder eligibility rules
+//
+// A player appears in the nearby panel if ALL of the following are true:
+//   - >= 10 min accrued time (EncounterTracker.m_timeTogether) if currently live,
+//     or >= 30 min if recently gone (within 60 min)
+//   - EncounterTracker accrues time on ALL public directory servers, not just fleet servers.
+//     A player on any public server (e.g. bluemuse.org) can qualify.
+//   - Has a record in join-events.csv with a non-empty IP (col 11). No IP = no location
+//     = cannot appear, regardless of accrued time.
+//   - Quality filter: MaxGoldenValue <= 1 AND >= 94.3% of entries are golden=0
+//     => excluded as likely bot/ghost.
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
