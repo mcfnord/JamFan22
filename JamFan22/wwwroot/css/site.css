@@ -233,3 +233,16 @@ body.dark-mode a {
 #client-grid.nearby-only-active .distant-server:not(.my-active-server) {
     display: none !important;
 }
+/* ========================================= */
+/* VIDEO LINK                                */
+/* ========================================= */
+.video-link {
+    cursor: default;
+    text-decoration: none;
+    color: inherit;
+}
+.my-active-server .video-link {
+    cursor: pointer;
+    text-decoration: underline;
+    color: #0d6efd;
+}

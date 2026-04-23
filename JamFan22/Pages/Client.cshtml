@@ -655,9 +655,32 @@ body {
         if (server.listenHtml) {
             html += `${server.listenHtml}`;
         }
-        
+
+        if (server.songTitle) {
+            const dashIdx = server.songTitle.indexOf(' \u2014 ');
+            if (dashIdx !== -1) {
+                const ttl = server.songTitle.substring(0, dashIdx);
+                const art = server.songTitle.substring(dashIdx + 3);
+                html += `<br><font size='-1'><b><i>${ttl}</i></b><i> · ${art}</i></font>`;
+            } else {
+                html += `<br><font size='-1'><b><i>${server.songTitle}</i></b></font>`;
+            }
+        }
+
+        if (server.videoUrl) {
+            const escapedUrl = server.videoUrl.replace(/'/g, "\\'");
+            html += `<span class="video-link" onclick="openVideoIfConnected(this, '${escapedUrl}')">Video</span>`;
+        }
+
         html += `</center>`;
         return html;
+    }
+
+    function openVideoIfConnected(el, url) {
+        const card = el.closest('.server-card');
+        if (card && card.classList.contains('my-active-server')) {
+            window.open(url, '_blank');
+        }
     }
 
     function renderServerFooter(server) {

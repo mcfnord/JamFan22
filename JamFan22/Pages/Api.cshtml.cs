@@ -190,7 +190,9 @@ namespace JamFan22.Pages
                 }
 
                 var richCache = await _analyzer.GetCensusCacheAsync();
-                await _analyzer.LoadConnectedLoungesAsync();
+                await JamulusAnalyzer.LoadConnectedLoungesAsync();
+                bool visitorIsAllowed = await IpAnalyticsService.IsIpAllowedAsync(ipAddress);
+                Console.WriteLine($"[VIDEO-GATE] {DateTime.UtcNow:HH:mm:ss} ip={ipAddress} allowed={visitorIsAllowed} links={harvest.m_discreetLinks.Count}");
 
                 var bogusCities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
@@ -354,8 +356,8 @@ namespace JamFan22.Pages
                         apiSvr.songTitle = title;
                     }
 
-                    if (harvest.m_discreetLinks.TryGetValue(serverAddress, out string videoUrl))
-                        apiSvr.videoUrl = videoUrl;
+                    if (visitorIsAllowed && harvest.m_discreetLinks.TryGetValue(serverAddress, out var linkEntry))
+                        apiSvr.videoUrl = linkEntry.Url;
 
                     var currentLeavers = new List<string>();
 
@@ -409,7 +411,7 @@ namespace JamFan22.Pages
 
                     if (apiSvr.soonNames.Count > 0)
                     {
-                        apiSvr.soonHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>Soon {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";
+                        apiSvr.soonHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>Soon: {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";
                         apiSvr.leaversHtml = null;
                     }
 

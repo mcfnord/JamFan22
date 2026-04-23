@@ -1,3 +1,14 @@
+// /chat-url-client SERVER-RESOLUTION FLOW
+//   1. IsIpAllowedAsync(remoteIp) — silently reject blocked IPs
+//   2. IdentityManager.GetGuidStrengths(remoteIp) -> Dictionary<string, int>
+//      (all GUIDs seen for this IP at any strength, including 0)
+//   3. Build activeGuidToServer map by iterating JamulusAnalyzer.m_allMyServers
+//      -> whoObjectFromSourceData -> EncounterTracker.GetHash(name, country, instrument)
+//   4. Intersect: find highest-strength GUID for this IP that is currently active on a server
+//   5. Call harvest.IngestChatUrlAsync(url, serverAddr) with the winning server
+// Log prefix [CHAT-URL-CLIENT] shows each step: BLOCKED, guid list,
+// ACTIVE/NOT-ACTIVE per guid, and final STORING or "No active server found".
+
 using JamFan22;
 using JamFan22.Services;
 using Microsoft.AspNetCore.Http;
@@ -108,6 +119,18 @@ app.MapGet("/countries", (HttpContext context) =>
     sb.AppendLine("</table></body></html>");
 
     return Results.Content(sb.ToString(), "text/html");
+});
+
+app.MapGet("/ip-allowed/{ip}", async (string ip, HttpContext context) =>
+{
+    string callerIP = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) callerIP = xff.Split(',')[0].Trim();
+
+    bool blocked = await IpAnalyticsService.IsIpBlockedAsync(ip);
+    string verdict = blocked ? "BLOCKED" : "ALLOWED";
+    Console.WriteLine($"[IP-ALLOWED] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} caller={callerIP} query={ip} => {verdict}");
+    return Results.Text(blocked ? "false" : "true", "text/plain");
 });
 
 app.MapGet("/api/nearby", async (HttpContext context) =>
@@ -237,6 +260,101 @@ app.MapGet("/reset", (HttpContext context) =>
     return Results.Text(message, "text/plain");
 });
 
+app.MapPost("/chat-url-server", async (HttpContext context) =>
+{
+    var req = await context.Request.ReadFromJsonAsync<ChatUrlRequest>();
+    if (req == null || string.IsNullOrEmpty(req.url))
+        return Results.BadRequest("missing url");
+
+    var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) remoteIp = xff.Split(',')[0].Trim();
+    remoteIp = remoteIp.Replace("::ffff:", "");
+    var server = req.port > 0 ? $"{remoteIp}:{req.port}" : remoteIp;
+
+    if (!await JamFan22.harvest.UrlMatchesChatPatternsAsync(req.url))
+    {
+        Console.WriteLine($"[CHAT-URL] rejected url={req.url}");
+        return Results.Text("rejected", "text/plain");
+    }
+
+    Console.WriteLine($"[CHAT-URL] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} server={server} url={req.url}");
+    await JamFan22.harvest.IngestChatUrlAsync(req.url, server);
+    return Results.Ok();
+});
+app.MapPost("/chat-url-client", async (HttpContext context) =>
+{
+    var req = await context.Request.ReadFromJsonAsync<ChatUrlRequest>();
+    if (req == null || string.IsNullOrEmpty(req.url))
+        return Results.BadRequest("missing url");
+
+    var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) remoteIp = xff.Split(',')[0].Trim();
+    remoteIp = remoteIp.Replace("::ffff:", "");
+
+    Console.WriteLine($"[CHAT-URL-CLIENT] {DateTime.UtcNow:HH:mm:ss} client={remoteIp} url={req.url}");
+
+    bool allowed = await IpAnalyticsService.IsIpAllowedAsync(remoteIp);
+    if (!allowed)
+    {
+        Console.WriteLine($"[CHAT-URL-CLIENT] BLOCKED ip={remoteIp} — ip-allowed gate rejected");
+        return Results.Ok();
+    }
+
+    // Resolve remoteIp -> guid -> server
+    var guidStrengths = IdentityManager.GetGuidStrengths(remoteIp);
+    Console.WriteLine($"[CHAT-URL-CLIENT] ip={remoteIp} has {guidStrengths.Count} known GUID(s) in join-events");
+    foreach (var gs in guidStrengths.OrderByDescending(x => x.Value))
+        Console.WriteLine($"[CHAT-URL-CLIENT]   guid={gs.Key} strength={gs.Value}");
+
+    // Build map of currently-active guid -> serverAddress from live server data
+    var activeGuidToServer = new Dictionary<string, string>();
+    foreach (var svr in JamulusAnalyzer.m_allMyServers)
+    {
+        if (svr.whoObjectFromSourceData == null) continue;
+        string serverAddr = svr.serverIpAddress + ":" + svr.serverPort;
+        foreach (var c in svr.whoObjectFromSourceData)
+        {
+            string guid = EncounterTracker.GetHash(c.name, c.country, c.instrument);
+            activeGuidToServer[guid] = serverAddr;
+        }
+    }
+    Console.WriteLine($"[CHAT-URL-CLIENT] {activeGuidToServer.Count} active client slot(s) across all servers");
+
+    // Find highest-strength GUID for this IP that is currently on a server
+    string bestGuid = null;
+    string bestServer = null;
+    int bestStrength = -1;
+    foreach (var gs in guidStrengths)
+    {
+        if (activeGuidToServer.TryGetValue(gs.Key, out var svrAddr))
+        {
+            Console.WriteLine($"[CHAT-URL-CLIENT]   ACTIVE guid={gs.Key} strength={gs.Value} server={svrAddr}");
+            if (gs.Value > bestStrength)
+            {
+                bestStrength = gs.Value;
+                bestGuid = gs.Key;
+                bestServer = svrAddr;
+            }
+        }
+        else
+        {
+            Console.WriteLine($"[CHAT-URL-CLIENT]   NOT-ACTIVE guid={gs.Key} strength={gs.Value}");
+        }
+    }
+
+    if (bestServer == null)
+    {
+        Console.WriteLine($"[CHAT-URL-CLIENT] No active server found for ip={remoteIp} — URL not stored");
+        return Results.Ok();
+    }
+
+    Console.WriteLine($"[CHAT-URL-CLIENT] STORING url={req.url} for server={bestServer} via guid={bestGuid} strength={bestStrength}");
+    await JamFan22.harvest.IngestChatUrlAsync(req.url, bestServer);
+    return Results.Ok();
+});
+
 app.MapPost("/api/hide", async (HttpContext context) =>
 {
     var req = await context.Request.ReadFromJsonAsync<HideRequest>();
@@ -303,6 +421,12 @@ app.MapPost("/api/track", async (HttpContext context) =>
 });
 
 app.Run();
+
+public class ChatUrlRequest
+{
+    public string url { get; set; }
+    public int port { get; set; }
+}
 
 public class HideRequest
 {
