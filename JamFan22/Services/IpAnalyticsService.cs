@@ -30,21 +30,38 @@ namespace JamFan22.Services
         /// Single shared gate for all ip-api.com lookups. Returns null if throttled or on error.
         /// Results are cached for 48 hours — callers never need their own ip-api caches.
         /// </summary>
-        public static async Task<JObject> FetchIpApiAsync(string ip, CancellationToken ct = default)
+        public static async Task<JObject> FetchIpApiAsync(string ip, CancellationToken ct = default, bool waitIfThrottled = false)
         {
             ip = ip.Replace("::ffff:", "");
 
             if (_ipApiCache.TryGetValue(ip, out var cached) && DateTime.UtcNow < cached.Expiry)
                 return cached.Json;
 
+            TimeSpan throttleWait;
             lock (_ipApiLock)
             {
-                if (DateTime.UtcNow < _ipApiNextAllowed)
+                var remaining = _ipApiNextAllowed - DateTime.UtcNow;
+                if (remaining > TimeSpan.Zero)
                 {
-                    Console.WriteLine($"[ip-api] THROTTLED: {ip}, retry after {(_ipApiNextAllowed - DateTime.UtcNow).TotalSeconds:F0}s");
-                    return null;
+                    if (!waitIfThrottled)
+                    {
+                        Console.WriteLine($"[ip-api] THROTTLED: {ip}, retry after {remaining.TotalSeconds:F0}s");
+                        return null;
+                    }
+                    throttleWait = remaining;
                 }
-                _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds);
+                else
+                {
+                    throttleWait = TimeSpan.Zero;
+                    _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds);
+                }
+            }
+
+            if (throttleWait > TimeSpan.Zero)
+            {
+                Console.WriteLine($"[ip-api] DEFENSE WAIT: {ip}, delaying {throttleWait.TotalSeconds:F1}s");
+                await Task.Delay(throttleWait, ct);
+                return await FetchIpApiAsync(ip, ct, waitIfThrottled);
             }
 
             try
@@ -96,6 +113,82 @@ namespace JamFan22.Services
 
         public static ConcurrentDictionary<string, (string Code, DateTime Expiry)> _countryCodeCache
             = new ConcurrentDictionary<string, (string, DateTime)>();
+
+        // ── Block list cache ──────────────────────────────────────────────────
+
+        private static (string[] Lines, DateTime Expiry) _blockListCache = (Array.Empty<string>(), DateTime.MinValue);
+        private static readonly SemaphoreSlim _blockListSemaphore = new SemaphoreSlim(1, 1);
+
+        // ── Per-IP allowed cache (48h TTL) ────────────────────────────────────
+
+        private static readonly ConcurrentDictionary<string, (bool Blocked, DateTime Expiry)> _ipAllowedCache
+            = new ConcurrentDictionary<string, (bool, DateTime)>();
+
+        public static async Task<bool> IsIpAllowedAsync(string ip, CancellationToken ct = default)
+        {
+            string cleanIp = ip.Replace("::ffff:", "");
+            if (_ipAllowedCache.TryGetValue(cleanIp, out var cached) && DateTime.UtcNow < cached.Expiry)
+                return !cached.Blocked;
+            bool blocked = await IsIpBlockedAsync(ip, ct);
+            _ipAllowedCache[cleanIp] = (blocked, DateTime.UtcNow.AddHours(48));
+            return !blocked;
+        }
+
+        public static async Task<bool> IsIpBlockedAsync(string ip, CancellationToken ct = default)
+        {
+            var ipData = await FetchIpApiAsync(ip, ct, waitIfThrottled: true);
+            if (ipData == null) return false;
+
+            string rawAsn   = ipData["as"]?.ToString() ?? "";
+            string shortAsn = rawAsn.Split(' ')[0];
+            string cleanIp  = ip.Replace("::ffff:", "");
+
+            string[] lines = _blockListCache.Lines;
+            if (DateTime.UtcNow >= _blockListCache.Expiry)
+            {
+                await _blockListSemaphore.WaitAsync(ct);
+                try
+                {
+                    if (DateTime.UtcNow >= _blockListCache.Expiry)
+                    {
+                        lines = File.Exists("wwwroot/asn-ip-client-blocks.txt")
+                            ? await File.ReadAllLinesAsync("wwwroot/asn-ip-client-blocks.txt", ct)
+                            : Array.Empty<string>();
+                        _blockListCache = (lines, DateTime.UtcNow.AddMinutes(1));
+                    }
+                    else { lines = _blockListCache.Lines; }
+                }
+                finally { _blockListSemaphore.Release(); }
+            }
+
+            if (!System.Net.IPAddress.TryParse(cleanIp, out var ipAddr)) return false;
+
+            var exceptions   = new List<System.Net.IPNetwork>();
+            var blockedAsns  = new HashSet<string>();
+            var blockedCidrs = new List<System.Net.IPNetwork>();
+
+            foreach (var line in lines)
+            {
+                string t = line.Trim();
+                if (string.IsNullOrEmpty(t)) continue;
+                if (t.StartsWith("!"))
+                { if (System.Net.IPNetwork.TryParse(t.Substring(1), out var net)) exceptions.Add(net); }
+                else if (t.StartsWith("AS"))
+                    blockedAsns.Add(t.Split(' ')[0]);
+                else if (System.Net.IPNetwork.TryParse(t, out var net))
+                    blockedCidrs.Add(net);
+            }
+
+            foreach (var ex in exceptions)
+                if (ex.Contains(ipAddr)) return false;
+
+            if (shortAsn.Length > 0 && blockedAsns.Contains(shortAsn)) return true;
+
+            foreach (var cidr in blockedCidrs)
+                if (cidr.Contains(ipAddr)) return true;
+
+            return false;
+        }
 
         // ── ASN cache ─────────────────────────────────────────────────────────
 

@@ -14,4 +14,6 @@ AS147049 PacketHub S.A.
 AS63949 Akamai Connected Cloud
 AS8075 Microsoft Corporation
 AS9678 HostingInside LTD.
-
+!147.182.199.22/32
+!139.144.151.196/32
+!13.42.109.202/32
