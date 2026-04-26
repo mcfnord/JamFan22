@@ -836,7 +836,7 @@ body {
         }
     }
 
-function optimizeGhostPlacement(ghost, grid, idealData) {
+function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
         if (!idealData) return false;
 
         let nodes = Array.from(grid.children);
@@ -848,13 +848,37 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             idealMap[getServerId(srv)] = i;
         });
 
+        // --- Orphan Logic ---
+        let realNodes = nodes.filter(n => !n.classList.contains('ghost-card'));
+        let maxTop = -1;
+        realNodes.forEach(n => {
+            let top = n.getBoundingClientRect().top;
+            if (top > maxTop) maxTop = top;
+        });
+
+        // Identify if the very last row contains exactly 1 card
+        let lastRowNodes = realNodes.filter(n => Math.abs(n.getBoundingClientRect().top - maxTop) < 20);
+        let isLastRowOrphan = (lastRowNodes.length === 1);
+        let orphanNode = isLastRowOrphan ? lastRowNodes[0] : null;
+
+        let gRect = ghost.getBoundingClientRect();
+        let orphanCandidate = null;
+        let isOrphanMove = false;
+
+        // ONLY allow the orphan slide if this is a quiet cycle (no other server moves happening)
+        if (isLastRowOrphan && orphanNode && isQuietCycle) {
+            let oRect = orphanNode.getBoundingClientRect();
+            // Verify the ghost opening is in a row above the orphan
+            if (gRect.top < oRect.top - 20) {
+                orphanCandidate = orphanNode;
+            }
+        }
+        // -------------------------
+
         let easternCandidate = null, easternIndex = -1;
         let southernCandidate = null, southernIndex = -1;
 
-        let gRect = ghost.getBoundingClientRect();
-
         // Forward pass: finds nearest eastern and southern neighbors only.
-        // Western/northern are excluded — moving a card backward just relocates the gap.
         for (let i = ghostIndex + 1; i < nodes.length; i++) {
             let node = nodes[i];
             if (node && !node.classList.contains('ghost-card')) {
@@ -878,55 +902,58 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             }
         }
 
-        if (!easternCandidate && !southernCandidate) return false;
-
-        function calcError(swapIdx) {
-            let err = 0;
-            for (let i = 0; i < nodes.length; i++) {
-                let id = nodes[i].id;
-                if (i === ghostIndex) id = nodes[swapIdx].id;
-                else if (i === swapIdx) continue;
-
-                if (idealMap[id] !== undefined) {
-                    err += Math.abs(i - idealMap[id]);
-                }
-            }
-            return err;
-        }
-
         let bestSwap = null;
         let minErr = Infinity;
 
-        const evaluateSwap = (candidate, idx) => {
-            if (!candidate) return;
-            let err = calcError(idx);
+        // If we have a valid orphan, it overrides all other placement logic (bypassing the height veto)
+        if (orphanCandidate) {
+            bestSwap = orphanCandidate;
+            isOrphanMove = true;
+        } else {
+            if (!easternCandidate && !southernCandidate) return false;
 
-            // --- NEW: Prioritize collapsing the final line ---
-            if (candidate === southernCandidate) {
-                let cRect = candidate.getBoundingClientRect();
-                let rowCount = 0;
-
-                // Count how many real cards are on the same row
+            function calcError(swapIdx) {
+                let err = 0;
                 for (let i = 0; i < nodes.length; i++) {
-                    if (!nodes[i].classList.contains('ghost-card')) {
-                        if (Math.abs(nodes[i].getBoundingClientRect().top - cRect.top) < 20) {
-                            rowCount++;
+                    let id = nodes[i].id;
+                    if (i === ghostIndex) id = nodes[swapIdx].id;
+                    else if (i === swapIdx) continue;
+
+                    if (idealMap[id] !== undefined) {
+                        err += Math.abs(i - idealMap[id]);
+                    }
+                }
+                return err;
+            }
+
+            const evaluateSwap = (candidate, idx) => {
+                if (!candidate) return;
+                let err = calcError(idx);
+
+                // Prioritize collapsing the final line
+                if (candidate === southernCandidate) {
+                    let cRect = candidate.getBoundingClientRect();
+                    let rowCount = 0;
+
+                    for (let i = 0; i < nodes.length; i++) {
+                        if (!nodes[i].classList.contains('ghost-card')) {
+                            if (Math.abs(nodes[i].getBoundingClientRect().top - cRect.top) < 20) {
+                                rowCount++;
+                            }
                         }
+                    }
+
+                    if (rowCount === 1) {
+                        err -= 10000;
                     }
                 }
 
-                // If it's the only card on the line, make it the ultimate winner
-                if (rowCount === 1) {
-                    err -= 10000;
-                }
-            }
-            // -------------------------------------------------
+                if (err < minErr) { minErr = err; bestSwap = candidate; }
+            };
 
-            if (err < minErr) { minErr = err; bestSwap = candidate; }
-        };
-
-        evaluateSwap(easternCandidate, easternIndex);
-        evaluateSwap(southernCandidate, southernIndex);
+            evaluateSwap(easternCandidate, easternIndex);
+            evaluateSwap(southernCandidate, southernIndex);
+        }
 
         if (!bestSwap) return false;
 
@@ -944,6 +971,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             spacer.style.width = startWidth + 'px';
             spacer.style.height = startHeight + 'px';
             spacer.style.visibility = 'hidden';
+
             bestSwap.parentNode.insertBefore(spacer, bestSwap);
 
             bestSwap.style.minHeight = '';
@@ -954,13 +982,26 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
             bestSwap.style.left = swapRect.left + 'px';
             bestSwap.style.width = startWidth + 'px';
             bestSwap.style.height = startHeight + 'px';
-            bestSwap.style.zIndex = '100';
+            // Slide visually under other cards if it's an orphan move, otherwise stay on top
+            bestSwap.style.zIndex = isOrphanMove ? '1' : '100';
 
             void bestSwap.offsetHeight;
 
-            bestSwap.style.transition = 'transform 0.9s ease-in-out, height 0.9s ease-in-out';
-            bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
-            bestSwap.style.height = targetHeight + 'px';
+            if (isOrphanMove) {
+                // Two-part L-shape animation: move horizontally underneath first, then slide up into the gap
+                bestSwap.style.transition = 'transform 0.4s ease-in-out, height 0.9s ease-in-out';
+                bestSwap.style.transform = `translate(${dx}px, 0px)`;
+                bestSwap.style.height = targetHeight + 'px';
+
+                setTimeout(() => {
+                    bestSwap.style.transition = 'transform 0.5s ease-in-out';
+                    bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
+                }, 450);
+            } else {
+                bestSwap.style.transition = 'transform 0.9s ease-in-out, height 0.9s ease-in-out';
+                bestSwap.style.transform = `translate(${dx}px, ${dy}px)`;
+                bestSwap.style.height = targetHeight + 'px';
+            }
 
             setTimeout(() => {
                 const parent = ghost.parentNode;
@@ -1167,7 +1208,7 @@ function optimizeGhostPlacement(ghost, grid, idealData) {
         });
     }
 
-    async function executeAction(action, newData) {
+    async function executeAction(action, newData, isQuietCycle = false) {
         const grid = document.getElementById('client-grid');
         
 if (action.type === 'replace_server') {
@@ -1299,13 +1340,13 @@ if (action.type === 'replace_server') {
                         ghost.style.minHeight = departingHeight + 'px';
                         el.replaceWith(ghost);
 
-                        let swapped = optimizeGhostPlacement(ghost, grid, newData);
+                        let swapped = optimizeGhostPlacement(ghost, grid, newData, isQuietCycle);
                         if (swapped) { _gridRelocatedFlag = true; }
                         else {
                             const allGhosts = Array.from(grid.querySelectorAll('.ghost-card'));
                             for (const otherGhost of allGhosts) {
                                 if (otherGhost === ghost) continue;
-                                if (optimizeGhostPlacement(otherGhost, grid, newData)) { _gridRelocatedFlag = true; break; }
+                                if (optimizeGhostPlacement(otherGhost, grid, newData, isQuietCycle)) { _gridRelocatedFlag = true; break; }
                             }
                         }
                     }, 750); 
@@ -1671,8 +1712,11 @@ if (action.type === 'replace_server') {
         const calculatedPace = 18000 / Math.max(1, visualActionsCount);
         const dynamicDelay = Math.max(800, Math.min(1800, calculatedPace));
 
+        const serverActions = actions.filter(a => ['add_server', 'remove_server', 'replace_server'].includes(a.type));
+        const isQuietCycle = serverActions.length === 1 && serverActions[0].type === 'remove_server';
+
         for (const action of actions) {
-            await executeAction(action, newData);
+            await executeAction(action, newData, isQuietCycle);
 
             if (['add_musician', 'remove_musician', 'migrate_musician', 'add_server', 'remove_server', 'replace_server'].includes(action.type)) {
                 await new Promise(r => setTimeout(r, dynamicDelay));
@@ -2158,18 +2202,16 @@ if (action.type === 'replace_server') {
 function purgeTrailingGhosts() {
     const grid = document.getElementById('client-grid');
     if (!grid) return;
-    
+
     const children = Array.from(grid.children);
-    // Walk backward from the end of the grid
     for (let i = children.length - 1; i >= 0; i--) {
         if (children[i].classList.contains('ghost-card')) {
             children[i].remove();
         } else {
-            // As soon as we hit a real, visible server card, stop purging
-            break; 
+            break;
         }
     }
-}    
+}
 
 async function fetchAndRender() {
     if (isAnimating) return;

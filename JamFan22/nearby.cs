@@ -9,6 +9,8 @@
 //     = cannot appear, regardless of accrued time.
 //   - Quality filter: MaxGoldenValue <= 1 AND >= 94.3% of entries are golden=0
 //     => excluded as likely bot/ghost.
+//   - Sensor-blocked filter: >= 10 join events AND MaxGoldenValue < 3
+//     => excluded as unlocatable (never passed country+city metadata check).
 
 using System;
 using System.Collections.Concurrent;
@@ -136,6 +138,7 @@ namespace JamFan22
             // --- NEW: History Quality Tracking ---
             public int MaxGoldenValue { get; set; } = 0;
             public int ZeroGoldenCount { get; set; } = 0;
+            public HashSet<string> ClientIps { get; set; } = new HashSet<string>();
         }
         
         private class MusicianDataCache
@@ -861,6 +864,9 @@ for (int i = trimEnd - 1; i >= 0; i--)
                     if (!string.IsNullOrWhiteSpace(fields[11]) && fields[11].Trim() != "-")
                     {
                         stats.EntriesWithInferredIp++;
+                        var clientIpOnly = fields[11].Trim().Split(':')[0];
+                        if (!string.IsNullOrWhiteSpace(clientIpOnly) && clientIpOnly != "-")
+                            stats.ClientIps.Add(clientIpOnly);
                     }
 
                     if (long.TryParse(fields[0].Trim(), out long minutes) &&
@@ -960,6 +966,17 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                     continue; // Skip this user entirely
                 }
                 // -----------------------
+
+                // Sensor-blocked: >= 10 join events, IP never verified at country+city level (score < 3).
+                // Location is a random false correlation; omitting is better than misleading.
+                if (stats.TotalEntries >= 10 && stats.MaxGoldenValue < 3 && stats.ClientIps.Count > 4)
+                {
+                    double zeroRatio = (double)stats.ZeroGoldenCount / stats.TotalEntries;
+                    Console.WriteLine($"[SENSOR-BLOCKED] Excluded {guid} ({stats.MostRecentRecord?.Name ?? "?"}). " +
+                                      $"Entries={stats.TotalEntries}, EntriesWithIP={stats.EntriesWithInferredIp}, MaxScore={stats.MaxGoldenValue}, " +
+                                      $"UniqueIPs={stats.ClientIps.Count}, ZeroRatio={zeroRatio:P0}");
+                    continue;
+                }
 
                 bool hasGoldenMatchEver = allGoldenGuids.Contains(guid);
                 bool passesInferredIpTest = false;

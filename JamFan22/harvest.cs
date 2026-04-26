@@ -43,6 +43,9 @@ namespace JamFan22
         }
 
         private static readonly Regex TagCleaner = new Regex("<.*?>", RegexOptions.Compiled);
+        private static readonly Regex LobbyPattern = new Regex(@"lobby", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        public static System.Collections.Concurrent.ConcurrentDictionary<string, bool> m_loungeIsQuiet = new();
 
         public static ConcurrentDictionary<string, (string Url, DateTime Stored)> m_discreetLinks = new();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
@@ -87,8 +90,8 @@ namespace JamFan22
 
         static void DiscreetLinkForServer(string loungeUrl, string url)
         {
-            if (!JamulusAnalyzer.m_connectedLounges.TryGetValue(loungeUrl, out string where))
-                return;
+            string where = JamulusAnalyzer.m_connectedLounges.FirstOrDefault(x => x.Value == loungeUrl).Key;
+            if (where == null) return;
             m_discreetLinks[where] = (url, DateTime.UtcNow);
             m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 3;
         }
@@ -99,9 +102,10 @@ namespace JamFan22
             string where = "1.2.3.4";
             if (!JamulusCacheManager.IsDebuggingOnWindows)
             {
-                if (!JamulusAnalyzer.m_connectedLounges.TryGetValue(loungeUrl, out where))
+                where = JamulusAnalyzer.m_connectedLounges.FirstOrDefault(x => x.Value == loungeUrl).Key;
+                if (where == null)
                 {
-                    Console.WriteLine($"[Harvest] WARN: no IP mapping for lounge '{loungeUrl}' (keys: {string.Join(", ", JamulusAnalyzer.m_connectedLounges.Keys)})");
+                    Console.WriteLine($"[Harvest] WARN: no IP mapping for lounge '{loungeUrl}'");
                     return;
                 }
             }
@@ -201,7 +205,9 @@ namespace JamFan22
 
             string sseUrl = loungeUrl.TrimEnd('/') + "/events";
             string urlPattern = @"https://[\w\-\.]+(?::\d+)?(?:/[^\s]*)?";
+            var clientNames = new List<string>();
 
+            int retryDelay = 5;
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
@@ -212,6 +218,8 @@ namespace JamFan22
                     using var streamReader = new StreamReader(
                         await response.Content.ReadAsStreamAsync(stoppingToken));
 
+                    retryDelay = 5;
+                    clientNames = new List<string>();
                     while (!streamReader.EndOfStream && !stoppingToken.IsCancellationRequested)
                     {
                         var line = await streamReader.ReadLineAsync();
@@ -219,15 +227,28 @@ namespace JamFan22
                             continue;
 
                         var jsonStr = line.Substring("data: ".Length);
-                        string chatText;
-                        try
-                        {
-                            var root = JObject.Parse(jsonStr);
-                            var msgToken = root["newChatMessage"]?["message"];
-                            if (msgToken == null) continue;
-                            chatText = TagCleaner.Replace(msgToken.Value<string>(), "");
-                        }
+                        JObject root;
+                        try { root = JObject.Parse(jsonStr); }
                         catch (Newtonsoft.Json.JsonException) { continue; }
+
+                        var clientsToken = root["clients"];
+                        if (clientsToken != null)
+                            clientNames = clientsToken.Select(c => c["name"]?.Value<string>() ?? "").ToList();
+
+                        var levelsToken = root["levels"];
+                        if (levelsToken != null)
+                        {
+                            var levels = levelsToken.Select(l => l.Value<int>()).ToList();
+                            var musicianLevels = levels
+                                .Where((_, i) => i < clientNames.Count && !LobbyPattern.IsMatch(clientNames[i]))
+                                .ToList();
+                            bool quiet = musicianLevels.Count == 0 || musicianLevels.All(l => l <= 2);
+                            m_loungeIsQuiet[loungeUrl] = quiet;
+                        }
+
+                        var msgToken = root["newChatMessage"]?["message"];
+                        if (msgToken == null) continue;
+                        string chatText = TagCleaner.Replace(msgToken.Value<string>(), "");
 
                         Match match = Regex.Match(chatText, urlPattern);
                         if (!match.Success) continue;
@@ -255,8 +276,9 @@ namespace JamFan22
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Harvest:{new Uri(loungeUrl).Host}] {ex.Message}. Retrying in 5s");
-                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    Console.WriteLine($"[Harvest:{new Uri(loungeUrl).Host}] {ex.Message}. Retrying in {retryDelay}s");
+                    await Task.Delay(TimeSpan.FromSeconds(retryDelay), stoppingToken);
+                    retryDelay = Math.Min(retryDelay * 2, 3600);
                 }
             }
         }
@@ -286,7 +308,7 @@ namespace JamFan22
                 }
 
                 // ultimate-guitar: extract title and artist from URL slug — site returns 403 to scrapers
-                var ugMatch = Regex.Match(url, @"tabs\.ultimate-guitar\.com/tab/([^/]+)/(.+?)(?:-(chords?|tabs?|bass-tabs?|ukulele|drum-tabs?|power-tabs?|guitar-pro|official|fingerstyle|classical))?-\d+$", RegexOptions.IgnoreCase);
+                var ugMatch = Regex.Match(url, @"(?:[a-z]{2}\.)?(?:tabs\.)?ultimate-guitar\.com/tab/([^/]+)/(.+?)(?:-(chords?|tabs?|bass-tabs?|ukulele|drum-tabs?|power-tabs?|guitar-pro|official|fingerstyle|classical))?-\d+$", RegexOptions.IgnoreCase);
                 if (ugMatch.Success)
                 {
                     var tc = System.Globalization.CultureInfo.InvariantCulture.TextInfo;
@@ -342,7 +364,7 @@ namespace JamFan22
                             title = m.Groups[1].Value;
                         }
                     }
-                    else if (url.ToLower().Contains("https://tabs.ultimate-guitar.com/tab/"))
+                    else if (Regex.IsMatch(url, @"https://[^/]*ultimate-guitar\.com/tab/", RegexOptions.IgnoreCase))
                     {
                         // URL format: /tab/{artist}/{song-slug}-{type}-{id}
                         // Parse directly — UG blocks server-side HTTP requests with 403.

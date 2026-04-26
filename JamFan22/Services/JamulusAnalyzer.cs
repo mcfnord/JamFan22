@@ -193,7 +193,7 @@ public string DurationHere(string server, string who, string nationCode)
 
                 var freshLounges = new Dictionary<string, string>();
 
-                // mjth.live format: { "IP:PORT": "https://..." }
+                // mjth.live format: { "IP:PORT": "https://..." } — store as-is: IP:PORT → URL
                 try
                 {
                     using var client = new HttpClient();
@@ -204,7 +204,7 @@ public string DurationHere(string server, string who, string nationCode)
                     if (data != null)
                     {
                         foreach (var kvp in data)
-                            freshLounges[kvp.Value] = kvp.Key; // swap: URL → IP:PORT
+                            freshLounges[kvp.Key] = kvp.Value; // IP:PORT → URL
                     }
                     Console.WriteLine($"[LoadConnectedLoungesAsync] Loaded {data?.Count ?? 0} entries from mjth.live/lounges.json");
                 }
@@ -213,11 +213,10 @@ public string DurationHere(string server, string who, string nationCode)
                     Console.WriteLine($"Failed to load mjth.live/lounges.json: {ex.Message}");
                 }
 
-                // Hard-coded fallbacks (only added if the remote source didn't already supply them)
-                freshLounges.TryAdd("https://lobby.jam.voixtel.net.br/", "179.228.137.154:22124");
-                freshLounges.TryAdd("http://1.onj.me:32123/",            "139.162.251.38:22124");
-                freshLounges.TryAdd("http://3.onj.me:8000/jamulus4",     "69.164.213.250:22124");
-                freshLounges.TryAdd("https://StudioD.live",               "24.199.127.71:22224");
+                // Hard-coded fallbacks (IP:PORT → URL, only added if not already supplied)
+                freshLounges.TryAdd("179.228.137.154:22124", "https://lobby.jam.voixtel.net.br/");
+                freshLounges.TryAdd("139.162.251.38:22124",  "http://1.onj.me:32123/");
+                freshLounges.TryAdd("69.164.213.250:22124",  "http://3.onj.me:8000/jamulus4");
 
                 m_connectedLounges = freshLounges;
                 _loungesCacheExpiry = DateTime.UtcNow.AddHours(24);
@@ -229,25 +228,39 @@ public string DurationHere(string server, string who, string nationCode)
             }
         }
 
-        public async Task<string> GetListenHtmlAsync(ServersForMe s)
+        public async Task<string> GetListenHtmlAsync(ServersForMe s, string nationCode = "US")
         {
             string ipport = s.serverIpAddress + ":" + s.serverPort;
-            foreach (var url in m_connectedLounges.Keys)
+
+            // Studio D: StreamGate is the authoritative source for which server is live
+            if (ipport == StreamGate.ActiveJamulusServer)
             {
-                if (!m_connectedLounges[url].Contains(ipport)) continue;
-                foreach (var user in s.whoObjectFromSourceData)
+                int musicians = s.whoObjectFromSourceData.Count(u => u.name != null && u.name != "");
+                if (musicians <= 1) return "";
+                m_listenLinkDeployment.Add(ipport);
+                string studioLabel = LocalizedText(nationCode, "Listen", "聽", "ฟัง", "Hören", "Ascoltare", "Écouter", "Escuchar", "Luisteren");
+                return $"<b><a class='listenlink listenalready' target='_blank' href='https://StudioD.live'>{studioLabel}</a></b></br>";
+            }
+
+            // mjth.live and other static lounges
+            if (!m_connectedLounges.TryGetValue(ipport, out string url))
+                return "";
+            foreach (var user in s.whoObjectFromSourceData)
+            {
+                if (user.name.Contains("obby") || user.name == "")
                 {
-                    if (user.name.Contains("obby") || user.name == "")
-                    {
-                        int musicianCount = s.whoObjectFromSourceData.Count(u => !u.name.Contains("obby") && u.name != "");
-                        if (musicianCount <= 1) return "";
-                        string num = "";
-                        var iPos = user.name.IndexOf("[");
-                        if (iPos > 0 && '0' != user.name[iPos + 1])
-                            num = "<sub> " + user.name[iPos + 1] + "</sub>";
-                        m_listenLinkDeployment.Add(ipport);
-                        return $"<b><a class='listenlink listenalready' target='_blank' href='{url}'>Listen</a></b>{num}</br>";
-                    }
+                    int musicianCount = s.whoObjectFromSourceData.Count(u => !u.name.Contains("obby") && u.name != "");
+                    if (musicianCount <= 1) return "";
+                    string num = "";
+                    var iPos = user.name.IndexOf("[");
+                    if (iPos > 0 && '0' != user.name[iPos + 1])
+                        num = "<sub> " + user.name[iPos + 1] + "</sub>";
+                    m_listenLinkDeployment.Add(ipport);
+                    bool isQuiet = harvest.m_loungeIsQuiet.TryGetValue(url, out bool q) && q;
+                    string listenLabel = isQuiet
+                        ? LocalizedText(nationCode, "Quiet", "安靜", "เงียบ", "Leise", "Silenzio", "Tranquille", "Silencio", "Stil")
+                        : LocalizedText(nationCode, "Listen", "聽", "ฟัง", "Hören", "Ascoltare", "Écouter", "Escuchar", "Luisteren");
+                    return $"<b><a class='listenlink listenalready' target='_blank' href='{url}'>{listenLabel}</a></b>{num}</br>";
                 }
             }
             return "";

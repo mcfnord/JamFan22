@@ -24,6 +24,9 @@ namespace JamFan22
         }
 
         private static GateState _currentState = new();
+
+        public static string ActiveJamulusServer =>
+            DateTime.UtcNow < _currentState.ExpiryUtc ? _currentState.JamulusServer : null;
         private static readonly object _gateLock = new object();
         private const string StateFile  = "data/stream-gate.json";
         private const string TargetFile = "wwwroot/stream-target.txt";
@@ -82,10 +85,11 @@ namespace JamFan22
             {
                 if (DateTime.UtcNow < _currentState.ExpiryUtc)
                 {
+                    int minsLeft = (int)Math.Ceiling((_currentState.ExpiryUtc - DateTime.UtcNow).TotalMinutes);
                     if (_currentState.ActiveIp == requestIp)
-                        return $"You are already streaming. Your slot expires at {_currentState.ExpiryUtc.ToLocalTime():HH:mm} local time.\n";
+                        return $"You are already streaming. Your slot expires in {minsLeft} minutes.\n";
 
-                    return $"Sorry, the stream is currently in use by another server until {_currentState.ExpiryUtc.ToLocalTime():HH:mm} local time. Please try again later.\n";
+                    return $"Sorry, the stream is currently in use by another server for {minsLeft} more minutes. Please try again later.\n";
                 }
 
                 _currentState.ActiveIp      = requestIp;
@@ -94,7 +98,7 @@ namespace JamFan22
                 SaveState();
                 File.WriteAllText(TargetFile, jamulusServer);
                 allocated = true;
-                message = $"Stream allocated! Stream is yours until {_currentState.ExpiryUtc.ToLocalTime():HH:mm} local time.\n";
+                message = $"Stream allocated! Stream is yours for the next {(int)(_currentState.ExpiryUtc - DateTime.UtcNow).TotalMinutes} minutes.\n";
             }
 
             if (allocated)

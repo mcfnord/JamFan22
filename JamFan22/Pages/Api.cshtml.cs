@@ -345,7 +345,7 @@ namespace JamFan22.Pages
                         newServerHtml = _analyzer.NoticeNewbs(serverAddress)
                             ? $"({JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "New server", "新伺服器", "เซิร์ฟเวอร์ใหม่", "Neuer Server", "Nuovo server", "Nouveau serveur", "Nuevo servidor", "Nieuwe server")}.)"
                             : "",
-                        listenHtml    = await _analyzer.GetListenHtmlAsync(s)
+                        listenHtml    = await _analyzer.GetListenHtmlAsync(s, m_TwoLetterNationCode)
                     };
 
                     if (harvest.m_songTitleAtAddr.TryGetValue(serverAddressWithDash, out string title) &&
