@@ -35,14 +35,35 @@ namespace JamFan22
         private static CacheItem<Dictionary<string, DateTime>> _lastSeenMapCache;
         private static CacheItem<List<PredictedRecord>> _predictedUsersCache;
         private static CacheItem<MusicianDataCache> _musicianDataCache;
-        private static CacheItem<Dictionary<string, string>> _guidCensusCache;
-        private static CacheItem<Dictionary<string, string>> _tooltipCache; 
+        private static CacheItem<Dictionary<string, (string name, string instrument)>> _guidCensusCache;
+        private static CacheItem<Dictionary<string, string>> _tooltipCache;
+        private static CacheItem<Dictionary<string, Dictionary<string, int>>> _guidServerIpsCache;
+        private static readonly SemaphoreSlim _guidServerIpsSem = new SemaphoreSlim(1, 1);
+        // Cache for join-events anchor IP lookup (GUID → best (ip, strength)). Avoids scanning
+        // join-events.csv once per musician in GetGuidInferredRegionAsync.
+        private static CacheItem<Dictionary<string, (string ip, int strength)>> _jeAnchorCache;
+        private static readonly SemaphoreSlim _jeAnchorSem = new SemaphoreSlim(1, 1);
         private static readonly object _cacheLock = new object();
+        private static Dictionary<string, List<string>> _usStateAdjacency;
+        private static readonly object _adjacencyLock = new object();
         
         // --- 23-Hour Blocklist Fields ---
         private static readonly ConcurrentDictionary<string, DateTime> _liveUserFirstSeen = new ConcurrentDictionary<string, DateTime>();
         private static readonly ConcurrentDictionary<string, byte> _sessionBlocklist = new ConcurrentDictionary<string, byte>();
+        // Permanently excluded: default/blank usernames that should never appear in nearby list
+        private static readonly HashSet<string> _permanentExclusions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "efb8576645356ec2b7757a742b6b7e79",
+            "4f43e639e0779f19257be072b7846fd5",
+            "ec737a7f6bd96c004b2891bd5203043b",
+        };
         
+        // --- Nearby HTML result cache (per client IP, 90-second TTL) ---
+        // Prevents thread pool starvation when multiple browser sessions call /api/nearby simultaneously.
+        private static readonly ConcurrentDictionary<string, (string Html, DateTime Expiry)> _nearbyHtmlCache
+            = new ConcurrentDictionary<string, (string, DateTime)>();
+        private static readonly SemaphoreSlim _nearbyComputeSem = new SemaphoreSlim(1, 1);
+
         // --- Promotion Hack Field ---
         private static readonly ConcurrentDictionary<string, string> _promotedGuidMap = new ConcurrentDictionary<string, string>();
         
@@ -124,6 +145,7 @@ namespace JamFan22
             public double DistanceKm { get; set; }
             public DateTime LastSeen { get; set; }
             public IpApiDetails Location { get; set; }
+            public string InferredRegion { get; set; }
             public bool IsPredicted { get; set; } = false;
             public DateTime PredictedArrivalTime { get; set; }
             public string PredictedServer { get; set; } 
@@ -139,6 +161,7 @@ namespace JamFan22
             public int MaxGoldenValue { get; set; } = 0;
             public int ZeroGoldenCount { get; set; } = 0;
             public HashSet<string> ClientIps { get; set; } = new HashSet<string>();
+            public long MostRecentIpTimestamp { get; set; } = 0;
         }
         
         private class MusicianDataCache
@@ -152,12 +175,112 @@ namespace JamFan22
             if (string.IsNullOrWhiteSpace(userIp))
                 return "<table><tr><td>Error: IP address cannot be empty.</td></tr></table>";
 
-            var userLocation = await GetIpDetailsAsync(userIp);
-            if (userLocation?.status != "success")
-                return $"<table><tr><td>Error: Could not determine your location from IP address {userIp}.</td></tr></table>";
+            string cacheKey = userIp.Replace("::ffff:", "");
+            if (_nearbyHtmlCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow < cached.Expiry)
+            {
+                Console.WriteLine($"[NearbyCache] HIT for {cacheKey}");
+                return cached.Html;
+            }
 
-            Console.WriteLine($"Client City: {userLocation.city}");
-            return await FindMusiciansHtmlAsync(userLocation.lat, userLocation.lon);
+            // Serialize computation so concurrent requests don't all run the full pipeline.
+            await _nearbyComputeSem.WaitAsync();
+            try
+            {
+                // Re-check after acquiring the lock — another request may have populated the cache.
+                if (_nearbyHtmlCache.TryGetValue(cacheKey, out cached) && DateTime.UtcNow < cached.Expiry)
+                {
+                    Console.WriteLine($"[NearbyCache] HIT (post-lock) for {cacheKey}");
+                    return cached.Html;
+                }
+
+                var userLocation = await GetIpDetailsAsync(userIp);
+                if (userLocation?.status != "success")
+                    return $"<table><tr><td>Error: Could not determine your location from IP address {userIp}.</td></tr></table>";
+
+                Console.WriteLine($"Client City: {userLocation.city}");
+                string html = await FindMusiciansHtmlAsync(userLocation.lat, userLocation.lon);
+                _nearbyHtmlCache[cacheKey] = (html, DateTime.UtcNow.AddSeconds(90));
+                return html;
+            }
+            finally
+            {
+                _nearbyComputeSem.Release();
+            }
+        }
+
+        public async Task<string> GeoDiagAsync()
+        {
+            var rawLiveGuids = await GetLiveGuidsFromApiAsync();
+            rawLiveGuids.RemoveWhere(g => HiddenPersonaManager.IsHidden(g));
+
+            var accruedTimeMap = await GetAccruedTimeMap();
+            var eligibleGuids = rawLiveGuids
+                .Where(g => accruedTimeMap.GetValueOrDefault(g, 0) >= 10.0)
+                .ToHashSet();
+
+            var cachedData = GetMusicianDataFromCsv();
+            var censusNameMap = await GetGuidCensusMapAsync();
+
+            var rows = new List<(int sortKey, string html)>();
+            int pendingGeos = 0;
+            int t1FleetSameIp = 0, t1FleetSlash8Agree = 0, t1FleetGeoAgree = 0, t1FleetGeoDiffer = 0;
+
+            foreach (var guid in eligibleGuids)
+            {
+                // Display name: prefer join-events record, fall back to census
+                string displayName = null;
+                if (cachedData.FullStatsMap.TryGetValue(guid, out var diagStats) && diagStats.MostRecentRecord != null)
+                    displayName = diagStats.MostRecentRecord.Name;
+                if (string.IsNullOrWhiteSpace(displayName) && censusNameMap.TryGetValue(guid, out var diagCensus))
+                    displayName = diagCensus.name;
+                if (string.IsNullOrWhiteSpace(displayName)) continue;
+
+                var (winner, _, _, tier, ipSrc, ipRegion, rawServers, maskedIp, isPending, jeStrength) =
+                    await ResolveGuidLocationAsync(guid, cachedData, waitIfThrottled: true);
+
+                if (isPending) pendingGeos++;
+
+                if (tier == "T1" && ipSrc.Contains("+fleet("))
+                {
+                    if (ipSrc.Contains(",same-ip)"))                  t1FleetSameIp++;
+                    else if (ipSrc.Contains(",/8-agree)"))            t1FleetSlash8Agree++;
+                    else if (ipSrc.Contains(",/8-differ,geo-agree)")) t1FleetGeoAgree++;
+                    else if (ipSrc.Contains(",/8-differ,geo-differ)")) t1FleetGeoDiffer++;
+                }
+
+                string tierBg = tier switch {
+                    "T1"  => "#d4edda",
+                    var t when t.StartsWith("T2") => "#fff3cd",
+                    _     => "#e9ecef"
+                };
+                string name    = System.Net.WebUtility.HtmlEncode(displayName);
+                string ipReg   = System.Net.WebUtility.HtmlEncode(ipRegion ?? "-");
+                string svrReg  = System.Net.WebUtility.HtmlEncode(rawServers.Length > 0 ? rawServers : "-");
+                string winCell = System.Net.WebUtility.HtmlEncode(winner ?? "-");
+                string guidShort = guid.Length >= 8 ? guid[..8] : guid;
+                string rowHtml = $"<tr style=\"background:{tierBg}\"><td>{name}</td><td>{guidShort}</td><td>{maskedIp}</td><td>{ipSrc}</td><td>{ipReg}</td><td>{svrReg}</td><td><b>{winCell}</b></td><td>{tier}</td></tr>";
+                rows.Add((jeStrength, rowHtml));
+            }
+
+            var sb = new System.Text.StringBuilder();
+            if (pendingGeos > 0)
+                sb.Append("<meta http-equiv=\"refresh\" content=\"3; url=?\">");
+            sb.Append("<style>body{font-family:monospace;font-size:13px} table{border-collapse:collapse} td,th{border:1px solid #ccc;padding:3px 6px}</style>");
+            string statusNote = pendingGeos > 0 ? $" — {pendingGeos} geo pending" : " — complete";
+            sb.Append($"<p>{eligibleGuids.Count} eligible live GUIDs — {DateTime.UtcNow:HH:mm:ss} UTC{statusNote}</p>");
+            int t1FleetTotal = t1FleetSameIp + t1FleetSlash8Agree + t1FleetGeoAgree + t1FleetGeoDiffer;
+            if (t1FleetTotal > 0)
+                sb.Append($"<p><b>T1+fleet:</b> {t1FleetSameIp} same-ip, {t1FleetSlash8Agree} /8-agree, {t1FleetGeoAgree} /8-differ,geo-agree, {t1FleetGeoDiffer} /8-differ,geo-differ</p>");
+            sb.Append("<p>" +
+                "<span style=\"background:#d4edda;padding:2px 8px\">T1</span> join-events IP (strength ≥ 2) &nbsp; " +
+                "<span style=\"background:#fff3cd;padding:2px 8px\">T2</span> fleet IP (/ip-allowed, used when je &lt; 2) &nbsp; " +
+                "<span style=\"background:#e9ecef;padding:2px 8px\">T3</span> server region (no reliable IP)" +
+                "</p>");
+            sb.Append("<table><tr><th>Name</th><th>GUID</th><th>IP /8</th><th>IP Src</th><th>IP Region</th><th>Servers Region</th><th>Winner</th><th>Tier</th></tr>");
+            foreach (var (_, html) in rows.OrderByDescending(r => r.sortKey))
+                sb.Append(html);
+            sb.Append("</table>");
+            return sb.ToString();
         }
 
 private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon)
@@ -190,7 +313,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                         // --- REPLICATING FILTER LOGIC FROM GetMusicianRecords ---
                         // Rule 1: High Zero Ratio
                         bool hasLowCeiling = stats.MaxGoldenValue <= 1;
-                        bool hasHighZeroRatio = stats.TotalEntries > 0 && ((double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.943);
+                        // bool hasHighZeroRatio = stats.TotalEntries > 0 && ((double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.9375);
                         
                         // Rule 2: Golden/Inferred Entry Requirement
                         bool hasGoldenMatchEver = csvDataDebug.AllGoldenGuids.Contains(pred.Guid);
@@ -198,7 +321,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
 
                         diagInfo += $"\n    -> STATS: Entries={stats.TotalEntries}, MaxGold={stats.MaxGoldenValue}, ZeroCount={stats.ZeroGoldenCount}";
                         
-                        if (hasLowCeiling && hasHighZeroRatio)
+                        if (hasLowCeiling)
                         {
                             diagInfo += $"\n    -> RESULT: [BLOCKED] User is flagged as 'Low Quality/Bot' (Zero Ratio: {(double)stats.ZeroGoldenCount/stats.TotalEntries:P1} >= 94.3%).";
                         }
@@ -213,7 +336,11 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                     }
                     else
                     {
-                        diagInfo += $"\n    -> RESULT: [MISSING] User exists in Prediction list but NOT in 'join-events.csv'. Cannot display (no IP/Location data).";
+                        string fleetFallbackIp = FleetGuidCache.GetBestNonBlockedIpByGuid(pred.Guid);
+                        if (fleetFallbackIp != null)
+                            diagInfo += $"\n    -> RESULT: [MISSING/FLEET] No join-events entry; fleet fallback IP={fleetFallbackIp} will be used for location.";
+                        else
+                            diagInfo += $"\n    -> RESULT: [MISSING] User exists in Prediction list but NOT in 'join-events.csv'. Cannot display (no IP/Location data).";
                     }
                     Console.WriteLine(diagInfo);
                 }
@@ -257,16 +384,16 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
 
             foreach (var guid in rawLiveGuids)
             {
-                if (_sessionBlocklist.ContainsKey(guid))
+                if (_sessionBlocklist.ContainsKey(guid) || _permanentExclusions.Contains(guid))
                 {
                     string name = "Unknown"; 
                     if (fullStatsMap.TryGetValue(guid, out var stats) && stats?.MostRecentRecord != null && !string.IsNullOrWhiteSpace(stats.MostRecentRecord.Name))
                     {
                         name = stats.MostRecentRecord.Name; 
                     }
-                    else if (censusNameMap.TryGetValue(guid, out var censusName))
+                    else if (censusNameMap.TryGetValue(guid, out var censusEntry))
                     {
-                        name = censusName; 
+                        name = censusEntry.name; 
                     }
 
                     string userInfo = $"{guid} ({name})";
@@ -282,7 +409,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                     {
                         Console.WriteLine($"{guid} has been live for over 23 hours. Adding to session blocklist.");
                         _sessionBlocklist.TryAdd(guid, 1);
-                        _liveUserFirstSeen.TryRemove(guid, out _); 
+                        _liveUserFirstSeen.TryRemove(guid, out _);
                     }
                 }
             }
@@ -308,12 +435,12 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                 }
             }
 
-            var liveGuids = rawLiveGuids.Where(g => !_sessionBlocklist.ContainsKey(g)).ToHashSet();
+            var liveGuids = rawLiveGuids.Where(g => !_sessionBlocklist.ContainsKey(g) && !_permanentExclusions.Contains(g)).ToHashSet();
 
             // Keep "Gone" users for 60 minutes, but we will fade them visually
             var recentGuids = lastSeenMap.Where(kvp => kvp.Value > DateTime.UtcNow.AddMinutes(-60))
                 .Select(kvp => kvp.Key)
-                .Where(g => !_sessionBlocklist.ContainsKey(g)) 
+                .Where(g => !_sessionBlocklist.ContainsKey(g) && !_permanentExclusions.Contains(g)) 
                 .ToHashSet();
             
             const double minLiveTime = 10.0;
@@ -336,7 +463,8 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
 
             var finalPredictedUsers = predictedUsers
                 .Where(p => !finalGuids.Contains(p.Guid))
-                .Where(p => !_sessionBlocklist.ContainsKey(p.Guid)) 
+                .Where(p => !_sessionBlocklist.ContainsKey(p.Guid) && !_permanentExclusions.Contains(p.Guid))
+                .Where(p => p.Name == null || p.Name.IndexOf("lobby", StringComparison.OrdinalIgnoreCase) < 0)
                 .ToList();
 
             var predictedGuids = finalPredictedUsers.Select(p => p.Guid).ToHashSet();
@@ -346,7 +474,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                 return "<table><tr><td>No musicians found matching all criteria.</td></tr></table>";
 
             // Get Data
-            var musicianRecords = GetMusicianRecords(combinedGuidsForLookup, userLat, userLon);
+            var musicianRecords = GetMusicianRecords(combinedGuidsForLookup, userLat, userLon, new Dictionary<string, DateTime>(_liveUserFirstSeen));
             
             var predictedUserDataMap = finalPredictedUsers.ToDictionary(p => p.Guid);
 
@@ -354,8 +482,14 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
             
             foreach (var record in musicianRecords)
             {
-                record.Location = await GetIpDetailsAsync(record.IpAddress);
-                record.UserCity = CleanAndFormatUserCity(record.UserCity, record.Location?.regionName);
+                var (winner, winLat, winLon, tier, _, _, _, _, _, jeStrength) =
+                    await ResolveGuidLocationAsync(record.Guid, csvDataDebug, waitIfThrottled: false);
+                record.InferredRegion = winner;
+                record.Location = null; // display uses InferredRegion
+                record.UserCity = CleanAndFormatUserCity(record.UserCity, winner);
+                if (winLat.HasValue) record.Lat = winLat.Value;
+                if (winLon.HasValue) record.Lon = winLon.Value;
+                Console.WriteLine($"[GeoResolve] {record.Name}: {winner ?? "null"} ({tier}) jeStrength={jeStrength}");
 
                 if (predictedUserDataMap.TryGetValue(record.Guid, out var predictedData))
                 {
@@ -370,6 +504,81 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
                 }
                 completedMusicianRecords.Add(record);
             }
+
+            // --- FLEET FALLBACK FOR PREDICTED-ONLY GUIDs ---
+            // Predicted users skipped by GetMusicianRecords (no join-events entry) may still have
+            // a client IP from fleet-guid-ip.csv. Synthesize a minimal MusicianRecord for them.
+            var completedGuids = completedMusicianRecords.Select(r => r.Guid).ToHashSet();
+            foreach (var pred in finalPredictedUsers)
+            {
+                if (completedGuids.Contains(pred.Guid)) continue;
+                string fleetIp = FleetGuidCache.GetBestNonBlockedIpByGuid(pred.Guid);
+                if (fleetIp == null) continue;
+                var fleetLoc = await GetIpDetailsAsync(fleetIp);
+                if (fleetLoc == null) continue;
+                double dist = CalculateDistance(userLat, userLon, fleetLoc.lat, fleetLoc.lon);
+                if (dist >= 5000) continue;
+                var synthRecord = new MusicianRecord
+                {
+                    Guid = pred.Guid,
+                    Name = pred.Name,
+                    IsPredicted = true,
+                    PredictedArrivalTime = pred.PredictedArrivalTime,
+                    PredictedServer = pred.Server,
+                    Lat = fleetLoc.lat,
+                    Lon = fleetLoc.lon,
+                    InferredRegion = fleetLoc.regionName,
+                    DistanceKm = dist,
+                };
+                Console.WriteLine($"[FLEET-FALLBACK] Synthesized record for predicted {pred.Name} ({pred.Guid}) via fleet IP={fleetIp} region={fleetLoc.regionName} dist={dist:F0}km");
+                completedMusicianRecords.Add(synthRecord);
+            }
+
+            // --- FALLBACK FOR LIVE GUIDs DROPPED BY GetMusicianRecords ---
+            // Uses the same T1/T2/T3 logic as the main enrichment loop.
+            completedGuids = completedMusicianRecords.Select(r => r.Guid).ToHashSet();
+            foreach (var liveGuid in eligibleLiveGuids)
+            {
+                if (completedGuids.Contains(liveGuid)) continue;
+
+                var (liveWinner, liveLat, liveLon, liveTier, _, _, _, _, _, _) =
+                    await ResolveGuidLocationAsync(liveGuid, csvDataDebug, waitIfThrottled: false);
+                if (!liveLat.HasValue || !liveLon.HasValue) continue;
+
+                double liveDist = CalculateDistance(userLat, userLon, liveLat.Value, liveLon.Value);
+                if (liveDist >= 5000) continue;
+
+                censusNameMap.TryGetValue(liveGuid, out var liveCensus);
+                string liveName = liveCensus.name;
+                if (string.IsNullOrWhiteSpace(liveName)) continue;
+                if (liveName.IndexOf("lobby", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
+                string liveUserCity = string.Empty;
+                string liveInstrument = liveCensus.instrument ?? string.Empty;
+                if (fullStatsMap.TryGetValue(liveGuid, out var liveStats) && liveStats.MostRecentRecord != null)
+                {
+                    liveUserCity = liveStats.MostRecentRecord.UserCity ?? string.Empty;
+                    if (!string.IsNullOrEmpty(liveStats.MostRecentRecord.Instrument))
+                        liveInstrument = liveStats.MostRecentRecord.Instrument;
+                }
+
+                var liveSynthRecord = new MusicianRecord
+                {
+                    Guid = liveGuid,
+                    Name = liveName,
+                    UserCity = CleanAndFormatUserCity(liveUserCity, liveWinner),
+                    Instrument = liveInstrument,
+                    IsPredicted = false,
+                    LastSeen = DateTime.UtcNow,
+                    Lat = liveLat.Value,
+                    Lon = liveLon.Value,
+                    InferredRegion = liveWinner,
+                    DistanceKm = liveDist,
+                };
+                Console.WriteLine($"[LIVE-FALLBACK] {liveName} ({liveGuid[..8]}) tier={liveTier} region={liveWinner ?? "null"} dist={liveDist:F0}km");
+                completedMusicianRecords.Add(liveSynthRecord);
+            }
+            // -----------------------------------------------
 
             // --- "GHOST PROMOTION" HACK ---
             var liveUserRecords = new Dictionary<string, MusicianRecord>();
@@ -716,7 +925,7 @@ for (int i = trimEnd - 1; i >= 0; i--)
                 bulbClass = isLive ? "green" : "gray" + bulbSizeClass;
                 if (isLive && isFreshArrival) bulbClass += " pulse-green"; 
 
-                string ipDerivedRegion = record.Location?.regionName ?? "";
+                string ipDerivedRegion = record.Location?.regionName ?? record.InferredRegion ?? "";
                 string regionHtml = $"<span class='sub-line'>{ipDerivedRegion}</span>";
                 bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
                 bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
@@ -740,7 +949,7 @@ for (int i = trimEnd - 1; i >= 0; i--)
             }
 
             // CHANGE: Wrapped {locationDisplay} in a div so flexbox doesn't flatten the <br/>
-            sb.AppendLine($"<div class='{rowClass}' {tooltipAttr}>");
+            sb.AppendLine($"<div class='{rowClass}' data-name=\"{WebUtility.HtmlEncode(record.Name)}\" {tooltipAttr}>");
             sb.AppendLine($"  <div class='col-musician'><div class='musician-cell-content'><span class='bulb {bulbClass}'></span><div class='musician-info'>{record.Name}{sublineContainer}</div></div></div>");
             sb.AppendLine($"  <div class='col-location'><div>{locationDisplay}</div></div>");
             sb.AppendLine("</div>");
@@ -867,6 +1076,8 @@ for (int i = trimEnd - 1; i >= 0; i--)
                         var clientIpOnly = fields[11].Trim().Split(':')[0];
                         if (!string.IsNullOrWhiteSpace(clientIpOnly) && clientIpOnly != "-")
                             stats.ClientIps.Add(clientIpOnly);
+                        if (long.TryParse(fields[0].Trim(), out long ipMinutes) && ipMinutes > stats.MostRecentIpTimestamp)
+                            stats.MostRecentIpTimestamp = ipMinutes;
                     }
 
                     if (long.TryParse(fields[0].Trim(), out long minutes) &&
@@ -923,7 +1134,7 @@ for (int i = trimEnd - 1; i >= 0; i--)
             return cacheData;
         }
 
-private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon)
+private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, double userLat, double userLon, Dictionary<string, DateTime> liveFirstSeen)
         {
             var cachedData = GetMusicianDataFromCsv();
             var allGoldenGuids = cachedData.AllGoldenGuids;
@@ -943,18 +1154,15 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                 {
                     continue;
                 }
-                // --- NEW FILTER: Exclude unnamed Streamers ---
-                else if (string.IsNullOrWhiteSpace(stats.MostRecentRecord.Name) && 
-                         string.Equals(stats.MostRecentRecord.Instrument, "Streamer", StringComparison.OrdinalIgnoreCase))
+                else if (string.IsNullOrWhiteSpace(stats.MostRecentRecord.Name))
                 {
                     continue;
                 }
-                // ------------------------------------------------
 
                 // --- NEW FILTER RULE ---
-                // Rule: Max Value <= 1 AND >= 88% are zeroes
+                // Rule: Max Value <= 1 AND >= 93.75% are zeroes
                 bool hasLowCeiling = stats.MaxGoldenValue <= 1;
-                bool hasHighZeroRatio = stats.TotalEntries > 0 && ((double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.943);
+                bool hasHighZeroRatio = stats.TotalEntries > 0 && ((double)stats.ZeroGoldenCount / stats.TotalEntries >= 0.9375);
 
                 if (hasLowCeiling && hasHighZeroRatio)
                 {
@@ -969,13 +1177,26 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
 
                 // Sensor-blocked: >= 10 join events, IP never verified at country+city level (score < 3).
                 // Location is a random false correlation; omitting is better than misleading.
-                if (stats.TotalEntries >= 10 && stats.MaxGoldenValue < 3 && stats.ClientIps.Count > 4)
+                if (stats.TotalEntries >= 10 && stats.MaxGoldenValue < 3 && stats.ClientIps.Count > 3)
                 {
                     double zeroRatio = (double)stats.ZeroGoldenCount / stats.TotalEntries;
                     Console.WriteLine($"[SENSOR-BLOCKED] Excluded {guid} ({stats.MostRecentRecord?.Name ?? "?"}). " +
                                       $"Entries={stats.TotalEntries}, EntriesWithIP={stats.EntriesWithInferredIp}, MaxScore={stats.MaxGoldenValue}, " +
                                       $"UniqueIPs={stats.ClientIps.Count}, ZeroRatio={zeroRatio:P0}");
                     continue;
+                }
+
+                // For default-named players, require a confirmed IP ping since their arrival in this session.
+                // No session-window IP = no location = exclude entirely rather than show stale Wisconsin.
+                if (string.Equals(stats.MostRecentRecord.Name, "No Name", StringComparison.OrdinalIgnoreCase)
+                    && liveFirstSeen.TryGetValue(guid, out var arrivalUtc))
+                {
+                    long arrivalMinute = (long)(arrivalUtc - new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMinutes;
+                    if (stats.MostRecentIpTimestamp < arrivalMinute)
+                    {
+                        Console.WriteLine($"[NO-NAME-FILTER] Excluded {guid}: no IP ping since session arrival at minute {arrivalMinute}");
+                        continue;
+                    }
                 }
 
                 bool hasGoldenMatchEver = allGoldenGuids.Contains(guid);
@@ -1156,14 +1377,14 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
             return new Dictionary<string, double>();
         }
 
-        private async Task<Dictionary<string, string>> GetGuidCensusMapAsync()
+        private async Task<Dictionary<string, (string name, string instrument)>> GetGuidCensusMapAsync()
         {
             if (_guidCensusCache != null && !_guidCensusCache.IsExpired)
             {
                 return _guidCensusCache.Data;
             }
 
-            var censusMap = new Dictionary<string, string>();
+            var censusMap = new Dictionary<string, (string name, string instrument)>();
             const string fileName = "data/censusgeo.csv";
             const int cacheDurationMinutes = 1440; // Changed from 5 to 1440 (24 hours) since it's just a fallback for historical names.
 
@@ -1188,16 +1409,16 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                         {
                             string guid = fields[0].Trim();
                             string name = WebUtility.UrlDecode(fields[1].Trim());
-                            
+                            string instr = fields.Length >= 3 ? WebUtility.UrlDecode(fields[2].Trim()) : string.Empty;
                             if (!string.IsNullOrWhiteSpace(guid) && !string.IsNullOrWhiteSpace(name))
                             {
-                                censusMap[guid] = name;
+                                censusMap[guid] = (name, instr);
                             }
                         }
                     }
                     
                     Console.WriteLine($"[GetGuidCensusMapAsync] Successfully loaded {censusMap.Count} unique GUIDs from {fileName}.");
-                    lock (_cacheLock) { _guidCensusCache = new CacheItem<Dictionary<string, string>>(censusMap, TimeSpan.FromMinutes(cacheDurationMinutes)); }
+                    lock (_cacheLock) { _guidCensusCache = new CacheItem<Dictionary<string, (string name, string instrument)>>(censusMap, TimeSpan.FromMinutes(cacheDurationMinutes)); }
                     return censusMap; 
                 }
                 catch (IOException ex)
@@ -1213,15 +1434,15 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
             }
 
             Console.WriteLine($"[GetGuidCensusMapAsync] CRITICAL ERROR: All retry attempts failed for {fileName}. Caching empty map.");
-            lock (_cacheLock) { _guidCensusCache = new CacheItem<Dictionary<string, string>>(censusMap, TimeSpan.FromMinutes(cacheDurationMinutes)); } 
+            lock (_cacheLock) { _guidCensusCache = new CacheItem<Dictionary<string, (string name, string instrument)>>(censusMap, TimeSpan.FromMinutes(cacheDurationMinutes)); } 
             return censusMap;
         }
 
-        private async Task<IpApiDetails> GetIpDetailsAsync(string ip)
+        private async Task<IpApiDetails> GetIpDetailsAsync(string ip, bool waitIfThrottled = false)
         {
             string ipAddress = ip.Contains("::ffff:") ? ip.Substring(ip.LastIndexOf(':') + 1) : ip.Split(':')[0];
 
-            var json = await Services.IpAnalyticsService.FetchIpApiAsync(ipAddress);
+            var json = await Services.IpAnalyticsService.FetchIpApiAsync(ipAddress, waitIfThrottled: waitIfThrottled);
             if (json == null)
                 return new IpApiDetails { status = "throttled" };
 
@@ -1234,6 +1455,437 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                 lat         = (double?)json["lat"] ?? 0,
                 lon         = (double?)json["lon"] ?? 0,
             };
+        }
+
+        private async Task<Dictionary<string, Dictionary<string, int>>> GetGuidServerIpsAsync()
+        {
+            lock (_cacheLock)
+            {
+                if (_guidServerIpsCache != null && !_guidServerIpsCache.IsExpired)
+                    return _guidServerIpsCache.Data;
+            }
+
+            await _guidServerIpsSem.WaitAsync();
+            try
+            {
+                lock (_cacheLock)
+                {
+                    if (_guidServerIpsCache != null && !_guidServerIpsCache.IsExpired)
+                        return _guidServerIpsCache.Data;
+                }
+
+                const string fileName = "data/census.csv";
+                var result = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+
+                try
+                {
+                    foreach (var line in File.ReadLines(fileName))
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        var parts = line.Split(',');
+                        if (parts.Length < 3) continue;
+                        string guid = parts[1].Trim();
+                        string serverIpPort = parts[2].Trim();
+                        if (string.IsNullOrEmpty(guid) || string.IsNullOrEmpty(serverIpPort)) continue;
+
+                        string serverIp = serverIpPort.Contains(':') ? serverIpPort.Split(':')[0] : serverIpPort;
+
+                        if (!result.TryGetValue(guid, out var ticks))
+                        {
+                            ticks = new Dictionary<string, int>(StringComparer.Ordinal);
+                            result[guid] = ticks;
+                        }
+                        ticks[serverIp] = ticks.GetValueOrDefault(serverIp) + 1;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GetGuidServerIpsAsync] Error reading {fileName}: {ex.Message}");
+                }
+
+                lock (_cacheLock)
+                {
+                    _guidServerIpsCache = new CacheItem<Dictionary<string, Dictionary<string, int>>>(result, TimeSpan.FromMinutes(10));
+                }
+                return result;
+            }
+            finally
+            {
+                _guidServerIpsSem.Release();
+            }
+        }
+
+        private async Task<Dictionary<string, (string ip, int strength)>> GetJeAnchorMapAsync()
+        {
+            lock (_cacheLock)
+            {
+                if (_jeAnchorCache != null && !_jeAnchorCache.IsExpired)
+                    return _jeAnchorCache.Data;
+            }
+            await _jeAnchorSem.WaitAsync();
+            try
+            {
+                lock (_cacheLock)
+                {
+                    if (_jeAnchorCache != null && !_jeAnchorCache.IsExpired)
+                        return _jeAnchorCache.Data;
+                }
+                var map = new Dictionary<string, (string ip, int strength)>(StringComparer.Ordinal);
+                if (File.Exists("join-events.csv"))
+                {
+                    foreach (var line in File.ReadLines("join-events.csv"))
+                    {
+                        var fields = line.Split(',');
+                        if (fields.Length < 13) continue;
+                        string guid = fields[2].Trim();
+                        string clientIp = fields[11].Trim();
+                        if (string.IsNullOrWhiteSpace(clientIp) || clientIp == "-") continue;
+                        if (!int.TryParse(fields[12].Trim(), out int strength)) continue;
+                        if (!map.TryGetValue(guid, out var existing) || strength > existing.strength)
+                            map[guid] = (clientIp.Split(':')[0], strength);
+                    }
+                }
+                lock (_cacheLock) { _jeAnchorCache = new CacheItem<Dictionary<string, (string ip, int strength)>>(map, TimeSpan.FromMinutes(10)); }
+                Console.WriteLine($"[JeAnchorMap] Loaded {map.Count} GUID anchor entries from join-events.csv");
+                return map;
+            }
+            finally
+            {
+                _jeAnchorSem.Release();
+            }
+        }
+
+        private Dictionary<string, List<string>> GetUsStateAdjacency()
+        {
+            if (_usStateAdjacency != null) return _usStateAdjacency;
+            lock (_adjacencyLock)
+            {
+                if (_usStateAdjacency != null) return _usStateAdjacency;
+                try
+                {
+                    string json = File.ReadAllText("data/us-state-adjacency.json");
+                    _usStateAdjacency = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, List<string>>>(json)
+                        ?? new Dictionary<string, List<string>>();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[UsStateAdjacency] Failed to load: {ex.Message}");
+                    _usStateAdjacency = new Dictionary<string, List<string>>();
+                }
+            }
+            return _usStateAdjacency;
+        }
+
+        private async Task<(string winner, double? lat, double? lon, string tier, string ipSrc, string ipRegion, string rawServers, string maskedIp, bool isPending, int jeStrength)>
+            ResolveGuidLocationAsync(string guid, MusicianDataCache cachedData, bool waitIfThrottled)
+        {
+            string jeIp = null;
+            int jeStrength = 0;
+            if (cachedData.FullStatsMap.TryGetValue(guid, out var stats) && stats.MostRecentRecord?.IpAddress != null)
+            {
+                jeIp = stats.MostRecentRecord.IpAddress.Split(':')[0];
+                jeStrength = IdentityManager.GetStrengthForIpGuid(jeIp, guid);
+            }
+
+            string resolvedIp;
+            string ipSrc;
+            int fleetDays = 0;
+            int tier;
+
+            if (jeStrength >= 2)
+            {
+                resolvedIp = jeIp;
+                ipSrc = $"je({jeStrength})";
+                tier = 1;
+            }
+            else
+            {
+                var fleetIps = FleetGuidCache.GetAllFleetIpsByGuid(guid);
+                if (fleetIps.Count > 0)
+                {
+                    var best = fleetIps.OrderByDescending(x => x.days).First();
+                    resolvedIp = best.ip;
+                    fleetDays = best.days;
+                    ipSrc = jeIp != null ? $"fleet({fleetDays}d)/je({jeStrength})" : $"fleet({fleetDays}d)";
+                    tier = 2;
+                }
+                else
+                {
+                    resolvedIp = jeIp; // geolocate for display; winner uses server region
+                    ipSrc = jeIp != null ? $"je({jeStrength})" : "-";
+                    tier = 3;
+                }
+            }
+
+            string maskedIp = resolvedIp != null ? $"{resolvedIp.Split('.')[0]}." : "-";
+            string ipRegion = null;
+            double? ipLat = null, ipLon = null;
+            if (resolvedIp != null)
+            {
+                var loc = await GetIpDetailsAsync(resolvedIp, waitIfThrottled: waitIfThrottled);
+                if (loc?.status == "success")
+                {
+                    ipRegion = loc.regionName;
+                    ipLat = loc.lat;
+                    ipLon = loc.lon;
+                }
+            }
+            bool isPending = resolvedIp != null && ipRegion == null;
+
+            // T1: annotate fleet IP agreement category (runs after geo so ipRegion is known)
+            if (tier == 1)
+            {
+                var fleetIpsT1 = FleetGuidCache.GetAllFleetIpsByGuid(guid);
+                if (fleetIpsT1.Count > 0)
+                {
+                    var bestT1 = fleetIpsT1.OrderByDescending(x => x.days).First();
+                    string fleetCat;
+                    if (string.Equals(bestT1.ip, jeIp, StringComparison.Ordinal))
+                    {
+                        fleetCat = "same-ip";
+                    }
+                    else if (bestT1.ip.Split('.')[0] == jeIp.Split('.')[0])
+                    {
+                        fleetCat = "/8-agree";
+                    }
+                    else
+                    {
+                        var fleetLoc = await GetIpDetailsAsync(bestT1.ip, waitIfThrottled: waitIfThrottled);
+                        string fleetRegion = fleetLoc?.status == "success" ? fleetLoc.regionName : null;
+                        bool geoAgree = fleetRegion != null && ipRegion != null &&
+                                        string.Equals(fleetRegion, ipRegion, StringComparison.OrdinalIgnoreCase);
+                        fleetCat = geoAgree ? "/8-differ,geo-agree" : "/8-differ,geo-differ";
+                        if (jeStrength >= 3)
+                            Console.WriteLine($"[JE-FLEET-DIVERGE] guid={guid[..8]} je-strength={jeStrength} je-region={ipRegion ?? "null"} fleet-region={fleetRegion ?? "null"} fleet-days={bestT1.days}");
+                    }
+                    ipSrc += $" +fleet({bestT1.days}d,{fleetCat})";
+                }
+            }
+
+            var (inferredRegion, _, rawServers, topLat, topLon) = await GetGuidInferredRegionAsync(guid);
+            string topServerRegion = null;
+            if (!string.IsNullOrEmpty(rawServers))
+            {
+                var first = rawServers.Split(';')[0].Trim();
+                var pi = first.IndexOf(" (");
+                topServerRegion = pi > 0 ? first[..pi] : first;
+            }
+
+            string winner = tier switch {
+                1 or 2 => ipRegion ?? topServerRegion,
+                _      => topServerRegion ?? inferredRegion ?? ipRegion
+            };
+
+            // Prefer IP-derived lat/lon for T1/T2; fall back to server centroid
+            double? lat = (tier <= 2 && ipLat.HasValue) ? ipLat : topLat;
+            double? lon = (tier <= 2 && ipLon.HasValue) ? ipLon : topLon;
+
+            string tierLabel = tier switch {
+                1 => "T1",
+                2 => $"T2 fleet({fleetDays}d)",
+                _ => "T3"
+            };
+
+            return (winner, lat, lon, tierLabel, ipSrc, ipRegion, rawServers ?? "", maskedIp, isPending, jeStrength);
+        }
+
+        private async Task<(string region, string tier, string rawServers, double? topLat, double? topLon)> GetGuidInferredRegionAsync(string guidHash)
+        {
+            if (string.IsNullOrEmpty(guidHash)) return (null, null, null, null, null);
+
+            // Step 1: Collect server states weighted by tick count (ticks ≈ minutes of presence)
+            var guidServerIps = await GetGuidServerIpsAsync();
+            if (!guidServerIps.TryGetValue(guidHash, out var serverIpTicks) || serverIpTicks.Count == 0)
+                return (null, null, null, null, null);
+
+            var regionTicks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            // Track a representative lat/lon per region from the highest-tick server in that region
+            var regionBestLatLon = new Dictionary<string, (double lat, double lon, int ticks)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (serverIp, ticks) in serverIpTicks)
+            {
+                var json = await Services.IpAnalyticsService.FetchIpApiAsync(serverIp);
+                if (json == null) continue;
+                string region = json["regionName"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(region))
+                {
+                    regionTicks[region] = regionTicks.GetValueOrDefault(region) + ticks;
+                    double lat = json["lat"]?.ToObject<double>() ?? 0;
+                    double lon = json["lon"]?.ToObject<double>() ?? 0;
+                    if (!regionBestLatLon.TryGetValue(region, out var cur) || ticks > cur.ticks)
+                        regionBestLatLon[region] = (lat, lon, ticks);
+                }
+            }
+            var serverRegions = new HashSet<string>(regionTicks.Keys, StringComparer.OrdinalIgnoreCase);
+            // rawServers: dominant region first, with tick counts
+            string rawServers = regionTicks.Count > 0
+                ? string.Join("; ", regionTicks.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} ({kv.Value})"))
+                : null;
+            // Centroid of the tick-dominant region — used when IP confidence is too low
+            string topRegionFallback = null;
+            (double? topLat, double? topLon) = (null, null);
+            if (regionTicks.Count > 0)
+            {
+                var topRegion = regionTicks.OrderByDescending(kv => kv.Value).First().Key;
+                topRegionFallback = topRegion;
+                if (regionBestLatLon.TryGetValue(topRegion, out var ll))
+                    (topLat, topLon) = (ll.lat, ll.lon);
+            }
+
+            // Step 2: Find anchor state — highest-strength join-events row with non-empty client IP
+            string anchorState = null;
+            try
+            {
+                var jeAnchorMap = await GetJeAnchorMapAsync();
+                if (jeAnchorMap.TryGetValue(guidHash, out var anchor))
+                {
+                    var anchorJson = await Services.IpAnalyticsService.FetchIpApiAsync(anchor.ip);
+                    anchorState = anchorJson?["regionName"]?.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetGuidInferredRegionAsync] anchor lookup error: {ex.Message}");
+            }
+
+            // Fleet IP fallback: when join-events has no anchor IP, use most recent non-blocked fleet IP
+            if (anchorState == null)
+            {
+                string fleetFallbackIp = FleetGuidCache.GetBestNonBlockedIpByGuid(guidHash);
+                if (fleetFallbackIp != null)
+                {
+                    try
+                    {
+                        var ffj = await Services.IpAnalyticsService.FetchIpApiAsync(fleetFallbackIp);
+                        string ffRegion = ffj?["regionName"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(ffRegion))
+                        {
+                            double? ffLat = ffj["lat"]?.ToObject<double>();
+                            double? ffLon = ffj["lon"]?.ToObject<double>();
+                            Console.WriteLine($"[GetGuidInferredRegionAsync] fleet IP fallback: {guidHash[..8]} ip={fleetFallbackIp} region={ffRegion}");
+                            return (ffRegion, "fleet-ip", rawServers, ffLat, ffLon);
+                        }
+                    }
+                    catch (Exception exFleet)
+                    {
+                        Console.WriteLine($"[GetGuidInferredRegionAsync] fleet IP fallback error: {exFleet.Message}");
+                    }
+                }
+            }
+
+            // Step 3: Fleet anchor — every observation is signal; multiple distinct days = stronger confidence
+            string fleetAnchorState = null;
+            try
+            {
+                var fleetIps = FleetGuidCache.GetAllFleetIpsByGuid(guidHash);
+                if (fleetIps.Count > 0)
+                {
+                    var fleetGeo = new List<(string country, string region, int days)>();
+                    foreach (var (fip, days) in fleetIps)
+                    {
+                        var fj = await Services.IpAnalyticsService.FetchIpApiAsync(fip);
+                        if (fj == null) continue;
+                        string fc = fj["country"]?.ToString();
+                        string fr = fj["regionName"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(fr)) fleetGeo.Add((fc, fr, days));
+                    }
+                    var countries = fleetGeo.Select(g => g.country).Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().ToList();
+                    if (countries.Count == 1)
+                    {
+                        var top = fleetGeo.GroupBy(g => g.region).OrderByDescending(g => g.Sum(x => x.days)).First();
+                        fleetAnchorState = top.Key;
+                        int totalDays = top.Sum(x => x.days);
+                        Console.WriteLine($"[GetGuidInferredRegionAsync] fleet anchor: {fleetAnchorState} ({totalDays} day-obs)");
+                    }
+                    else if (countries.Count > 1)
+                        Console.WriteLine($"[GetGuidInferredRegionAsync] fleet country disagreement for {guidHash}: {string.Join(", ", countries)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GetGuidInferredRegionAsync] fleet anchor error: {ex.Message}");
+            }
+
+            // Resolve final anchor: prefer agreement; join-events wins on disagreement
+            string finalAnchorState;
+            string anchorSource;
+            if (anchorState != null && fleetAnchorState != null)
+            {
+                if (string.Equals(anchorState, fleetAnchorState, StringComparison.OrdinalIgnoreCase))
+                {
+                    finalAnchorState = anchorState;
+                    anchorSource = "both";
+                    Console.WriteLine($"[GetGuidInferredRegionAsync] anchors agree: {finalAnchorState}");
+                }
+                else
+                {
+                    Console.WriteLine($"[GetGuidInferredRegionAsync] anchor disagreement: join-events={anchorState} fleet={fleetAnchorState} — join-events wins");
+                    finalAnchorState = anchorState;
+                    anchorSource = "join-events";
+                }
+            }
+            else if (anchorState != null)
+            {
+                finalAnchorState = anchorState;
+                anchorSource = "join-events";
+            }
+            else if (fleetAnchorState != null)
+            {
+                finalAnchorState = fleetAnchorState;
+                anchorSource = "fleet";
+            }
+            else
+            {
+                finalAnchorState = null;
+                anchorSource = null;
+            }
+
+            if (finalAnchorState != null)
+            {
+                var adjacency = GetUsStateAdjacency();
+
+                var filtered = serverRegions
+                    .Where(r => string.Equals(r, finalAnchorState, StringComparison.OrdinalIgnoreCase)
+                        || (adjacency.TryGetValue(r, out var neighbors)
+                            && neighbors.Any(n => string.Equals(n, finalAnchorState, StringComparison.OrdinalIgnoreCase))))
+                    .ToList();
+
+                if (filtered.Count == 1)
+                    return (filtered[0], $"anchor-filtered/{anchorSource}", rawServers, topLat, topLon);
+
+                if (filtered.Count >= 2 && filtered.Count <= 3)
+                {
+                    bool mutuallyAdjacent = true;
+                    for (int i = 0; i < filtered.Count && mutuallyAdjacent; i++)
+                    {
+                        for (int j = i + 1; j < filtered.Count && mutuallyAdjacent; j++)
+                        {
+                            bool aNeighborsB = adjacency.TryGetValue(filtered[i], out var n1)
+                                && n1.Any(n => string.Equals(n, filtered[j], StringComparison.OrdinalIgnoreCase));
+                            bool bNeighborsA = adjacency.TryGetValue(filtered[j], out var n2)
+                                && n2.Any(n => string.Equals(n, filtered[i], StringComparison.OrdinalIgnoreCase));
+                            if (!aNeighborsB || !bNeighborsA)
+                                mutuallyAdjacent = false;
+                        }
+                    }
+                    if (mutuallyAdjacent)
+                    {
+                        var sorted = filtered.OrderBy(r => r).ToList();
+                        string combined = sorted.Count == 2
+                            ? $"{sorted[0]} or {sorted[1]}"
+                            : $"{string.Join(", ", sorted.Take(sorted.Count - 1))}, or {sorted.Last()}";
+                        return (combined, $"anchor-adjacent/{anchorSource}", rawServers, topLat, topLon);
+                    }
+                }
+
+                return (null, null, rawServers, topLat, topLon);
+            }
+
+            // No anchor — region is unanimous across all observed servers
+            if (serverRegions.Count == 1)
+                return (serverRegions.First(), "server-region", rawServers, topLat, topLon);
+
+            // Multiple regions, no anchor — fall back to tick-dominant server region
+            return (topRegionFallback, "top-server-region", rawServers, topLat, topLon);
         }
 
         private static string GetGuid(string name, string country, string instrument)
