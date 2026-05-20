@@ -38,6 +38,7 @@ namespace JamFan22.Pages
 
         public string smartNations { get; set; }
         public string newServerHtml { get; set; }
+        public bool rawAudio { get; set; }
 
         public List<ApiClient> clients { get; set; } = new List<ApiClient>();
     }
@@ -51,6 +52,7 @@ namespace JamFan22.Pages
         public string city { get; set; }
         public bool isNewArrival { get; set; }
         public string hash { get; set; }
+        public bool isTracksMarker { get; set; } = false;
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
@@ -204,6 +206,7 @@ namespace JamFan22.Pages
                 {
                     string serverAddress          = s.serverIpAddress + ":" + s.serverPort;
                     string serverAddressWithDash   = s.serverIpAddress + "-" + s.serverPort;
+                    bool isTracksServer = s.serverIpAddress == "77.163.83.31" && s.serverPort == 22124;
 
                     // ── Persistence bubble ────────────────────────────────────
                     var bubbleUsers = new List<ApiClient>();
@@ -282,7 +285,8 @@ namespace JamFan22.Pages
                     }
                     else if (totalVisibleUsers > 1)
                     {
-                        int iTimeoutPeriod = s.name.ToLower().Contains("priv") ? (4 * 60) : (8 * 60);
+                        int iTimeoutPeriod = isTracksServer ? int.MaxValue
+                            : s.name.ToLower().Contains("priv") ? (4 * 60) : (8 * 60);
                         if (isDiagMode) diagLog.AppendLine($"- >1 User Rule. Timeout period: {iTimeoutPeriod} mins");
 
                         fSuppress = true;
@@ -345,11 +349,11 @@ namespace JamFan22.Pages
                         newServerHtml = _analyzer.NoticeNewbs(serverAddress)
                             ? $"({JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "New server", "新伺服器", "เซิร์ฟเวอร์ใหม่", "Neuer Server", "Nuovo server", "Nouveau serveur", "Nuevo servidor", "Nieuwe server")}.)"
                             : "",
-                        listenHtml    = await _analyzer.GetListenHtmlAsync(s, m_TwoLetterNationCode)
+                        listenHtml    = await _analyzer.GetListenHtmlAsync(s, m_TwoLetterNationCode),
+                        rawAudio      = ServerCapabilityCache.GetRawAudio(s.serverIpAddress, (int)s.serverPort) ?? false
                     };
 
-                    if (harvest.m_songTitleAtAddr.TryGetValue(serverAddressWithDash, out string title) &&
-                        JamulusCacheManager.MinutesSince2023AsInt() < harvest.m_timeToLive && title.Length > 0)
+                    if (harvest.m_songTitleAtAddr.TryGetValue(serverAddressWithDash, out string title) && title.Length > 0)
                     {
                         if (title.Contains(" by ") || title.Contains(" BY "))
                             title = title.Replace("  ", " ").Replace("&nbsp;", " ");
@@ -403,7 +407,8 @@ namespace JamFan22.Pages
                             if (minsUntil <= 15 && minsUntil >= -10)
                             {
                                 if (!string.IsNullOrWhiteSpace(pred.Name) && !apiSvr.soonNames.Contains(pred.Name)
-                                    && !currentNames.Contains(pred.Name))
+                                    && !currentNames.Contains(pred.Name)
+                                    && !pred.Name.Contains("obby", StringComparison.OrdinalIgnoreCase))
                                     apiSvr.soonNames.Add(pred.Name);
                             }
                         }
@@ -411,7 +416,7 @@ namespace JamFan22.Pages
 
                     if (apiSvr.soonNames.Count > 0)
                     {
-                        apiSvr.soonHtml = $"<div style=\"color:gray; font-size:0.7em;\"><i>Soon: {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";
+                        apiSvr.soonHtml = $"<div style=\"color:#FFA500; font-size:0.7em; font-weight:bold; text-shadow:0 0 2px #000,0 0 2px #000;\"><i>Soon: {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";
                         apiSvr.leaversHtml = null;
                     }
 
@@ -456,6 +461,9 @@ namespace JamFan22.Pages
                                 : "";
                         }
 
+                        int currentTimeoutPeriod = s.name.ToLower().Contains("priv") ? (4 * 60) : (8 * 60);
+                        bool tracksBotsPresent = false;
+
                         foreach (var c in sortedFilteredUsers)
                         {
                             var nam = (c.name ?? "").Trim().Replace("  ", " ").Replace("<", "");
@@ -467,14 +475,28 @@ namespace JamFan22.Pages
                             double minsHere         = _tracker.DurationHereInMins(serverAddress, encodedHashOfGuy);
                             bool   isNewArrival     = minsHere >= 0 && minsHere < 3.0;
 
+                            if (isTracksServer && minsHere >= currentTimeoutPeriod)
+                            {
+                                tracksBotsPresent = true;
+                                continue; // suppress bot; marker added below if real users exist
+                            }
+
                             apiSvr.clients.Add(new ApiClient {
                                 name = nam, country = c.country, instrument = slimmerInstrument.Trim(),
                                 skill = c.skill, city = c.city, isNewArrival = isNewArrival, hash = encodedHashOfGuy
                             });
                         }
+
+                        // Prepend "Tracks Playing" only when bots are hidden but a real user is also present
+                        if (tracksBotsPresent && apiSvr.clients.Count > 0)
+                            apiSvr.clients.Insert(0, new ApiClient { name = "Tracks Playing", isTracksMarker = true, hash = "tracks-playing-marker" });
                     }
 
                     if (bubbleUsers.Count > 0) apiSvr.clients.AddRange(bubbleUsers);
+
+                    // Suppress the Blues/Rock card entirely when only timed-out bots are present
+                    if (isTracksServer && apiSvr.clients.All(c => c.isTracksMarker))
+                        continue;
 
                     apiResponse.Add(apiSvr);
                 }
