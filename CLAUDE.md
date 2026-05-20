@@ -173,14 +173,6 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 
 **Blues/Rock bot filter**: 77.163.83.31:22124 permanent bots suppressed in `Api.cshtml.cs`; card hidden when only bots present, "Tracks Playing" marker shown when a real user joins.
 
-## Expansion plan: servers blocking 137.184.43.255
-
-**Phase 1 (done):** Alt-source aggregation via explorer.jamulus.io is live. Blocked servers appear in the web UI and accumulate census data. No join-events or geolocation for these servers — correlation engine only runs on primary-source data. Hard-blocked servers (ping == -1) are silently skipped.
-
-**Phase 2:** Fleet expansion into blocked-server regions. After Phase 1 census data establishes which regions have significant hidden traffic, provision new fleet servers there. Candidates: Frankfurt (DE), UK, Toronto (CA).
-
-**Phase 3:** Additional servers.php instances at non-blocked IPs for blocked servers. Data feeds census only — NOT usable by the correlation engine, which requires the modified instance at 137.184.43.255.
-
 ### Privacy opt-out
 Server operators who want to be excluded must block both 137.184.43.255 and the London IPs (139.144.151.196, 13.42.109.202).
 
