@@ -33,9 +33,47 @@ namespace JamFan22
         {
             GetPersonaDetails(ip); // ensure cache is fresh
             var ipClean = ip?.Replace("::ffff:", "").Trim();
-            if (ipClean != null && _ipToGuidStrengths.ContainsKey(ipClean))
-                return _ipToGuidStrengths[ipClean];
-            return new Dictionary<string, int>();
+
+            var result = ipClean != null && _ipToGuidStrengths.ContainsKey(ipClean)
+                ? new Dictionary<string, int>(_ipToGuidStrengths[ipClean])
+                : new Dictionary<string, int>();
+
+            Console.WriteLine($"[GUID-STRENGTHS] GetGuidStrengths called ip={ipClean} join-events-count={result.Count}");
+            foreach (var kv in result)
+                Console.WriteLine($"[GUID-STRENGTHS]   join-events guid={kv.Key} strength={kv.Value}");
+
+            // Inject GUIDs seen by the fleet server via /ip-allowed?guid=
+            var fleetGuids = FleetGuidCache.GetGuidsByIp(ipClean ?? "");
+            Console.WriteLine($"[GUID-STRENGTHS]   fleet-count={fleetGuids.Count}");
+            foreach (var fg in fleetGuids)
+            {
+                int hitCount = FleetGuidCache.GetHitCount(fg);
+                int days = FleetGuidCache.GetCalendarDayCount(fg, ipClean ?? "");
+                int synth = days >= 3 ? 16 : days == 2 ? 10 : hitCount >= 2 ? 6 : 4;
+                Console.WriteLine($"[GUID-STRENGTHS]   fleet guid={fg} hitCount={hitCount} days={days} synthStrength={synth}");
+                if (result.TryGetValue(fg, out int existing))
+                {
+                    if (existing >= 16)
+                        Console.WriteLine($"[FLEET-GUID] Conflict: guid={fg} ip={ipClean} join-events strength={existing} fleet synth={synth} (join-events wins)");
+                    // keep the higher strength; join-events rows at ≥16 always beat synth cap of 12
+                }
+                else
+                {
+                    result[fg] = synth;
+                }
+            }
+
+            return result;
+        }
+
+        public static int GetStrengthForIpGuid(string ip, string guid)
+        {
+            GetPersonaDetails(ip); // ensure cache is fresh
+            var ipClean = ip?.Replace("::ffff:", "").Trim();
+            if (ipClean != null && _ipToGuidStrengths.TryGetValue(ipClean, out var guidMap) &&
+                guidMap.TryGetValue(guid, out int strength))
+                return strength;
+            return 0;
         }
 
         public static (string Name, string Guid)? GetPersonaDetails(string ip)
