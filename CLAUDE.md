@@ -173,12 +173,6 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 
 **Blues/Rock bot filter**: 77.163.83.31:22124 permanent bots suppressed in `Api.cshtml.cs`; card hidden when only bots present, "Tracks Playing" marker shown when a real user joins.
 
-## Disruptive User: `++li++` (Thailand)
-
-Jammer name `++li++` (variants: `++li.+`, `+li+`, `+++li+++`). Hash `e1cc1d8d4f7985932447f3623e6f9a9b`. Top servers: TEST [Wangmai] (1,239 min), Thomas playground (618), Bunnies Jam ! (399), Chaeng Watthana (336), MJTH [Wattana] (328). Secondary variant `++li.+` hash `b962558b4787fee6e3d5890e05c27179`.
-
-**Plan**: Compile evidence from census/server logs, contact Thai server operators, invite them to run a patched Jamulus build. Evidence to gather: session duration patterns, name-variant frequency, urls.csv/urls-rejected.csv entries tied to these server IPs.
-
 ## Expansion plan: servers blocking 137.184.43.255
 
 **Phase 1 (done):** Alt-source aggregation via explorer.jamulus.io is live. Blocked servers appear in the web UI and accumulate census data. No join-events or geolocation for these servers — correlation engine only runs on primary-source data. Hard-blocked servers (ping == -1) are silently skipped.
