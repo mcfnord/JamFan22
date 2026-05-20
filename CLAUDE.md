@@ -173,8 +173,6 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 
 **Blues/Rock bot filter**: 77.163.83.31:22124 permanent bots suppressed in `Api.cshtml.cs`; card hidden when only bots present, "Tracks Playing" marker shown when a real user joins.
 
-### Privacy opt-out
-Server operators who want to be excluded must block both 137.184.43.255 and the London IPs (139.144.151.196, 13.42.109.202).
 
 ## TODO
 
