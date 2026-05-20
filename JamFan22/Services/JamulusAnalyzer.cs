@@ -232,19 +232,13 @@ public string DurationHere(string server, string who, string nationCode)
         {
             string ipport = s.serverIpAddress + ":" + s.serverPort;
 
-            // Studio D: StreamGate is the authoritative source for which server is live
-            if (ipport == StreamGate.ActiveJamulusServer)
-            {
-                int musicians = s.whoObjectFromSourceData.Count(u => u.name != null && u.name != "");
-                if (musicians <= 1) return "";
-                m_listenLinkDeployment.Add(ipport);
-                string studioLabel = LocalizedText(nationCode, "Listen", "聽", "ฟัง", "Hören", "Ascoltare", "Écouter", "Escuchar", "Luisteren");
-                return $"<b><a class='listenlink listenalready' target='_blank' href='https://StudioD.live'>{studioLabel}</a></b></br>";
-            }
-
-            // mjth.live and other static lounges
+            // mjth.live, other static lounges, and Studio D (via ActiveJamulusServer)
             if (!m_connectedLounges.TryGetValue(ipport, out string url))
-                return "";
+            {
+                if (ipport != StreamGate.ActiveJamulusServer)
+                    return "";
+                url = "https://ear.jamulus.live/";
+            }
             foreach (var user in s.whoObjectFromSourceData)
             {
                 if (user.name.Contains("obby") || user.name == "")
@@ -272,6 +266,8 @@ public string DurationHere(string server, string who, string nationCode)
         {
             Console.WriteLine($"[DEBUG] ProcessServerListsAsync started. LastReportedList keys: {string.Join(", ", JamulusCacheManager.LastReportedList.Keys)}");
             int totalProcessed = 0, totalAdded = 0;
+            // Deduplicate across directory keys (primary + alt-source may overlap transiently).
+            var seenAddrs = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var key in JamulusCacheManager.LastReportedList.Keys)
             {
@@ -284,6 +280,7 @@ public string DurationHere(string server, string who, string nationCode)
                     int people = server.clients?.GetLength(0) ?? 0;
 
                     if (ShouldSkipServer(server, people)) continue;
+                    if (!seenAddrs.Add(server.ip + ":" + server.port)) continue; // dup across keys
 
                     var clientResult = ProcessServerClients(server, data);
                     if (clientResult.UserCountries.Count == 0) continue;
@@ -300,8 +297,13 @@ public string DurationHere(string server, string who, string nationCode)
                     dist = CalculateBoostedDistance(server, dist, clientResult.FirstUserHash);
                     if (dist < 250) dist = 250;
 
+                    // Alt-source servers: use their real directory label, not the synthetic "_alt" key.
+                    string categoryKey = (key == JamulusCacheManager.AltSourceKey
+                        && JamulusCacheManager.AltServerMeta.TryGetValue(server.ip + ":" + server.port, out var altMeta))
+                        ? altMeta.DirectoryKey : key;
+
                     m_allMyServers.Add(new ServersForMe(
-                        key, server.ip, server.port, server.name, server.city, serverCountry,
+                        categoryKey, server.ip, server.port, server.name, server.city, serverCountry,
                         dist, trueDist, zone, clientResult.WhoHtml, server.clients, people, (int)server.maxclients
                     ));
                     totalAdded++;
@@ -531,10 +533,9 @@ public string DurationHere(string server, string who, string nationCode)
                     // ── Memory diagnostics for visitor stats ──────────────────
                     Console.WriteLine($"[MEM-data] IPVisit={m_clientIPLastVisit.Count} IPLegit={m_clientIPsDeemedLegit.Count} NationLegit={m_countriesDeemedLegit.Count} NationCounts={m_countryRefreshCounts.Count}");
 
-                    System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-                    GC.Collect(2, GCCollectionMode.Forced, true, true);
-                    GC.WaitForPendingFinalizers();
-                    Console.WriteLine("Garbage Collection complete.");
+                    // Non-blocking GC hint — lets runtime schedule collection without a STW pause on the thread pool thread.
+                    GC.Collect(2, GCCollectionMode.Optimized, blocking: false, compacting: false);
+                    Console.WriteLine("GC hint issued (non-blocking).");
                 }
             }
             finally { _dataLoadLock.Release(); }
@@ -977,3 +978,4 @@ public string DurationHere(string server, string who, string nationCode)
         }
     }
 }
+
