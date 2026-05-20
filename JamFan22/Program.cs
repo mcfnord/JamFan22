@@ -307,6 +307,13 @@ app.MapPost("/chat-url-server", async (HttpContext context) =>
     var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
     if (!string.IsNullOrEmpty(xff)) remoteIp = xff.Split(',')[0].Trim();
     remoteIp = remoteIp.Replace("::ffff:", "");
+
+    if (!FleetIpAllowlist.Contains(remoteIp))
+    {
+        Console.WriteLine($"[CHAT-URL-SERVER] rejected non-fleet caller ip={remoteIp}");
+        return Results.StatusCode(403);
+    }
+
     var server = req.port > 0 ? $"{remoteIp}:{req.port}" : remoteIp;
 
     if (!await JamFan22.harvest.UrlMatchesChatPatternsAsync(req.url))
@@ -482,6 +489,31 @@ app.MapPost("/chat-command-server", async (HttpContext context) =>
 });
 
 app.Run();
+
+// Fleet server IP allowlist — data/fleet-server-ips.txt, one IP per line, # = comment.
+// 5-minute TTL so adding a new fleet server takes effect without a restart.
+public static class FleetIpAllowlist
+{
+    private static (HashSet<string> Ips, DateTime Expiry) _cache = (new HashSet<string>(), DateTime.MinValue);
+    private static readonly object _lock = new object();
+
+    public static bool Contains(string ip)
+    {
+        string bare = ip.Replace("::ffff:", "").Trim();
+        lock (_lock)
+        {
+            if (DateTime.UtcNow >= _cache.Expiry)
+            {
+                var ips = new HashSet<string>(StringComparer.Ordinal);
+                if (File.Exists("data/fleet-server-ips.txt"))
+                    foreach (var line in File.ReadAllLines("data/fleet-server-ips.txt"))
+                    { var t = line.Trim(); if (t.Length > 0 && !t.StartsWith('#')) ips.Add(t); }
+                _cache = (ips, DateTime.UtcNow.AddMinutes(5));
+            }
+            return _cache.Ips.Contains(bare);
+        }
+    }
+}
 
 public class ChatUrlRequest
 {

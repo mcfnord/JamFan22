@@ -284,7 +284,7 @@ Secondary variant `++li.+` (hash `b962558b4787fee6e3d5890e05c27179`): 145 min on
 
 ## TODO
 
-- **`/chat-url-server` fleet IP gate** (`Program.cs`): The endpoint currently accepts POSTs from any IP. Only fleet servers should be calling it. Add a check against the known fleet IP list (or `IsIpAllowedAsync` with a fleet-specific allowlist) before processing the URL, returning 403 for unrecognized callers.
+- **`/chat-url` (client) rate limiting** (`Program.cs`): The client chat-URL endpoint is gated by `IsIpAllowedAsync` (blocks known bad ASNs) but has no per-IP rate limit. Any non-blocked IP can spam valid UG or chords69cl URLs to pollute `urls.csv`. Add a simple per-IP rate limit (e.g. 5 requests/minute via `ConcurrentDictionary<string, (int count, DateTime window)>`). Note: `/chat-url-server` is now gated to `data/fleet-server-ips.txt`. Note: `/chat-command-server` (stream slot requests) is intentionally open to any server — `TryRequestStream` has its own quality gate (16+ unique GUIDs, 3+ active days) and the intent is to allow any server to stream for now.
 
 - **Alt-source silent-state slow polling** (`JamulusCacheManager.cs`, `PollOneAltSourceServerAsync`): After each poll of a blocked server, check if every client in the response has `minsHere` exceeding a long-duration threshold (e.g., 8 hours = permanent bots). If so, mark that server as "silent" and skip it in the round-robin for N cycles before polling again. When any short-duration client appears, clear the silent flag immediately. Implementation: small `Dictionary<string, int>` alongside `_altSourceCache` (server key → cycles-to-skip). Reduces unnecessary HTTP load on explorer.jamulus.io without losing census accuracy for real musicians.
 
