@@ -53,6 +53,7 @@ FILES_TO_COPY=(
     "data/server.csv"
     "data/census.csv"
     "data/censusgeo.csv"
+    "data/fleet-guid-ip.csv"
 
     # --- Wwwroot State/Text Files ---
     "wwwroot/paircount.csv"
@@ -88,4 +89,9 @@ cd "$TARGET_DIR"
 
 # Use the PORT environment variable we added to Program.cs
 echo "Logs are being written to $TARGET_DIR/output.log"
-ASPNETCORE_ENVIRONMENT=Development PORT=$TEST_PORT dotnet JamFan22.dll > output.log 2>&1
+ASPNETCORE_ENVIRONMENT=Development PORT=$TEST_PORT dotnet JamFan22.dll > output.log 2>&1 &
+DEBUG_PID=$!
+echo 500 > /proc/$DEBUG_PID/oom_score_adj
+echo "Debug PID $DEBUG_PID — oom_score_adj=500 (preferred OOM kill victim over production)"
+echo "To stop: kill \$(lsof -t -i :$TEST_PORT)"
+wait $DEBUG_PID
