@@ -25,9 +25,13 @@ int _currentTelemetryMinute = JamFan22.Services.JamulusCacheManager.MinutesSince
 var _seenEvents = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
 var _telemetryLock = new object();
 
+// Fleet GUID-IP cache lives in FleetGuidCache (static class, accessible from IdentityManager)
+
 Console.WriteLine($"[STARTUP] JamFan22 starting. PID={Environment.ProcessId} Time={DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+FleetGuidCache.HydrateFromCsv();
 StreamRequestManager.Load();
 StreamGate.Load();
+_ = StreamGate.PostLeaseMonitorAsync();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -89,6 +93,28 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+    if (!path.StartsWith("/api/track") && !path.StartsWith("/chathub") && path != "/favicon.ico")
+    {
+        string ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(xff)) ip = xff.Split(',')[0].Trim();
+        if (!ip.Contains("::ffff:")) ip = "::ffff:" + ip;
+
+        var ua  = context.Request.Headers["User-Agent"].FirstOrDefault() ?? "";
+        var ref_ = context.Request.Headers["Referer"].FirstOrDefault() ?? "";
+        var fullPath = path + (context.Request.QueryString.Value ?? "");
+        int nowMinute = JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt();
+
+        var json = System.Text.Json.JsonSerializer.Serialize(new { a = "http_req", m = context.Request.Method, p = fullPath, ua, @ref = ref_ });
+        lock (_telemetryLock)
+            System.IO.File.AppendAllText("data/telemetry.log", $"{nowMinute},{ip},anon,0,0,{json}" + Environment.NewLine);
+    }
+    await next(context);
+});
+
 app.UseRouting();
 app.UseAuthorization();
 app.MapRazorPages();
@@ -127,9 +153,13 @@ app.MapGet("/ip-allowed/{ip}", async (string ip, HttpContext context) =>
     var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
     if (!string.IsNullOrEmpty(xff)) callerIP = xff.Split(',')[0].Trim();
 
+    var guid = context.Request.Query["guid"].FirstOrDefault();
+
     bool blocked = await IpAnalyticsService.IsIpBlockedAsync(ip);
+    if (!string.IsNullOrEmpty(guid))
+        FleetGuidCache.UpsertGuid(guid, ip, callerIP, blocked);
     string verdict = blocked ? "BLOCKED" : "ALLOWED";
-    Console.WriteLine($"[IP-ALLOWED] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} caller={callerIP} query={ip} => {verdict}");
+    Console.WriteLine($"[IP-ALLOWED] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} caller={callerIP} query={ip} guid={guid ?? "-"} => {verdict}");
     return Results.Text(blocked ? "false" : "true", "text/plain");
 });
 
@@ -152,6 +182,13 @@ app.MapGet("/api/nearby", async (HttpContext context) =>
     var finder = new JamFan22.MusicianFinder();
     string htmlResult = await finder.FindMusiciansHtmlAsync(clientIP);
     return Results.Content(htmlResult, "text/html");
+});
+
+app.MapGet("/api/geo-diag", async (HttpContext context) =>
+{
+    var finder = new JamFan22.MusicianFinder();
+    string html = await finder.GeoDiagAsync();
+    return Results.Content(html, "text/html");
 });
 
 app.MapGet("/hotties/{encodedGuid}", async (string encodedGuid, HttpContext context) =>
@@ -275,11 +312,12 @@ app.MapPost("/chat-url-server", async (HttpContext context) =>
     if (!await JamFan22.harvest.UrlMatchesChatPatternsAsync(req.url))
     {
         Console.WriteLine($"[CHAT-URL] rejected url={req.url}");
+        JamFan22.harvest.AppendRejectedLog(req.url, "server", server);
         return Results.Text("rejected", "text/plain");
     }
 
     Console.WriteLine($"[CHAT-URL] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} server={server} url={req.url}");
-    await JamFan22.harvest.IngestChatUrlAsync(req.url, server);
+    await JamFan22.harvest.IngestChatUrlAsync(req.url, server, "server");
     return Results.Ok();
 });
 app.MapPost("/chat-url-client", async (HttpContext context) =>
@@ -299,6 +337,13 @@ app.MapPost("/chat-url-client", async (HttpContext context) =>
     if (!allowed)
     {
         Console.WriteLine($"[CHAT-URL-CLIENT] BLOCKED ip={remoteIp} — ip-allowed gate rejected");
+        return Results.Ok();
+    }
+
+    if (!await JamFan22.harvest.UrlMatchesChatPatternsAsync(req.url))
+    {
+        Console.WriteLine($"[CHAT-URL-CLIENT] rejected url={req.url}");
+        JamFan22.harvest.AppendRejectedLog(req.url, "client", remoteIp);
         return Results.Ok();
     }
 
@@ -351,7 +396,7 @@ app.MapPost("/chat-url-client", async (HttpContext context) =>
     }
 
     Console.WriteLine($"[CHAT-URL-CLIENT] STORING url={req.url} for server={bestServer} via guid={bestGuid} strength={bestStrength}");
-    await JamFan22.harvest.IngestChatUrlAsync(req.url, bestServer);
+    await JamFan22.harvest.IngestChatUrlAsync(req.url, bestServer, "client");
     return Results.Ok();
 });
 
@@ -420,6 +465,22 @@ app.MapPost("/api/track", async (HttpContext context) =>
     return Results.Ok();
 });
 
+app.MapPost("/chat-command-server", async (HttpContext context) =>
+{
+    var req = await context.Request.ReadFromJsonAsync<ChatCommandRequest>();
+    if (req == null || string.IsNullOrEmpty(req.command))
+        return Results.BadRequest("missing command");
+
+    var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(xff)) remoteIp = xff.Split(',')[0].Trim();
+    if (!remoteIp.Contains("::ffff:")) remoteIp = "::ffff:" + remoteIp;
+
+    Console.WriteLine($"[CHAT-CMD] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} server={remoteIp} port={req.port} command={req.command}");
+    string message = StreamGate.TryRequestStream(remoteIp, false);
+    return Results.Text(message, "text/plain");
+});
+
 app.Run();
 
 public class ChatUrlRequest
@@ -433,6 +494,13 @@ public class HideRequest
     public bool hide { get; set; }
 }
 
+public class ChatCommandRequest
+{
+    public string command { get; set; }
+    public int port { get; set; }
+    public bool weekly { get; set; }
+}
+
 public class TelemetryPayload
 {
     public string h { get; set; }
@@ -440,3 +508,4 @@ public class TelemetryPayload
     public int n { get; set; }
     public System.Text.Json.JsonElement events { get; set; }
 }
+
