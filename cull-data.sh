@@ -15,3 +15,17 @@ CUTOFF_MINUTES=$((MINUTES_SINCE_EPOCH - 21600))
 awk -v cutoff="$CUTOFF_MINUTES" -F, '$1 >= cutoff' "data/telemetry.log" > "data/tmpfile.log"
 cat data/tmpfile.log > data/telemetry.log
 rm data/tmpfile.log
+
+awk -v cutoff="$CUTOFF_MINUTES" -F, '$1 >= cutoff' "data/fleet-guid-ip.csv" > "data/tmpfile.csv"
+cat data/tmpfile.csv > data/fleet-guid-ip.csv
+rm data/tmpfile.csv
+
+awk -v cutoff="$CUTOFF_MINUTES" -F, '$1 >= cutoff' "data/urls-rejected.csv" > "data/tmpfile.csv"
+cat data/tmpfile.csv > data/urls-rejected.csv
+rm data/tmpfile.csv
+
+# urls.csv: 90 days = 129600 minutes
+URLS_CUTOFF=$((MINUTES_SINCE_EPOCH - 129600))
+awk -v cutoff="$URLS_CUTOFF" -F, '$1 >= cutoff' "data/urls.csv" > "data/tmpfile.csv"
+cat data/tmpfile.csv > data/urls.csv
+rm data/tmpfile.csv

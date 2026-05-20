@@ -4,6 +4,12 @@
 //   2. Fleet servers via POST /chat-url-server (raw text match)
 //   3. Custom client via POST /chat-url-client
 //
+// URL LOGGING (data/urls.csv and data/urls-rejected.csv)
+// Every URL arriving via any path is logged:
+//   - Passes chat-patterns.txt  → data/urls.csv  (minutes, source, server, encoded_url)
+//   - Fails  chat-patterns.txt  → data/urls-rejected.csv (same schema)
+// Source values: "lounge", "server", "client". Lounge rejects use the lounge hostname as addr.
+//
 // Api.cshtml.cs reads m_discreetLinks and sets apiSvr.videoUrl — but only for ip-allowed
 // visitors (visitorIsAllowed, checked once per request with 48h per-IP cache via
 // IpAnalyticsService.IsIpAllowedAsync). Client.cshtml renders the video icon and gates
@@ -50,7 +56,12 @@ namespace JamFan22
         public static ConcurrentDictionary<string, (string Url, DateTime Stored)> m_discreetLinks = new();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
         public static Dictionary<string, string> m_songTitleAtAddr = new Dictionary<string, string>();
-        public static int m_timeToLive = 0;
+        static Dictionary<string, DateTime> m_songTitleExpiry = new Dictionary<string, DateTime>();
+        static DateTime m_nextCleanup = DateTime.MinValue;
+        // serverAddr-with-dashes → chords69cl room URL; kept alive until a non-room URL displaces it.
+        public static ConcurrentDictionary<string, string> m_activeRoomUrls = new();
+        // Last title fetched from a chords69cl room; used to detect stale re-polls after expiry.
+        static ConcurrentDictionary<string, string> m_lastRoomTitle = new();
 
         private static (string[] Lines, DateTime Expiry) _chatPatternsCache = (Array.Empty<string>(), DateTime.MinValue);
 
@@ -72,20 +83,58 @@ namespace JamFan22
             return false;
         }
 
-        public static async Task IngestChatUrlAsync(string url, string serverAddr)
+        static readonly Regex s_ugTitleRegex = new Regex(
+            @"(?:[a-z]{2}\.)?(?:tabs\.)?ultimate-guitar\.com/tab/([^/]+)/(.+?)(?:-(chords?|tabs?|bass-tabs?|ukulele|drum-tabs?|power-tabs?|guitar-pro|official|fingerstyle|classical))?-\d+$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        public static void AppendAcceptedLog(string url, string source, string serverAddr)
         {
+            string title = "";
+            var ugMatch = s_ugTitleRegex.Match(url);
+            if (ugMatch.Success)
+            {
+                var tc = System.Globalization.CultureInfo.InvariantCulture.TextInfo;
+                string artist = tc.ToTitleCase(ugMatch.Groups[1].Value.Replace('-', ' ').ToLower());
+                string songTitle = tc.ToTitleCase(ugMatch.Groups[2].Value.Replace('-', ' ').ToLower());
+                title = $"{songTitle} — {artist}";
+            }
+            File.AppendAllText("data/urls.csv",
+                JamulusCacheManager.MinutesSince2023AsInt() + "," + source + ","
+                + serverAddr + "," + System.Web.HttpUtility.UrlEncode(url) + ","
+                + System.Web.HttpUtility.UrlEncode(title) + Environment.NewLine);
+        }
+
+        public static void AppendRejectedLog(string url, string source, string addr) =>
+            File.AppendAllText("data/urls-rejected.csv",
+                JamulusCacheManager.MinutesSince2023AsInt() + "," + source + ","
+                + addr + "," + System.Web.HttpUtility.UrlEncode(url) + Environment.NewLine);
+
+        public static async Task IngestChatUrlAsync(string url, string serverAddr, string source)
+        {
+            AppendAcceptedLog(url, source, serverAddr);
             string lowerUrl = url.ToLower();
             if (lowerUrl.Contains("vdo.ninja") || lowerUrl.Contains("meet.google.com") ||
                 lowerUrl.Contains(".zoom.us") || lowerUrl.Contains("meet.jit.si"))
             {
                 m_discreetLinks[serverAddr] = (url, DateTime.UtcNow);
-                m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 3;
                 Console.WriteLine($"[Harvest] Discreet link at {serverAddr}: {url}");
             }
 
+            string addrKey = serverAddr.Replace(':', '-');
+            bool isRoomUrl = Regex.IsMatch(url, @"chords69cl\.vercel\.app/[^?]*\?.*room=", RegexOptions.IgnoreCase);
+
             string title = await ScrapeTitleAsync(url);
             if (title != null)
-                ShortLivedTitleForServerAtAddr(title, serverAddr.Replace(':', '-'));
+            {
+                ShortLivedTitleForServerAtAddr(title, addrKey);
+                if (isRoomUrl)
+                {
+                    m_activeRoomUrls[addrKey] = url;
+                    m_lastRoomTitle[addrKey] = title;
+                }
+                else
+                    m_activeRoomUrls.TryRemove(addrKey, out _);
+            }
         }
 
         static void DiscreetLinkForServer(string loungeUrl, string url)
@@ -93,7 +142,6 @@ namespace JamFan22
             string where = JamulusAnalyzer.m_connectedLounges.FirstOrDefault(x => x.Value == loungeUrl).Key;
             if (where == null) return;
             m_discreetLinks[where] = (url, DateTime.UtcNow);
-            m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 3;
         }
 
         static void ShortLivedTitleForServer(string title, string url, string loungeUrl)
@@ -110,13 +158,10 @@ namespace JamFan22
                 }
             }
             Console.WriteLine($"[Harvest] Storing title '{title}' at key '{where.Replace(':', '-')}'");
-            m_songTitleAtAddr[where.Replace(':', '-')] = title;
-            m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 5;
-            System.IO.File.AppendAllText("data/urls.csv",
-                JamulusCacheManager.MinutesSince2023AsInt() + ","
-                + where + ","
-                + System.Web.HttpUtility.UrlEncode(url)
-                + Environment.NewLine);
+            string key = where.Replace(':', '-');
+            m_songTitleAtAddr[key] = title;
+            m_songTitleExpiry[key] = DateTime.UtcNow.AddMinutes(8);
+
         }
 
         static void ShortLivedTitleForServerAtAddr(string title, string serverAddr)
@@ -124,13 +169,14 @@ namespace JamFan22
             if (title.Length > 0)
             {
                 m_songTitleAtAddr[serverAddr] = title;
-                m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt() + 10;
+                m_songTitleExpiry[serverAddr] = DateTime.UtcNow.AddMinutes(8);
             }
         }
 
         static readonly List<string> m_staticLounges = new List<string>
         {
             "https://lobby.jam.voixtel.net.br/",
+            "https://StudioD.live",
         };
 
         static Dictionary<string, string> m_lastLineMap = new Dictionary<string, string>();
@@ -148,16 +194,53 @@ namespace JamFan22
             while (!stoppingToken.IsCancellationRequested)
             {
                 // TTL cleanup
-                if (JamulusCacheManager.MinutesSince2023AsInt() > m_timeToLive)
+                if (DateTime.UtcNow > m_nextCleanup)
                 {
-                    m_timeToLive = JamulusCacheManager.MinutesSince2023AsInt();
-                    var rng = new Random();
-                    for (int i = m_songTitleAtAddr.Count - 1; i >= 0; i--)
-                        if (0 == rng.Next(3)) m_songTitleAtAddr.Remove(m_songTitleAtAddr.ElementAt(i).Key);
+                    m_nextCleanup = DateTime.UtcNow.AddMinutes(1);
+                    var now = DateTime.UtcNow;
+                    foreach (var key in m_songTitleExpiry.Keys.ToList())
+                        if (now > m_songTitleExpiry[key])
+                        {
+                            m_songTitleAtAddr.Remove(key);
+                            m_songTitleExpiry.Remove(key);
+                        }
                     var expireBefore = DateTime.UtcNow.AddMinutes(-20);
                     foreach (var key in m_discreetLinks.Keys.ToList())
                         if (m_discreetLinks.TryGetValue(key, out var entry) && entry.Stored < expireBefore)
                             m_discreetLinks.TryRemove(key, out _);
+                }
+
+                // Re-poll any active chords69cl room URLs to pick up song changes.
+                foreach (var kvp in m_activeRoomUrls.ToArray())
+                {
+                    string addrKey = kvp.Key;
+                    string roomUrl = kvp.Value;
+                    try
+                    {
+                        string newTitle = await ScrapeTitleAsync(roomUrl);
+                        if (newTitle != null)
+                        {
+                            bool isShowing = m_songTitleExpiry.TryGetValue(addrKey, out var exp) && DateTime.UtcNow < exp;
+                            m_lastRoomTitle.TryGetValue(addrKey, out string lastTitle);
+                            if (!isShowing && newTitle == lastTitle)
+                            {
+                                Console.WriteLine($"[RoomPoll] {addrKey}: same song '{newTitle}' after expiry, stopping poll");
+                                m_activeRoomUrls.TryRemove(addrKey, out _);
+                            }
+                            else
+                            {
+                                m_songTitleAtAddr.TryGetValue(addrKey, out string oldTitle);
+                                if (oldTitle != newTitle)
+                                    Console.WriteLine($"[RoomPoll] {addrKey}: '{oldTitle}' → '{newTitle}'");
+                                m_lastRoomTitle[addrKey] = newTitle;
+                                ShortLivedTitleForServerAtAddr(newTitle, addrKey);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[RoomPoll] {addrKey}: {ex.Message}");
+                    }
                 }
 
                 // Fetch the current Thai lounge list and merge with static lounges.
@@ -220,6 +303,7 @@ namespace JamFan22
 
                     retryDelay = 5;
                     clientNames = new List<string>();
+                    response.EnsureSuccessStatusCode();
                     while (!streamReader.EndOfStream && !stoppingToken.IsCancellationRequested)
                     {
                         var line = await streamReader.ReadLineAsync();
@@ -256,6 +340,14 @@ namespace JamFan22
                         string inlineURL = match.Value;
                         Console.WriteLine($"[Harvest:{new Uri(loungeUrl).Host}] URL: {inlineURL}");
 
+                        if (!await UrlMatchesChatPatternsAsync(inlineURL))
+                        {
+                            AppendRejectedLog(inlineURL, "lounge", new Uri(loungeUrl).Host);
+                            continue;
+                        }
+                        string loungeServer = JamulusAnalyzer.m_connectedLounges.FirstOrDefault(x => x.Value == loungeUrl).Key ?? "";
+                        AppendAcceptedLog(inlineURL, "lounge", loungeServer);
+
                         string lowerUrl = inlineURL.ToLower();
                         if (lowerUrl.Contains("https://vdo.ninja/") ||
                             lowerUrl.Contains("https://meet.google.com/") ||
@@ -279,6 +371,13 @@ namespace JamFan22
                     Console.WriteLine($"[Harvest:{new Uri(loungeUrl).Host}] {ex.Message}. Retrying in {retryDelay}s");
                     await Task.Delay(TimeSpan.FromSeconds(retryDelay), stoppingToken);
                     retryDelay = Math.Min(retryDelay * 2, 3600);
+                    continue;
+                }
+                // clean EOF (server closed stream without error) — still back off
+                if (!stoppingToken.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(retryDelay), stoppingToken);
+                    retryDelay = Math.Min(retryDelay * 2, 300);
                 }
             }
         }
@@ -288,11 +387,12 @@ namespace JamFan22
             try
             {
                 // chords69cl: query Firebase RTDB directly — no HTML scrape needed.
-                var chords69Match = Regex.Match(url, @"chords69cl\.vercel\.app/shared-view\?room=([A-Za-z0-9_-]+)", RegexOptions.IgnoreCase);
+                var chords69Match = Regex.Match(url, @"chords69cl\.vercel\.app/(?:shared-view/?)?\?room=([^&\s]+)", RegexOptions.IgnoreCase);
                 if (chords69Match.Success)
                 {
-                    string room = chords69Match.Groups[1].Value;
-                    string fbUrl = $"https://ai-art-b26e7-default-rtdb.asia-southeast1.firebasedatabase.app/rooms/{room}/sharedView.json";
+                    string room = Uri.UnescapeDataString(chords69Match.Groups[1].Value);
+                    string encodedRoom = Uri.EscapeDataString(room);
+                    string fbUrl = $"https://ai-art-b26e7-default-rtdb.asia-southeast1.firebasedatabase.app/rooms/{encodedRoom}/sharedView.json";
                     using var fbClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
                     string json = await fbClient.GetStringAsync(fbUrl);
                     var root = Newtonsoft.Json.Linq.JObject.Parse(json);
@@ -308,7 +408,7 @@ namespace JamFan22
                 }
 
                 // ultimate-guitar: extract title and artist from URL slug — site returns 403 to scrapers
-                var ugMatch = Regex.Match(url, @"(?:[a-z]{2}\.)?(?:tabs\.)?ultimate-guitar\.com/tab/([^/]+)/(.+?)(?:-(chords?|tabs?|bass-tabs?|ukulele|drum-tabs?|power-tabs?|guitar-pro|official|fingerstyle|classical))?-\d+$", RegexOptions.IgnoreCase);
+                var ugMatch = s_ugTitleRegex.Match(url);
                 if (ugMatch.Success)
                 {
                     var tc = System.Globalization.CultureInfo.InvariantCulture.TextInfo;
@@ -325,6 +425,9 @@ namespace JamFan22
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
                     theclient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                    theclient.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.5");
+                    theclient.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate, br");
+                    theclient.DefaultRequestHeaders.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
                     string s = await theclient.GetStringAsync(url);
                     string title = null;
 
@@ -338,14 +441,19 @@ namespace JamFan22
                     }
                     else if (url.ToLower().Contains("https://chordtabs.in.th/"))
                     {
+                        // Title format: "{song}คอร์ด | คอร์ด {song} {artist}"
                         Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
                         if (m.Success)
                         {
-                            title = m.Groups[1].Value.Replace("คอร์ด", "");
-                            if (title.Contains("|"))
-                            {
-                                title = title.Split('|')[1].Trim();
-                            }
+                            string raw = m.Groups[1].Value;
+                            var songMatch = Regex.Match(raw, @"^(.+?)คอร์ด");
+                            string song = songMatch.Success ? songMatch.Groups[1].Value.Trim() : "";
+                            string afterPipe = raw.Contains("|") ? raw.Split('|')[1].Trim() : "";
+                            afterPipe = Regex.Replace(afterPipe, @"^คอร์ด\s*", "").Trim();
+                            string artist = (song.Length > 0 && afterPipe.StartsWith(song))
+                                ? afterPipe.Substring(song.Length).Trim() : "";
+                            title = (song.Length > 0 && artist.Length > 0) ? $"{song} — {artist}"
+                                  : (song.Length > 0 ? song : afterPipe);
                         }
                     }
                     else if (url.ToLower().Contains("https://designbetrieb.de/"))
@@ -364,20 +472,27 @@ namespace JamFan22
                             title = m.Groups[1].Value;
                         }
                     }
-                    else if (Regex.IsMatch(url, @"https://[^/]*ultimate-guitar\.com/tab/", RegexOptions.IgnoreCase))
+                    else if (url.ToLower().Contains("https://www.guitarthai.com/"))
                     {
-                        // URL format: /tab/{artist}/{song-slug}-{type}-{id}
-                        // Parse directly — UG blocks server-side HTTP requests with 403.
-                        var m = Regex.Match(url, @"/tab/([^/]+)/(.+)-(?:chords|tabs?|bass|ukulele|drums|guitar_pro|power_tab|official)-\d+", RegexOptions.IgnoreCase);
+                        Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
                         if (m.Success)
                         {
-                            string artist = m.Groups[1].Value.Replace("-", " ");
-                            string song = m.Groups[2].Value.Replace("-", " ");
-                            artist = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(artist);
-                            song = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(song);
-                            title = $"{song} — {artist}";
+                            // Format: "คอร์ดเพลง <song> - <artist> คอร์ดง่าย ... | GuitarThai"
+                            var inner = Regex.Match(m.Groups[1].Value, @"คอร์ดเพลง\s+(.+?)\s+คอร์ดง่าย");
+                            if (inner.Success) title = inner.Groups[1].Value;
                         }
                     }
+                    else if (url.ToLower().Contains("https://www.dochord.com/"))
+                    {
+                        Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+                        if (m.Success)
+                        {
+                            // Format: "คอร์ดเพลง <song+artist> | dochord.com"
+                            var inner = Regex.Match(m.Groups[1].Value, @"คอร์ดเพลง\s+(.+?)\s*\|");
+                            if (inner.Success) title = inner.Groups[1].Value;
+                        }
+                    }
+
 
                     if (title != null)
                     {
@@ -404,3 +519,5 @@ namespace JamFan22
 
     }
 }
+
+
