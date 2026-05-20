@@ -53,7 +53,7 @@
             }
         }
         string persona = ip != null ? IdentityManager.GetPersona(ip) : null;
-        bool isChatEnabled = !System.IO.File.Exists("killchat.txt");
+        bool isChatEnabled = false; // chat disabled
     }
 
     @if (persona != null && isChatEnabled)
@@ -81,6 +81,13 @@
                 return h.toString();
             }
 
+            function setUnreadState(hasUnread) {
+                var chatHeader = document.getElementById("chatHeader");
+                chatHeader.style.background = hasUnread ? "#28a745" : "#007bff";
+                chatHeader.innerText = hasUnread ? "Chats" : "Chat";
+                sessionStorage.setItem("chatUnread", hasUnread ? "true" : "false");
+            }
+
             function toggleChat() {
                 var chatBody = document.getElementById("chatBody");
                 var chatPopup = document.getElementById("chatPopup");
@@ -89,10 +96,8 @@
                 if (chatBody.style.display === "none") {
                     chatBody.style.display = "block";
                     chatPopup.style.maxWidth = "300px";
-                    chatHeader.style.background = "#007bff"; // Reset to blue when opened
-                    chatHeader.innerText = "Chat"; // Reset text
+                    setUnreadState(false);
                     localStorage.setItem("chatOpen", "true");
-                    sessionStorage.setItem("chatUnread", "false"); // Clear unread on open
                     // Mark the latest message as seen when opening
                     if (window.lastReceivedMsg) {
                         localStorage.setItem("lastSeenChatMsgHash", hashMsg(window.lastReceivedMsg.user, window.lastReceivedMsg.message));
@@ -128,10 +133,7 @@
                         msg.remove();
                         // FIX: If the message list is now empty, reset the header
                         if (document.getElementById("messagesList").childElementCount === 0) {
-                            var chatHeader = document.getElementById("chatHeader");
-                            chatHeader.style.background = "#007bff"; // Turn blue
-                            chatHeader.innerText = "Chat"; // Update text
-                            sessionStorage.setItem("chatUnread", "false");
+                            setUnreadState(false);
                         }
                     }, timeLeft);
                 }
@@ -142,9 +144,7 @@
 
                     var chatBody = document.getElementById("chatBody");
                     if (chatBody.style.display === "none" || chatBody.style.display === "") {
-                        document.getElementById("chatHeader").style.background = "#28a745"; // Turn green
-                        document.getElementById("chatHeader").innerText = "Chats"; // Update text
-                        sessionStorage.setItem("chatUnread", "true");
+                        setUnreadState(true);
                     } else {
                         // Chat is open, update last seen message hash
                         localStorage.setItem("lastSeenChatMsgHash", hashMsg(user, message));
@@ -178,19 +178,15 @@
                             var chatBody = document.getElementById("chatBody");
                             // If chat is closed and the last history message hash is different from what we last saw, turn green
                             if (lastSeenMsgHash !== currentLastMsgHash && (chatBody.style.display === "none" || chatBody.style.display === "")) {
-                                document.getElementById("chatHeader").style.background = "#28a745"; // Turn green
-                                document.getElementById("chatHeader").innerText = "Chats"; // Update text
-                                sessionStorage.setItem("chatUnread", "true");
+                                setUnreadState(true);
                             } else if (chatBody.style.display === "block") {
                                 // If chat is already open, mark this as seen
                                 localStorage.setItem("lastSeenChatMsgHash", currentLastMsgHash);
+                            } else {
+                                setUnreadState(false);
                             }
                         } else {
-                            // FIX: Reset to blue if there is no chat history anymore
-                            var chatHeader = document.getElementById("chatHeader");
-                            chatHeader.style.background = "#007bff"; // Turn blue
-                            chatHeader.innerText = "Chat"; // Update text
-                            sessionStorage.setItem("chatUnread", "false");
+                            setUnreadState(false);
 
                             // If history is empty and this is the FIRST time the page loaded in this tab session
                             if (sessionStorage.getItem("chatSessionStarted") !== "true") {

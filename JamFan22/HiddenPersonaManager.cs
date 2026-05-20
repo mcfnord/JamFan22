@@ -8,6 +8,7 @@ namespace JamFan22
     public static class HiddenPersonaManager
     {
         private static ConcurrentDictionary<string, DateTime> _hiddenGuids = new ConcurrentDictionary<string, DateTime>();
+        private static int _lastLoggedCount = -1;
 
         public static void SetHidden(IEnumerable<string> guids, bool hide)
         {
@@ -34,7 +35,8 @@ namespace JamFan22
                 if (DateTime.UtcNow < expiry) return expiry;
                 _hiddenGuids.TryRemove(guid, out _);
             }
-            if (_hiddenGuids.Count > 0) Console.WriteLine($"[MEM-hidden] hiddenGuids={_hiddenGuids.Count}");
+            var count = _hiddenGuids.Count;
+            if (count != _lastLoggedCount) { _lastLoggedCount = count; if (count > 0) Console.WriteLine($"[MEM-hidden] hiddenGuids={count}"); }
             return null;
         }
     }

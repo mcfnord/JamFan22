@@ -116,7 +116,7 @@ namespace JamFan22.Services
 
         // ── Block list cache ──────────────────────────────────────────────────
 
-        private static (string[] Lines, DateTime Expiry) _blockListCache = (Array.Empty<string>(), DateTime.MinValue);
+        private static (string[] Lines, DateTime Expiry, string Hash) _blockListCache = (Array.Empty<string>(), DateTime.MinValue, "");
         private static readonly SemaphoreSlim _blockListSemaphore = new SemaphoreSlim(1, 1);
 
         // ── Per-IP allowed cache (48h TTL) ────────────────────────────────────
@@ -154,7 +154,15 @@ namespace JamFan22.Services
                         lines = File.Exists("wwwroot/asn-ip-client-blocks.txt")
                             ? await File.ReadAllLinesAsync("wwwroot/asn-ip-client-blocks.txt", ct)
                             : Array.Empty<string>();
-                        _blockListCache = (lines, DateTime.UtcNow.AddMinutes(1));
+                        string newHash = string.Join('\n', lines).GetHashCode().ToString();
+                        if (newHash != _blockListCache.Hash)
+                        {
+                            foreach (var key in _ipAllowedCache.Keys.ToList())
+                                if (_ipAllowedCache.TryGetValue(key, out var entry) && !entry.Blocked)
+                                    _ipAllowedCache.TryRemove(key, out _);
+                            Console.WriteLine("[blocklist] content changed — evicted allowed-IP cache entries");
+                        }
+                        _blockListCache = (lines, DateTime.UtcNow.AddMinutes(1), newHash);
                     }
                     else { lines = _blockListCache.Lines; }
                 }

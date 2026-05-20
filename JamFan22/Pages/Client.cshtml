@@ -56,7 +56,7 @@
     }
 
 body {
-        padding: 1rem 0.5rem; /* Changed from 1rem to halve the left/right padding */
+        padding: 1rem 0.5rem 80px; /* bottom pad reserves space for fixed nearby bar */
         margin: 0;
         background-color: lightblue;
         line-height: unset;
@@ -98,6 +98,32 @@ body {
         box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
     }
 
+    #nearbySection {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 200;
+        background-color: lightblue;
+        border-top: 1px solid #bbb;
+    }
+
+    #nearby-content {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE/Edge */
+    }
+
+    #nearby-content::-webkit-scrollbar {
+        display: none; /* Chrome/Safari/Opera */
+    }
+
+    .nearby-pre-green-hidden {
+        display: none !important;
+    }
+
     #system-status {
         transition: max-height 0.5s ease-in-out, opacity 0.5s ease-in-out, margin-bottom 0.5s ease-in-out, padding 0.5s ease-in-out;
         overflow: hidden;
@@ -130,6 +156,37 @@ body {
         /* 10 loops × 3s = 30 seconds of gentle breathing */
     }
 
+    @@keyframes ethereal-flash-anim {
+        0%   { opacity: 1; background-color: rgba(255, 255, 150, 0.9); box-shadow: 0 0 15px 5px rgba(255, 255, 150, 0.8); }
+        100% { opacity: 0; background-color: transparent; box-shadow: 0 0 0px 0px transparent; }
+    }
+
+    @@keyframes ethereal-flash-outline-anim {
+        0%   { outline: 3px solid rgba(255, 100, 0, 1); outline-offset: 2px; box-shadow: 0 0 10px 4px rgba(255, 100, 0, 0.7); transform: scale(1.08); }
+        40%  { outline: 3px solid rgba(255, 100, 0, 0.7); outline-offset: 2px; box-shadow: 0 0 8px 2px rgba(255, 100, 0, 0.4); transform: scale(1.04); }
+        100% { outline: 3px solid transparent; outline-offset: 2px; box-shadow: none; transform: scale(1); }
+    }
+
+    .ethereal-flash {
+        position: relative;
+        animation: ethereal-flash-outline-anim 1.2s ease-out forwards;
+    }
+
+    .ethereal-flash::after {
+        content: "";
+        position: absolute;
+        top: -2px; left: -4px; right: -4px; bottom: -2px;
+        border-radius: 4px;
+        pointer-events: none;
+        animation: ethereal-flash-anim 1.2s ease-out forwards;
+        z-index: 10;
+    }
+
+    .server-card {
+        position: relative;
+        overflow: hidden;
+    }
+
 </style>
 
 <div id="system-status" class="@(string.IsNullOrEmpty(Model.SystemStatus) ? "hidden" : "")" style="font-family: Arial, Helvetica, sans-serif; margin-bottom: 1rem;">
@@ -138,9 +195,9 @@ body {
 
 <div id="client-grid" class="grid"></div>
 
-<div id="nearbySection" style="font-family: Arial, Helvetica, sans-serif; margin-top: 1rem;">
+<div id="nearbySection" style="font-family: Arial, Helvetica, sans-serif;">
     <button type="button" class="collapsible active" id="nearby-btn" style="height: 16px; padding: 0; min-height: 16px; margin-bottom: 0;"></button>
-    <div class="content" id="nearby-content" style="display: block; padding-top: 0; padding-bottom: 15px;">
+    <div class="content" id="nearby-content" style="display: block; padding-top: 0;">
         <div id="nearby-musicians-container">Loading nearby musicians...</div>
     </div>
 </div>
@@ -161,9 +218,9 @@ body {
         }
     </div>
 
-    <div class="split-tab-container" style="display: flex; background-color: #eee; border-radius: 10px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
-        <button type="button" id="btn-servers" style="flex: 1; padding: 15px; border: none; background: transparent; font-weight: bold; color: #444; border-right: 2px solid #ccc; outline: none; font-size: 16px; cursor: pointer; transition: background-color 0.2s;">Servers</button>
-        <button type="button" id="btn-info" style="flex: 1; padding: 15px; border: none; background: transparent; font-weight: bold; color: #444; outline: none; font-size: 16px; cursor: pointer; transition: background-color 0.2s;">Info</button>
+    <div class="split-tab-container" style="display: flex; border: 1px solid #888; border-radius: 6px; margin-bottom: 10px; overflow: hidden;">
+        <button type="button" id="btn-servers" style="flex: 1; padding: 6px 15px; border: none; background: transparent; font-weight: bold; color: inherit; border-right: 1px solid #888; outline: none; font-size: 14px; cursor: pointer; transition: background-color 0.2s;">Servers</button>
+        <button type="button" id="btn-info" style="flex: 1; padding: 6px 15px; border: none; background: transparent; font-weight: bold; color: inherit; outline: none; font-size: 14px; cursor: pointer; transition: background-color 0.2s;">Info</button>
     </div>
 
     <div id="content-servers" class="content" style="display: none;">
@@ -180,12 +237,12 @@ body {
     const _lang = ({'TW':'CN','HK':'CN','BE':'FR','CH':'FR','MX':'ES','AR':'ES','CO':'ES','CL':'ES','PE':'ES','VE':'ES','EC':'ES','GT':'ES','CU':'ES','BO':'ES','DO':'ES','HN':'ES','PY':'ES','SV':'ES','NI':'ES','CR':'ES','PA':'ES','UY':'ES','SR':'NL','AW':'NL','CW':'NL','SX':'NL'})[NATION] || NATION;
     const TRANSLATIONS = {
         'EN': { 'nearby-only': 'Nearby Only', 'dark-mode': 'Dark Mode', 'hide': 'Hide', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Nearby', 'highlight': 'Click to highlight, Ctrl-Click to track many' },
-        'CN': { 'nearby-only': '仅附近', 'dark-mode': '深色模式', 'hide': '隐藏', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人' },
-        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อน', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน' },
-        'DE': { 'nearby-only': 'Nur in der Nähe', 'dark-mode': 'Dunkelmodus', 'hide': 'Ausblenden', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen' },
-        'IT': { 'nearby-only': 'Solo vicini', 'dark-mode': 'Modalità scura', 'hide': 'Nascondi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti' },
+        'CN': { 'nearby-only': '仅附近', 'dark-mode': '深色模式', 'hide': '隐身', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人' },
+        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อนตัว', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน' },
+        'DE': { 'nearby-only': 'Nur in der Nähe', 'dark-mode': 'Dunkelmodus', 'hide': 'Verstecken', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen' },
+        'IT': { 'nearby-only': 'Solo vicini', 'dark-mode': 'Modalità scura', 'hide': 'Nasconditi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti' },
         'FR': { 'nearby-only': 'Proximité uniquement', 'dark-mode': 'Mode sombre', 'hide': 'Masquer', 'servers': 'Serveurs', 'info': 'Info', 'nearby': 'À proximité', 'highlight': 'Cliquer pour surligner, Ctrl+Clic pour en suivre plusieurs' },
-        'ES': { 'nearby-only': 'Solo cerca', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultar', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios' },
+        'ES': { 'nearby-only': 'Solo cerca', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultarse', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios' },
         'NL': { 'nearby-only': 'Alleen dichtbij', 'dark-mode': 'Donkere modus', 'hide': 'Verbergen', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Dichtbij', 'highlight': 'Klik om te markeren, Ctrl+Klik om meerdere te volgen' },
     };
     function T(key) { return (TRANSLATIONS[_lang] || TRANSLATIONS['EN'])[key] ?? TRANSLATIONS['EN'][key]; }
@@ -205,7 +262,7 @@ body {
 
         if (!serverHideExpiry) {
             chkHide24.checked = false;
-            txtHide24.innerText = "Hide";
+            txtHide24.innerText = T('hide');
             return;
         }
 
@@ -215,7 +272,7 @@ body {
         if (diff <= 0) {
             chkHide24.checked = false;
             serverHideExpiry = 0;
-            txtHide24.innerText = "Hide";
+            txtHide24.innerText = T('hide');
             return;
         }
 
@@ -223,12 +280,12 @@ body {
         if (hours <= 0) {
             chkHide24.checked = false;
             serverHideExpiry = 0;
-            txtHide24.innerText = "Hide";
+            txtHide24.innerText = T('hide');
             setServerHideState(false);
             return;
         }
         chkHide24.checked = true;
-        txtHide24.innerText = "Hide";
+        txtHide24.innerText = T('hide');
     }
 
     setInterval(updateHideUI, 60000);
@@ -708,9 +765,17 @@ body {
     }
 
     function renderMusician(client, serverId, occurrence = 0) {
+        let mId = getMusicianId(client, serverId, occurrence);
+
+        if (client.isTracksMarker) {
+            return `<div class="musician-container" id="${mId}" style="max-height: 50px; overflow: hidden; transition: all 0.75s ease-in-out; margin-bottom: 0px;">
+                        <div style="text-align: center; font-style: italic; opacity: 0.85; padding: 4px 0; font-size: 0.95em;">Tracks Playing</div>
+                    </div>`;
+        }
+
         let fontSizeStyle = client.name && client.name.length > 10 ? "font-size: 0.85em;" : "font-size: 1em;";
         let arrivalClass = client.isNewArrival ? " just-arrived" : "";
-        let mId = getMusicianId(client, serverId, occurrence);
+
         
         let instrumentDisplay = getInstrumentDisplay(client.instrument);
         let hashClass = client.hash ? ` ${client.hash}` : "";
@@ -720,7 +785,7 @@ body {
 
         let html = `<div class="musician-container" id="${mId}" style="max-height: 50px; overflow: hidden; transition: all 0.75s ease-in-out; margin-bottom: 0px;">`;
         
-        html += `<span class="musician${arrivalClass}${hashClass}" id="${clickHash}" style="cursor: pointer;" title="${T('highlight')}">`;
+        html += `<span class="musician${arrivalClass}${hashClass}" id="${clickHash}" style="cursor: pointer;">`;
         
         html += `<span style='${fontSizeStyle}'><b>${client.name}</b> ${instrumentDisplay}</span>`;
         html += `</span></div>`;
@@ -733,6 +798,8 @@ body {
         serverDiv.className = 'server-card';
         serverDiv.style.position = 'relative';
         serverDiv.style.transition = 'all 0.6s ease';
+        serverDiv.style.overflow = 'hidden';
+        serverDiv.dataset.serverName = server.name || "";
 
         // Tag distant servers and store metadata
         if (server.distanceAway >= 3000) {
@@ -787,6 +854,13 @@ body {
 
         // Append wrapper to main card
         serverDiv.appendChild(innerDiv);
+
+        if (server.rawAudio) {
+            const sash = document.createElement('div');
+            sash.className = 'raw-sash';
+            sash.textContent = 'RAW';
+            serverDiv.appendChild(sash);
+        }
 
         cardHeightObserver.observe(serverDiv);
 
@@ -976,6 +1050,8 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
 
             bestSwap.style.minHeight = '';
             bestSwap.dataset.lockedHeight = '0';
+            const slidingSash = bestSwap.querySelector('.raw-sash');
+            if (slidingSash) slidingSash.style.visibility = 'hidden';
             bestSwap.style.position = 'fixed';
             bestSwap.style.margin = '0';
             bestSwap.style.top = swapRect.top + 'px';
@@ -1018,7 +1094,7 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
 
                 spacer.remove();
                 ghost.style.minHeight = startHeight + 'px';
-                bestSwap.style.position = '';
+                bestSwap.style.position = 'relative';
                 bestSwap.style.margin = '';
                 bestSwap.style.top = '';
                 bestSwap.style.left = '';
@@ -1030,6 +1106,7 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
 
                 void bestSwap.offsetWidth;
                 bestSwap.style.transition = 'all 0.75s ease';
+                if (slidingSash) slidingSash.style.visibility = '';
             }, 950);
         }
         return true;
@@ -1157,6 +1234,8 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
 
             bestSwap.style.minHeight = '';
             bestSwap.dataset.lockedHeight = '0';
+            const slidingSash = bestSwap.querySelector('.raw-sash');
+            if (slidingSash) slidingSash.style.visibility = 'hidden';
             bestSwap.style.position = 'fixed';
             bestSwap.style.margin = '0';
             bestSwap.style.top = swapRect.top + 'px';
@@ -1175,6 +1254,7 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
                 const parent = firstGhost.parentNode;
                 if (!parent) {
                     spacer.remove();
+                    if (slidingSash) slidingSash.style.visibility = '';
                     resolve({ node: firstGhost, didSwap: false });
                     return;
                 }
@@ -1190,7 +1270,7 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
 
                 spacer.remove();
                 firstGhost.style.minHeight = startHeight + 'px';
-                bestSwap.style.position = '';
+                bestSwap.style.position = 'relative';
                 bestSwap.style.margin = '';
                 bestSwap.style.top = '';
                 bestSwap.style.left = '';
@@ -1202,6 +1282,7 @@ function optimizeGhostPlacement(ghost, grid, idealData, isQuietCycle = false) {
 
                 void bestSwap.offsetWidth;
                 bestSwap.style.transition = 'all 0.75s ease';
+                if (slidingSash) slidingSash.style.visibility = '';
 
                 resolve({ node: firstGhost, didSwap: true });
             }, 950);
@@ -1500,6 +1581,7 @@ if (action.type === 'replace_server') {
         else if (action.type === 'update_server_meta_shrink' || action.type === 'update_server_meta_grow') {
             const serverEl = document.getElementById(getServerId(action.server));
             if (serverEl) {
+                serverEl.dataset.serverName = action.server.name || "";
                 ensureNoShrink(serverEl);
 
                 // Helper to smoothly update structural changes ONLY
@@ -1519,7 +1601,17 @@ if (action.type === 'replace_server') {
                 if (headerDiv) {
                     animateMetaUpdate(headerDiv, renderServerHeader(action.server));
                 }
-                
+
+                const existingSash = serverEl.querySelector('.raw-sash');
+                if (action.server.rawAudio && !existingSash) {
+                    const sash = document.createElement('div');
+                    sash.className = 'raw-sash';
+                    sash.textContent = 'RAW';
+                    serverEl.appendChild(sash);
+                } else if (!action.server.rawAudio && existingSash) {
+                    existingSash.remove();
+                }
+
                 const footerDiv = serverEl.querySelector('.server-footer');
                 if (footerDiv) {
                     const newFooterHtml = renderServerFooter(action.server);
@@ -2204,13 +2296,34 @@ function purgeTrailingGhosts() {
     if (!grid) return;
 
     const children = Array.from(grid.children);
+    const toRemove = [];
     for (let i = children.length - 1; i >= 0; i--) {
         if (children[i].classList.contains('ghost-card')) {
-            children[i].remove();
+            toRemove.push(children[i]);
         } else {
             break;
         }
     }
+
+    if (toRemove.length === 0) return;
+
+    // Measure grid height before and after removal so we can animate the lost space
+    // from *outside* the grid — avoiding CSS Grid gap artifacts.
+    const heightBefore = grid.getBoundingClientRect().height;
+    toRemove.forEach(g => g.remove());
+    const heightAfter = grid.getBoundingClientRect().height;
+    const lost = heightBefore - heightAfter;
+
+    if (lost <= 0) return;
+
+    const spacer = document.createElement('div');
+    spacer.style.height = lost + 'px';
+    spacer.style.overflow = 'hidden';
+    grid.parentNode.insertBefore(spacer, grid.nextSibling);
+    void spacer.offsetHeight;
+    spacer.style.transition = 'height 0.8s ease-in-out';
+    spacer.style.height = '0px';
+    setTimeout(() => spacer.remove(), 800);
 }
 
 async function fetchAndRender() {
@@ -2330,6 +2443,61 @@ async function fetchAndRender() {
     fetchAndRender();
     setInterval(fetchAndRender, 20000);
 
+    document.getElementById('nearby-content').addEventListener('scroll', () => { lastNearbyInteraction = Date.now(); }, { passive: true });
+
+    document.getElementById('nearbySection').addEventListener('mousemove', function(e) {
+        lastNearbyInteraction = Date.now();
+        let row = e.target.closest('.musician-row');
+        if (!row || !row.querySelector('.bulb.green')) return;
+        if (row.dataset.scrolling === "true") return;
+        if (row.dataset.flashing === "true") return;
+        row.dataset.flashing = "true";
+        setTimeout(() => { row.dataset.flashing = "false"; }, 1200);
+        let rowName = (row.dataset.name || "").replace(/\s+/g, " ").trim();
+        let rowText = row.innerText.trim();
+        if (!rowText) return;
+        document.querySelectorAll('#client-grid span.musician').forEach(span => {
+            let nameEl = span.querySelector('b');
+            if (nameEl && nameEl.innerText.trim() && (rowName ? nameEl.innerText.trim() === rowName : rowText.startsWith(nameEl.innerText.trim()))) {
+                span.classList.remove('ethereal-flash');
+                void span.offsetWidth;
+                span.classList.add('ethereal-flash');
+            }
+        });
+
+    });
+
+    document.getElementById('nearbySection').addEventListener('click', function(e) {
+        let row = e.target.closest('.musician-row');
+        if (!row || !row.querySelector('.bulb.green')) return;
+
+        let rowName = (row.dataset.name || "").replace(/\s+/g, " ").trim();
+        let rowText = row.innerText.trim();
+        if (!rowText) return;
+
+        // Find the musician's span in the grid by name, then scroll to its server card
+        let targetSpan = null;
+        document.querySelectorAll('#client-grid span.musician').forEach(span => {
+            if (targetSpan) return;
+            let nameEl = span.querySelector('b');
+            if (nameEl && nameEl.innerText.trim() && (rowName ? nameEl.innerText.trim() === rowName : rowText.startsWith(nameEl.innerText.trim()))) {
+                targetSpan = span;
+            }
+        });
+        if (!targetSpan) return;
+        let card = targetSpan.closest('.server-card');
+        if (!card) return;
+
+        row.dataset.scrolling = "true";
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+            row.dataset.scrolling = "false";
+            targetSpan.classList.remove('ethereal-flash');
+            void targetSpan.offsetWidth;
+            targetSpan.classList.add('ethereal-flash');
+        }, 600);
+    });
+
     document.addEventListener("DOMContentLoaded", function () {
         // --- UI Localisation ---
         document.getElementById('lbl-nearby-only').textContent = T('nearby-only');
@@ -2375,24 +2543,26 @@ async function fetchAndRender() {
             coll[i].addEventListener("click", function () {
                 this.classList.toggle("active");
                 var content = this.nextElementSibling;
-                if (content.style.display === "block") {
-                    content.style.display = "none";
-                } else {
-                    content.style.display = "block";
-                }
 
                 if (this.id === "nearby-btn") {
                     if (this.classList.contains("active")) {
+                        content.style.display = "block";
                         this.innerText = "";
-                        // Save state as open
+                        updateNearbyMaxHeight();
                         localStorage.setItem("nearbyTabState", "open");
                     } else {
+                        content.style.display = "none";
                         this.innerText = T('nearby');
                         this.style.textAlign = "center";
                         this.style.fontSize = "10px";
                         this.style.lineHeight = "16px";
-                        // Save state as closed with timestamp
                         localStorage.setItem("nearbyTabState", "closed:" + Date.now());
+                    }
+                } else {
+                    if (content.style.display === "block") {
+                        content.style.display = "none";
+                    } else {
+                        content.style.display = "block";
                     }
                 }
             });
@@ -2419,6 +2589,10 @@ async function fetchAndRender() {
             nearbyBtn.style.lineHeight = "16px";
         }
 
+        updateNearbyMaxHeight();
+        window.addEventListener('resize', updateNearbyMaxHeight);
+        setInterval(updateNearbyMaxHeight, 5000);
+
         // Logic for the new split Servers/Info tab
         var btnServers = document.getElementById("btn-servers");
         var btnInfo = document.getElementById("btn-info");
@@ -2433,7 +2607,7 @@ async function fetchAndRender() {
                 } else {
                     contentServers.style.display = "block";
                     contentInfo.style.display = "none";
-                    this.style.backgroundColor = "#ccc"; // Active tab color
+                    this.style.backgroundColor = "rgba(128, 128, 128, 0.3)";
                     btnInfo.style.backgroundColor = "transparent";
                 }
             });
@@ -2445,12 +2619,49 @@ async function fetchAndRender() {
                 } else {
                     contentInfo.style.display = "block";
                     contentServers.style.display = "none";
-                    this.style.backgroundColor = "#ccc"; // Active tab color
+                    this.style.backgroundColor = "rgba(128, 128, 128, 0.3)";
                     btnServers.style.backgroundColor = "transparent";
                 }
             });
         }
     });
+
+    let lastNearbyInteraction = 0;
+    const NEARBY_IDLE_MS = 3000;
+
+    function updateNearbyMaxHeight() {
+        var clientGrid = document.getElementById('client-grid');
+        var nearbyContent = document.getElementById('nearby-content');
+        if (!clientGrid || !nearbyContent || nearbyContent.style.display === 'none') return;
+
+        var gridBottom = clientGrid.getBoundingClientRect().bottom;
+        var viewH = window.innerHeight;
+        var barH = 20;
+        var minH = 44;
+
+        // Only expand if the grid's bottom edge is visible in the viewport.
+        // When the grid is scrolled off-screen (above or below), show one row.
+        var belowGrid = (gridBottom > 0 && gridBottom < viewH) ? viewH - gridBottom : 0;
+        // CHANGED: -18 drops the top edge of the nearby bar to clear the server cards
+        var contentH = Math.max(minH, belowGrid - barH - 18);
+
+        // Don't collapse while the user is actively interacting with the nearby section
+        if (contentH <= minH && Date.now() - lastNearbyInteraction < NEARBY_IDLE_MS) return;
+
+        nearbyContent.style.maxHeight = contentH + 'px';
+        applyNearbyLeadingGrayFilter(contentH < minH * 2);
+    }
+
+    function applyNearbyLeadingGrayFilter(compressed) {
+        var rows = Array.from(document.querySelectorAll('#nearby-musicians-container .musician-row'));
+        if (!compressed) {
+            rows.forEach(r => r.classList.remove('nearby-pre-green-hidden'));
+            return;
+        }
+        rows.forEach(function (r) {
+            r.classList.toggle('nearby-pre-green-hidden', !r.querySelector('.bulb.green'));
+        });
+    }
 
     async function fetchNearbyMusicians() {
         try {
@@ -2458,6 +2669,7 @@ async function fetchAndRender() {
             if (response.ok) {
                 const html = await response.text();
                 document.getElementById('nearby-musicians-container').innerHTML = html;
+                updateNearbyMaxHeight();
             }
         } catch (e) {
             console.error("Failed to fetch nearby musicians:", e);
@@ -2592,3 +2804,4 @@ const Tracker = {
 
 document.addEventListener("DOMContentLoaded", () => Tracker.init());
 </script>
+
