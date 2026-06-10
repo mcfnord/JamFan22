@@ -1,0 +1,9 @@
+crew_elsewhere_min_mins=30
+forecast_min_mins=60
+forecast_sighting_hours=2
+forecast_max_entries=4
+model=gemini-2.5-flash
+temperature=0.9
+pro_temperature=1.3
+llm_timeout_ms=3000
+group_llm_timeout_ms=4000

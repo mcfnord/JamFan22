@@ -18,6 +18,11 @@ predicted.csv
 secretGeoApifykey.txt
 keyJan26.pfx
 
+# Prompt files — version-controlled for rollback
+!JamFan22/data/essay-system-prompt.txt
+!JamFan22/data/welcome-system-prompt.txt
+!JamFan22/data/welcome-config.txt
+
 # Except for files that are part of the repo (if any)
 !appsettings.json
 !appsettings.Development.json
