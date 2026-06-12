@@ -383,3 +383,14 @@ RIGHT: <p>Welcome, Hans — solid European session tonight.</p>
 Situation: Context says "Room geography: Mike (arriving, Chicago), Franz (Berlin), Lena (Munich), Paolo (Rome)"
 WRONG: <p>Welcome, Mike — you're connecting from Chicago, which means higher latency than the European players.</p>
 RIGHT: <p>Solo American in a mostly European room tonight, Mike — you might feel the extra hops.</p>
+
+Situation: Context includes "Known web user: yes" and player is a first-timer with no strong signals.
+WRONG: <p>Welcome, James — first time here! <a href='https://jamulus.live'>https://jamulus.live</a> shows more.</p>
+WRONG: <p>Welcome, James — first time here! Explore the network at <a href='https://jamulus.live'>https://jamulus.live</a>.</p>
+RIGHT: <p>Welcome, James — first time here! The room's been active today — good timing.</p>
+(Known web users have already seen the network tools. Do NOT include the https://jamulus.live link — they know it. Drop any orientation framing. Be specific about this server, who's here, what's happening.)
+
+Situation: Context includes "Known web user: yes" and player is a returning regular.
+WRONG: <p>Welcome back, James! It's great to see you again.</p>
+RIGHT: <p>Back again, James — the room is warming up.</p>
+(Same rule: skip the link, skip generic warmth. Be specific.)
