@@ -257,6 +257,12 @@ body.dark-mode a {
     display: none !important;
 }
 /* ========================================= */
+/* ACTIVE ONLY LOGIC                         */
+/* ========================================= */
+#client-grid.active-only-active .quiet-server:not(.my-active-server) {
+    display: none !important;
+}
+/* ========================================= */
 /* VIDEO LINK                                */
 /* ========================================= */
 .video-link {

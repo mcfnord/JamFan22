@@ -39,6 +39,8 @@ namespace JamFan22.Pages
         public string smartNations { get; set; }
         public string newServerHtml { get; set; }
         public bool rawAudio { get; set; }
+        public bool isQuiet { get; set; }
+        public bool isSignalKnown { get; set; }
 
         public List<ApiClient> clients { get; set; } = new List<ApiClient>();
     }
@@ -251,6 +253,11 @@ namespace JamFan22.Pages
                     }
 
                     // ── Server suppression ────────────────────────────────────
+                    // 0 users → always suppress
+                    // 1 user  → suppress if >360 min on server; also suppress "JamPad"/"portable" by name
+                    // >1 users → suppress if ALL users exceed timeout (8h; 4h for "priv" servers; unlimited for tracks)
+                    // GoodGuids (join-events col 12 ≠ "0") no longer get special duration treatment;
+                    //   active singletons stay visible via NonFleetSilencePoller overriding quiet suppression.
                     var filteredUsersForRules = s.whoObjectFromSourceData?
                         .Where(cat => !JamulusAnalyzer.NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
                         .Where(cat => !HiddenPersonaManager.IsHidden(EncounterTracker.GetHash(cat.name, cat.country, cat.instrument)))
@@ -274,9 +281,7 @@ namespace JamFan22.Pages
 
                         if (isDiagMode) diagLog.AppendLine($"- 1 User Rule. Hash: {userHash}, Mins: {howLong:F1}");
 
-                        if (!preloadedData.GoodGuids.Contains(userHash) && howLong > 60.0) 
-                        { fSuppress = true; if (isDiagMode) diagLog.AppendLine("- ACTION: Suppressed (Not GoodGuid, > 60 mins)"); }
-                        else if (howLong > 360.0) 
+                        if (howLong > 360.0)
                         { fSuppress = true; if (isDiagMode) diagLog.AppendLine("- ACTION: Suppressed (> 360 mins)"); }
 
                         var excludedServerNames = new HashSet<string> { "JamPad", "portable" };
@@ -350,7 +355,13 @@ namespace JamFan22.Pages
                             ? $"({JamulusAnalyzer.LocalizedText(m_TwoLetterNationCode, "New server", "新伺服器", "เซิร์ฟเวอร์ใหม่", "Neuer Server", "Nuovo server", "Nouveau serveur", "Nuevo servidor", "Nieuwe server")}.)"
                             : "",
                         listenHtml    = await _analyzer.GetListenHtmlAsync(s, m_TwoLetterNationCode),
-                        rawAudio      = ServerCapabilityCache.GetRawAudio(s.serverIpAddress, (int)s.serverPort) ?? false
+                        rawAudio      = ServerCapabilityCache.GetRawAudio(s.serverIpAddress, (int)s.serverPort) ?? false,
+                        isQuiet       = (harvest.m_fleetSilenceStatus.TryGetValue(serverAddress, out bool _fq) && _fq)
+                                     || (NonFleetSilencePoller.Status.TryGetValue(serverAddress, out var _nfq) && _nfq.Quiet)
+                                     || (JamulusAnalyzer.m_connectedLounges.TryGetValue(serverAddress, out string _lu)
+                                         && harvest.m_loungeIsQuiet.TryGetValue(_lu, out bool _lq) && _lq),
+                        isSignalKnown = harvest.m_fleetSilenceStatus.ContainsKey(serverAddress)
+                                     || NonFleetSilencePoller.Status.ContainsKey(serverAddress)
                     };
 
                     if (harvest.m_songTitleAtAddr.TryGetValue(serverAddressWithDash, out string title) && title.Length > 0)
@@ -408,9 +419,41 @@ namespace JamFan22.Pages
                             {
                                 if (!string.IsNullOrWhiteSpace(pred.Name) && !apiSvr.soonNames.Contains(pred.Name)
                                     && !currentNames.Contains(pred.Name)
-                                    && !pred.Name.Contains("obby", StringComparison.OrdinalIgnoreCase))
+                                    && !pred.Name.Contains("obby", StringComparison.OrdinalIgnoreCase)
+                                    && !pred.Name.Equals("No Name", StringComparison.OrdinalIgnoreCase))
                                     apiSvr.soonNames.Add(pred.Name);
                             }
+                        }
+                    }
+
+                    // Band canary: if a strong indicator is on this server, announce missing members
+                    var currentGuids = s.whoObjectFromSourceData?
+                        .Select(u => EncounterTracker.GetHash(u.name, u.country, u.instrument))
+                        .ToHashSet() ?? new HashSet<string>();
+                    string serverAddr = $"{s.serverIpAddress}:{s.serverPort}";
+                    var recentDeps = RecentDepartureTracker.GetRecentDepartures(
+                        new[] { serverAddr }, JamulusCacheManager.MinutesSince2023AsInt(), maxAgoMinutes: 60);
+                    var recentDepGuids = recentDeps.Select(d => d.Guid).ToHashSet();
+                    var bandSoon = BandIndex.GetBandSoon(currentGuids, currentNames, serverAddr, recentDepGuids);
+                    if (bandSoon != null)
+                    {
+                        // De-dup: skip names already queued by the prediction system
+                        var fresh = bandSoon.Missing
+                            .Where(n => !apiSvr.soonNames.Any(
+                                e => e.Contains(n, StringComparison.OrdinalIgnoreCase)))
+                            .ToList();
+                        var duped = bandSoon.Missing.Except(fresh, StringComparer.OrdinalIgnoreCase).ToList();
+
+                        string dupNote = duped.Count > 0 ? $" dedup=[{string.Join(",", duped)}]" : "";
+                        if (fresh.Count > 0)
+                        {
+                            string memberList = string.Join(", ", fresh);
+                            apiSvr.soonNames.Insert(0, memberList);
+                            Console.WriteLine($"[BAND-SOON] {DateTime.UtcNow:HH:mm:ss} server=\"{s.name}\" band={bandSoon.BandId} canary={bandSoon.CanaryNames} soon=\"{memberList}\"{dupNote}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[BAND-SOON] {DateTime.UtcNow:HH:mm:ss} server=\"{s.name}\" band={bandSoon.BandId} canary={bandSoon.CanaryNames} soon=none{dupNote}");
                         }
                     }
 

@@ -182,6 +182,20 @@ body {
         z-index: 10;
     }
 
+    @@keyframes musician-pop {
+        0%   { transform: scale(1); }
+        35%  { transform: scale(1.28); }
+        100% { transform: scale(1); }
+    }
+    .musician-pop {
+        animation: musician-pop 220ms ease-out forwards;
+    }
+
+    @@keyframes star-float {
+        0%   { transform: translateY(0)     scale(1.2); opacity: 1; }
+        100% { transform: translateY(-90px) scale(0.7); opacity: 0; }
+    }
+
     .server-card {
         position: relative;
         overflow: hidden;
@@ -208,6 +222,9 @@ body {
             <input type="checkbox" id="chk-nearby-only" /> <span id="lbl-nearby-only">Nearby Only</span>
         </label>
         <label style="cursor: pointer; margin-right: 15px;">
+            <input type="checkbox" id="chk-active-only" /> <span id="lbl-active-only">Active Only</span>
+        </label>
+        <label style="cursor: pointer; margin-right: 15px;">
             <input type="checkbox" id="chk-dark-mode" /> <span id="lbl-dark-mode">Dark Mode</span>
         </label>
         @if (Model.HasResolvedPersona) {
@@ -232,24 +249,31 @@ body {
     </div>
 </div>
 
+<div id="daily-essay" style="display:none; padding: 1.2rem 1rem; font-family: Arial, Helvetica, sans-serif; line-height: 1.5; font-size: 15px; max-width: 680px; opacity: 0; transition: opacity 1.5s ease;"></div>
+
 <script>
     const NATION = '@Model.NationCode';
     const _lang = ({'TW':'CN','HK':'CN','BE':'FR','CH':'FR','MX':'ES','AR':'ES','CO':'ES','CL':'ES','PE':'ES','VE':'ES','EC':'ES','GT':'ES','CU':'ES','BO':'ES','DO':'ES','HN':'ES','PY':'ES','SV':'ES','NI':'ES','CR':'ES','PA':'ES','UY':'ES','SR':'NL','AW':'NL','CW':'NL','SX':'NL'})[NATION] || NATION;
     const TRANSLATIONS = {
-        'EN': { 'nearby-only': 'Nearby Only', 'dark-mode': 'Dark Mode', 'hide': 'Hide', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Nearby', 'highlight': 'Click to highlight, Ctrl-Click to track many' },
-        'CN': { 'nearby-only': '仅附近', 'dark-mode': '深色模式', 'hide': '隐身', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人' },
-        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อนตัว', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน' },
-        'DE': { 'nearby-only': 'Nur in der Nähe', 'dark-mode': 'Dunkelmodus', 'hide': 'Verstecken', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen' },
-        'IT': { 'nearby-only': 'Solo vicini', 'dark-mode': 'Modalità scura', 'hide': 'Nasconditi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti' },
-        'FR': { 'nearby-only': 'Proximité uniquement', 'dark-mode': 'Mode sombre', 'hide': 'Masquer', 'servers': 'Serveurs', 'info': 'Info', 'nearby': 'À proximité', 'highlight': 'Cliquer pour surligner, Ctrl+Clic pour en suivre plusieurs' },
-        'ES': { 'nearby-only': 'Solo cerca', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultarse', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios' },
-        'NL': { 'nearby-only': 'Alleen dichtbij', 'dark-mode': 'Donkere modus', 'hide': 'Verbergen', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Dichtbij', 'highlight': 'Klik om te markeren, Ctrl+Klik om meerdere te volgen' },
+        'EN': { 'nearby-only': 'Nearby Only', 'active-only': 'Active Only', 'dark-mode': 'Dark Mode', 'hide': 'Hide', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Nearby', 'highlight': 'Click to highlight, Ctrl-Click to track many', 'quiet': 'Quiet' },
+        'CN': { 'nearby-only': '仅附近', 'active-only': '仅活跃', 'dark-mode': '深色模式', 'hide': '隐身', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人', 'quiet': '安靜' },
+        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'active-only': 'เฉพาะที่ใช้งาน', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อนตัว', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน', 'quiet': 'เงียบ' },
+        'DE': { 'nearby-only': 'Nur in der Nähe', 'active-only': 'Nur Aktive', 'dark-mode': 'Dunkelmodus', 'hide': 'Verstecken', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen', 'quiet': 'Leise' },
+        'IT': { 'nearby-only': 'Solo vicini', 'active-only': 'Solo attivi', 'dark-mode': 'Modalità scura', 'hide': 'Nasconditi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti', 'quiet': 'Silenzio' },
+        'FR': { 'nearby-only': 'Proximité uniquement', 'active-only': 'Actifs seulement', 'dark-mode': 'Mode sombre', 'hide': 'Masquer', 'servers': 'Serveurs', 'info': 'Info', 'nearby': 'À proximité', 'highlight': 'Cliquer pour surligner, Ctrl+Clic pour en suivre plusieurs', 'quiet': 'Tranquille' },
+        'ES': { 'nearby-only': 'Solo cerca', 'active-only': 'Solo activos', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultarse', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios', 'quiet': 'Silencio' },
+        'NL': { 'nearby-only': 'Alleen dichtbij', 'active-only': 'Alleen actief', 'dark-mode': 'Donkere modus', 'hide': 'Verbergen', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Dichtbij', 'highlight': 'Klik om te markeren, Ctrl+Klik om meerdere te volgen', 'quiet': 'Stil' },
     };
     function T(key) { return (TRANSLATIONS[_lang] || TRANSLATIONS['EN'])[key] ?? TRANSLATIONS['EN'][key]; }
 
 
     let currentData = [];
+    const _quietSeenOnce = new Set(); // grace period: skip first quiet reading before hiding
+    const _quietGhosts = new Map();  // sId → ghost element, so returning server reclaims its spot
+    const _quietFading = new Set();  // sIds currently in the 750ms fade-out, prevent re-trigger
     let isAnimating = false;
+    let _prevAllHashes = new Set();
+    let _lastArrivalName = null;
     let activeHotties = []; // Added to store our hotties list
 
     // --- NEW: 24 Hour Hide State Management (Server-Synced) ---
@@ -807,6 +831,10 @@ body {
         }
         serverDiv.dataset.distance = server.distanceAway || 0;
 
+        if (server.isQuiet) {
+            serverDiv.classList.add('quiet-server');
+        }
+
         let bgColor = '';
         switch (server.zone) {
             case 'E': bgColor = '#AFFFC6'; serverDiv.classList.add('zone-E'); break;
@@ -855,10 +883,19 @@ body {
         // Append wrapper to main card
         serverDiv.appendChild(innerDiv);
 
+        if (server.isQuiet) {
+            const emoji = document.createElement('span');
+            emoji.className = 'quiet-emoji';
+            emoji.title = T('quiet');
+            emoji.textContent = '🔇';
+            emoji.style.cssText = 'position:absolute; left:5px; top:5px; z-index:10; font-size:1.5em;';
+            serverDiv.appendChild(emoji);
+        }
+
         if (server.rawAudio) {
             const sash = document.createElement('div');
             sash.className = 'raw-sash';
-            sash.textContent = 'RAW';
+            sash.textContent = 'MAX';
             serverDiv.appendChild(sash);
         }
 
@@ -1297,11 +1334,14 @@ if (action.type === 'replace_server') {
             const newEl = createServerElement(action.addServer, true);
             if (el) {
 
-                // Visibility Boundary Check: if the swap crosses the Nearby Only boundary,
+                // Visibility Boundary Check: if the swap crosses a filter boundary,
                 // a 3D flip will snap the layout — delegate to smooth ghost-card logic instead
                 const isNearbyOnly = document.getElementById("chk-nearby-only")?.checked;
-                const oldIsHidden = isNearbyOnly && el.classList.contains('distant-server');
-                const newIsHidden = isNearbyOnly && newEl.classList.contains('distant-server');
+                const isActiveOnly = document.getElementById("chk-active-only")?.checked;
+                const oldIsHidden = (isNearbyOnly && el.classList.contains('distant-server'))
+                                 || (isActiveOnly && el.classList.contains('quiet-server'));
+                const newIsHidden = (isNearbyOnly && newEl.classList.contains('distant-server'))
+                                 || (isActiveOnly && newEl.classList.contains('quiet-server'));
 
                 if (oldIsHidden !== newIsHidden) {
                     executeAction({ type: 'remove_server', id: action.removeId }, newData);
@@ -1362,7 +1402,7 @@ if (action.type === 'replace_server') {
             if (el) {
                 // 1. Detect if we are in a single column layout
                 let isSingleColumn = true;
-                const activeCards = Array.from(grid.querySelectorAll('.server-card:not(.ghost-card)'));
+                const activeCards = Array.from(grid.querySelectorAll('.server-card:not(.ghost-card):not(.quiet-server)'));
                 if (activeCards.length > 1) {
                     // If the first two cards share the same top Y-coordinate, it's multi-column
                     if (activeCards[0].getBoundingClientRect().top === activeCards[1].getBoundingClientRect().top) {
@@ -1450,6 +1490,7 @@ if (action.type === 'replace_server') {
                 let swapResult = await evaluateAndSwapForAdd(firstGhost, grid, newData, newServerId);
                 if (swapResult.didSwap) _gridRelocatedFlag = true;
                 firstGhost = swapResult.node;
+                if (firstGhost.dataset.quietSid) _quietGhosts.delete(firstGhost.dataset.quietSid);
                 firstGhost.replaceWith(el);
             } else {
                 grid.appendChild(el);
@@ -1579,7 +1620,33 @@ if (action.type === 'replace_server') {
             }
         }
         else if (action.type === 'update_server_meta_shrink' || action.type === 'update_server_meta_grow') {
-            const serverEl = document.getElementById(getServerId(action.server));
+            const sId = getServerId(action.server);
+            const activeOnly = !!document.getElementById("chk-active-only")?.checked;
+            const nowQuiet = !!action.server.isQuiet;
+
+            // Quiet-in: server was ghosted out; rebuild card at ghost's spot (original if still available)
+            if (activeOnly && _quietGhosts.has(sId) && !nowQuiet) {
+                const ghost = _quietGhosts.get(sId);
+                _quietGhosts.delete(sId);
+                _quietSeenOnce.delete(sId);
+                const el = createServerElement(action.server);
+                el.style.transition = 'none';
+                el.style.opacity = '0';
+                el.style.transform = 'scale(1.05)';
+                el.style.filter = 'brightness(1.5) drop-shadow(0 0 10px white)';
+                const target = ghost.parentNode === grid ? ghost : grid.querySelector('.ghost-card');
+                if (target) target.replaceWith(el); else grid.appendChild(el);
+                void el.offsetWidth;
+                el.style.transition = 'all 0.75s ease-in';
+                el.style.opacity = '1';
+                el.style.transform = 'scale(1)';
+                el.style.filter = 'brightness(1) drop-shadow(0 0 0 white)';
+                setTimeout(() => el.style.filter = '', 750);
+                return true;
+            }
+            if (activeOnly && _quietGhosts.has(sId)) return false; // still quiet, ghost is waiting
+
+            const serverEl = document.getElementById(sId);
             if (serverEl) {
                 serverEl.dataset.serverName = action.server.name || "";
                 ensureNoShrink(serverEl);
@@ -1606,7 +1673,7 @@ if (action.type === 'replace_server') {
                 if (action.server.rawAudio && !existingSash) {
                     const sash = document.createElement('div');
                     sash.className = 'raw-sash';
-                    sash.textContent = 'RAW';
+                    sash.textContent = 'MAX';
                     serverEl.appendChild(sash);
                 } else if (!action.server.rawAudio && existingSash) {
                     existingSash.remove();
@@ -1621,6 +1688,79 @@ if (action.type === 'replace_server') {
                         footerDiv.innerHTML = newFooterHtml;
                     }
                 }
+
+                // Sync quiet-server class with grace period + animation.
+                // First quiet reading: show silence emoji but stay visible one cycle.
+                // Second+ consecutive quiet: hide (with animation when Active Only is on).
+                const wasQuiet = serverEl.classList.contains('quiet-server');
+                let quietStateChanged = false;
+
+                // Emoji is a persistent DOM element separate from the header (no instant-flash on innerHTML swap).
+                const existingEmoji = serverEl.querySelector('.quiet-emoji');
+                if (nowQuiet && !existingEmoji) {
+                    const emoji = document.createElement('span');
+                    emoji.className = 'quiet-emoji';
+                    emoji.title = T('quiet');
+                    emoji.textContent = '🔇';
+                    emoji.style.cssText = 'position:absolute; left:5px; top:5px; z-index:10; font-size:1.5em; opacity:0; transition:opacity 0.4s ease-in;';
+                    serverEl.appendChild(emoji);
+                    void emoji.offsetWidth;
+                    emoji.style.opacity = '1';
+                } else if (!nowQuiet && existingEmoji) {
+                    existingEmoji.style.transition = 'opacity 0.4s ease-out';
+                    existingEmoji.style.opacity = '0';
+                    setTimeout(() => existingEmoji.remove(), 420);
+                }
+
+                if (!nowQuiet) {
+                    _quietSeenOnce.delete(sId);
+                    if (wasQuiet) {
+                        quietStateChanged = true;
+                        serverEl.classList.remove('quiet-server');
+                    }
+                } else if (!wasQuiet && !_quietSeenOnce.has(sId) && !_quietFading.has(sId)) {
+                    quietStateChanged = true;
+                    _quietSeenOnce.add(sId); // grace: first quiet reading — wait one more cycle
+                } else if (!wasQuiet && !_quietFading.has(sId)) {
+                    quietStateChanged = true;
+                    _quietSeenOnce.delete(sId); // grace expired — time to hide
+                    if (activeOnly) {
+                        // Same fade+ghost as remove_server so returning servers reclaim their spot
+                        _quietFading.add(sId);
+                        serverEl.style.transition = 'all 0.75s ease-out';
+                        serverEl.style.opacity = '0';
+                        serverEl.style.transform = 'translateY(-20px) scale(0.95)';
+                        serverEl.style.filter = 'blur(4px)';
+                        setTimeout(() => {
+                            _quietFading.delete(sId);
+                            if (serverEl.parentNode !== grid) return;
+                            const departingHeight = serverEl.offsetHeight;
+                            const ghost = document.createElement('div');
+                            ghost.className = 'server-card ghost-card';
+                            if (serverEl.classList.contains('distant-server')) ghost.classList.add('distant-server');
+                            ghost.style.visibility = 'hidden';
+                            ghost.id = 'ghost-' + Date.now();
+                            ghost.style.order = serverEl.style.order;
+                            ghost.style.minHeight = departingHeight + 'px';
+                            ghost.dataset.quietSid = sId;
+                            serverEl.replaceWith(ghost);
+                            _quietGhosts.set(sId, ghost);
+                            let swapped = optimizeGhostPlacement(ghost, grid, newData, isQuietCycle);
+                            if (swapped) _gridRelocatedFlag = true;
+                            else {
+                                const allGhosts = Array.from(grid.querySelectorAll('.ghost-card'));
+                                for (const og of allGhosts) {
+                                    if (og === ghost) continue;
+                                    if (optimizeGhostPlacement(og, grid, newData, isQuietCycle)) { _gridRelocatedFlag = true; break; }
+                                }
+                            }
+                        }, 750);
+                    } else {
+                        serverEl.classList.add('quiet-server');
+                    }
+                }
+                // wasQuiet && nowQuiet: already hidden, nothing to do
+                return quietStateChanged;
             }
         }
     }
@@ -1808,12 +1948,13 @@ if (action.type === 'replace_server') {
         const isQuietCycle = serverActions.length === 1 && serverActions[0].type === 'remove_server';
 
         for (const action of actions) {
-            await executeAction(action, newData, isQuietCycle);
+            const quietStateChanged = await executeAction(action, newData, isQuietCycle);
 
             if (['add_musician', 'remove_musician', 'migrate_musician', 'add_server', 'remove_server', 'replace_server'].includes(action.type)) {
                 await new Promise(r => setTimeout(r, dynamicDelay));
+            } else if (quietStateChanged) {
+                await new Promise(r => setTimeout(r, 850)); // quiet animation in flight — let it settle
             } else {
-                // Non-visual background updates (like meta text changes) happen almost instantly
                 await new Promise(r => setTimeout(r, 50));
             }
         }
@@ -1833,6 +1974,29 @@ if (action.type === 'replace_server') {
     let lastFullRefresh = Date.now();
     let ipDerivedLoginHash = null;
     let _gridRelocatedFlag = false;
+
+    // --- CLICK EFFECTS ---
+    function floatStar(mouseX, mouseY, guid) {
+        const el = document.createElement('span');
+        el.style.cssText = `position:fixed;left:${mouseX - 12}px;top:${mouseY - 10}px;font-size:1.8em;pointer-events:none;z-index:10000;user-select:none;animation:star-float 950ms ease-out forwards;`;
+        el.textContent = '⭐';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1000);
+    }
+
+    function flashSpan(el) {
+        el.classList.remove('ethereal-flash');
+        void el.offsetWidth;
+        el.classList.add('ethereal-flash');
+        setTimeout(() => el.classList.remove('ethereal-flash'), 1250);
+    }
+
+    function popSpan(el) {
+        el.classList.remove('musician-pop');
+        void el.offsetWidth;
+        el.classList.add('musician-pop');
+        setTimeout(() => el.classList.remove('musician-pop'), 250);
+    }
 
     // --- LOCAL STORAGE & HIGHLIGHT LOGIC ---
     function getTrackedPeople(collection) {
@@ -1916,7 +2080,10 @@ if (action.type === 'replace_server') {
         var targetList = getTrackedPeople(PeopleCollection);
         targetList.push(clickedId);
         localStorage.setItem(PeopleCollection, JSON.stringify(targetList));
-        
+
+        floatStar(event.clientX, event.clientY, clickedId);
+        flashSpan(target);
+        popSpan(target);
         refreshHighlights();
     });
 
@@ -2089,10 +2256,14 @@ if (action.type === 'replace_server') {
         const container = document.getElementById("servers-table-container");
         if (!container) return;
 
-        // Filter if Nearby Only is checked
         const chkNearby = document.getElementById("chk-nearby-only");
         const showNearbyOnly = chkNearby ? chkNearby.checked : false;
-        const filteredData = showNearbyOnly ? data.filter(s => s.distanceAway < 3000) : data;
+        const chkActive = document.getElementById("chk-active-only");
+        const showActiveOnly = chkActive ? chkActive.checked : false;
+        const filteredData = data.filter(s =>
+            (!showNearbyOnly || s.distanceAway < 3000) &&
+            (!showActiveOnly || (s.isSignalKnown && !s.isQuiet))
+        );
 
         const sortedData = [...filteredData].sort((a, b) => {
             const nameA = a.name ? a.name.toLowerCase() : "";
@@ -2298,7 +2469,7 @@ function purgeTrailingGhosts() {
     const children = Array.from(grid.children);
     const toRemove = [];
     for (let i = children.length - 1; i >= 0; i--) {
-        if (children[i].classList.contains('ghost-card')) {
+        if (children[i].classList.contains('ghost-card') && !children[i].dataset.quietSid) {
             toRemove.push(children[i]);
         } else {
             break;
@@ -2361,6 +2532,7 @@ async function fetchAndRender() {
         let data = await response.json();
         
         if (Array.isArray(data)) {
+            data = data.filter(server => server.category !== '_alt');
             data.forEach(server => {
                 if (server.clients) {
                     server.clients = server.clients.filter(client => {
@@ -2377,7 +2549,9 @@ async function fetchAndRender() {
         const now = Date.now();
         let gridChanged = false;
 
-        if (currentData.length === 0 || now - lastFullRefresh > 1560000) {
+        const isSingleCol = () => { const card = document.querySelector('.server-card:not(.ghost-card)'); return card ? card.getBoundingClientRect().width > window.innerWidth * 0.8 : false; };
+        const refreshMs = isSingleCol() ? 360000 : 1560000; // 6 min on mobile (scroll-to-top is intentional), 26 min on desktop
+        if (currentData.length === 0 || now - lastFullRefresh > refreshMs) {
             const grid = document.getElementById('client-grid');
             grid.innerHTML = '';
             data.forEach(server => {
@@ -2393,7 +2567,7 @@ async function fetchAndRender() {
                 const firstTop = tops[0];
                 const cols = tops.filter(t => Math.abs(t - firstTop) < 5).length;
                 const rows = Math.ceil(cards.length / cols);
-                Tracker.log('grid_layout', { cols, rows, total: cards.length });
+                Tracker.log('grid_layout', { cols, rows, total: cards.length, cardW: Math.round(cards[0].getBoundingClientRect().width) });
             });
         } else {
             let diffResult = await processDiff(currentData, data);
@@ -2423,10 +2597,32 @@ async function fetchAndRender() {
             });                
         }
 
+        // Tracked arrival detection — logs telemetry when a highlighted player appears
+        {
+            const tracked = getTrackedPeople("trackedPeople").filter(h => h);
+            if (tracked.length > 0) {
+                const currHashes = new Set(data.flatMap(s => (s.clients || []).map(c => (c.name||'')+(c.country||''))));
+                const newArrivals = tracked.filter(h => currHashes.has(h) && !_prevAllHashes.has(h));
+                for (const h of newArrivals) {
+                    const client = data.flatMap(s => s.clients || []).find(c => (c.name||'')+(c.country||'') === h);
+                    const name = client?.name ?? '';
+                    Tracker.log('tracked_arrival', { name, hidden: document.hidden });
+                    if (document.hidden && !isSingleCol() && name) {
+                        _lastArrivalName = name;
+                        document.title = name + ' ★ Jamulus.live';
+                        navigator.vibrate?.([100, 50, 100]);
+                    }
+                }
+                _prevAllHashes = currHashes;
+            } else {
+                _prevAllHashes = new Set();
+            }
+        }
+
         refreshHighlights();
         runDOMDiagnostics(data);
-        preventLineWrap(); 
-        updateServersList(data); 
+        preventLineWrap();
+        updateServersList(data);
         purgeTrailingGhosts(); // Ensure any leftover ghosts at the end of the grid are removed after updates
 
         if (gridChanged) {
@@ -2441,7 +2637,7 @@ async function fetchAndRender() {
 }
 
     fetchAndRender();
-    setInterval(fetchAndRender, 20000);
+    setInterval(fetchAndRender, 15000);
 
     document.getElementById('nearby-content').addEventListener('scroll', () => { lastNearbyInteraction = Date.now(); }, { passive: true });
 
@@ -2501,25 +2697,44 @@ async function fetchAndRender() {
     document.addEventListener("DOMContentLoaded", function () {
         // --- UI Localisation ---
         document.getElementById('lbl-nearby-only').textContent = T('nearby-only');
+        document.getElementById('lbl-active-only').textContent = T('active-only');
         document.getElementById('lbl-dark-mode').textContent = T('dark-mode');
         const hideSpan = document.getElementById('text-hide-24');
         if (hideSpan) hideSpan.textContent = T('hide');
         document.getElementById('btn-servers').textContent = T('servers');
         document.getElementById('btn-info').textContent = T('info');
 
-        // --- Dark Mode & Nearby Only State Management ---
+        // --- Dark Mode & Nearby Only & Active Only State Management ---
         const chkDarkMode = document.getElementById("chk-dark-mode");
         const chkNearbyOnly = document.getElementById("chk-nearby-only");
+        const chkActiveOnly = document.getElementById("chk-active-only");
         const clientGrid = document.getElementById("client-grid");
 
         const isDarkMode = localStorage.getItem("darkMode") === "true";
-        const isNearbyOnly = localStorage.getItem("nearbyOnly") === "true";
+        function resolveNearbyOnly() {
+            const old = localStorage.getItem("nearbyOnly");
+            if (old !== null) {
+                // migrate old boolean key
+                localStorage.setItem("nearbyOnlyUntil", old === "true" ? String(Date.now() + 30*24*60*60*1000) : "0");
+                localStorage.removeItem("nearbyOnly");
+            }
+            const until = localStorage.getItem("nearbyOnlyUntil");
+            if (until === null) {
+                localStorage.setItem("nearbyOnlyUntil", String(Date.now() + 30*24*60*60*1000));
+                return true;
+            }
+            return Date.now() < Number(until);
+        }
+        const isNearbyOnly = resolveNearbyOnly();
+        const isActiveOnly = localStorage.getItem("activeOnly") === "true";
 
         if (chkDarkMode) chkDarkMode.checked = isDarkMode;
         if (chkNearbyOnly) chkNearbyOnly.checked = isNearbyOnly;
+        if (chkActiveOnly) chkActiveOnly.checked = isActiveOnly;
 
         if (isDarkMode) document.body.classList.add("dark-mode");
         if (isNearbyOnly && clientGrid) clientGrid.classList.add("nearby-only-active");
+        if (isActiveOnly && clientGrid) clientGrid.classList.add("active-only-active");
 
         if (chkDarkMode) {
             chkDarkMode.addEventListener("change", function() {
@@ -2530,12 +2745,22 @@ async function fetchAndRender() {
 
         if (chkNearbyOnly) {
             chkNearbyOnly.addEventListener("change", function() {
-                localStorage.setItem("nearbyOnly", this.checked);
+                localStorage.setItem("nearbyOnlyUntil", this.checked ? String(Date.now() + 30*24*60*60*1000) : "0");
                 if (clientGrid) clientGrid.classList.toggle("nearby-only-active", this.checked);
                 if (currentData.length > 0) updateServersList(currentData);
+                setTimeout(checkForEssay, 0);
             });
         }
-        // --- END Dark Mode & Nearby Only ---
+
+        if (chkActiveOnly) {
+            chkActiveOnly.addEventListener("change", function() {
+                localStorage.setItem("activeOnly", this.checked);
+                if (clientGrid) clientGrid.classList.toggle("active-only-active", this.checked);
+                if (currentData.length > 0) updateServersList(currentData);
+                setTimeout(checkForEssay, 0);
+            });
+        }
+        // --- END Dark Mode & Nearby Only & Active Only ---
 
         // Default logic for any remaining standard collapsibles (like Nearby Musicians)
         var coll = document.getElementsByClassName("collapsible");
@@ -2550,6 +2775,7 @@ async function fetchAndRender() {
                         this.innerText = "";
                         updateNearbyMaxHeight();
                         localStorage.setItem("nearbyTabState", "open");
+                        Tracker.log('nearby_toggle', { s: 1 });
                     } else {
                         content.style.display = "none";
                         this.innerText = T('nearby');
@@ -2557,6 +2783,7 @@ async function fetchAndRender() {
                         this.style.fontSize = "10px";
                         this.style.lineHeight = "16px";
                         localStorage.setItem("nearbyTabState", "closed:" + Date.now());
+                        Tracker.log('nearby_toggle', { s: 0 });
                     }
                 } else {
                     if (content.style.display === "block") {
@@ -2663,13 +2890,101 @@ async function fetchAndRender() {
         });
     }
 
+    let _essayTimer = null;
+    let _essayShown = false;
+
+    function hydrateEssayTimes() {
+        function relAgo(isoStr) {
+            const dt = new Date(isoStr);
+            if (isNaN(dt)) return null;
+            const h = (Date.now() - dt) / 3600000;
+            const m = (Date.now() - dt) / 60000;
+            if (h >= 48) return Math.round(h / 24) + 'd ago';
+            if (h >= 2)  return Math.round(h) + 'h ago';
+            if (h >= 1)  return '~1h ago';
+            if (m >= 2)  return Math.round(m) + 'min ago';
+            return 'just now';
+        }
+        document.querySelectorAll('#daily-essay time[datetime]:not(.essay-age)').forEach(el => {
+            const rel = relAgo(el.getAttribute('datetime'));
+            if (!rel) return;
+            let ann = el.querySelector('small.t-rel');
+            if (!ann) { ann = document.createElement('small'); ann.className = 't-rel'; ann.style.cssText = 'opacity:0.5;font-size:0.82em;margin-left:0.25em'; el.appendChild(ann); }
+            ann.textContent = '(' + rel + ')';
+        });
+        const footer = document.querySelector('#daily-essay [data-essay-generated]');
+        if (footer) {
+            const age = footer.querySelector('time.essay-age');
+            if (age) age.textContent = relAgo(footer.dataset.essayGenerated) || '';
+        }
+    }
+
+    function hasVisibleServerCards() {
+        const c = document.getElementById('nearby-musicians-container');
+        return c && Array.from(c.querySelectorAll('.musician-row')).some(r => r.offsetHeight > 0);
+    }
+
+    function checkForEssay() {
+        const essayDiv = document.getElementById('daily-essay');
+        if (hasVisibleServerCards()) {
+            if (_essayTimer) { clearTimeout(_essayTimer); _essayTimer = null; }
+            return; // essay stays once shown — clears only on page reload
+        }
+        if (_essayTimer || _essayShown) return;
+        _essayTimer = setTimeout(async () => {
+            _essayTimer = null;
+            // Re-check visibility — filters may have changed while we were waiting
+            if (hasVisibleServerCards()) return;
+            try {
+                const resp = await fetch('/api/nearby-essay');
+                if (!resp.ok || resp.status === 204) return;
+                const essayHtml = await resp.text();
+                if (!essayHtml || !essayHtml.trim()) return;
+                // Re-check: cards may have appeared while the fetch was in flight
+                if (hasVisibleServerCards()) return;
+                // Close open tabs
+                document.getElementById('content-servers').style.display = 'none';
+                document.getElementById('content-info').style.display = 'none';
+                document.getElementById('btn-servers').style.backgroundColor = 'transparent';
+                document.getElementById('btn-info').style.backgroundColor = 'transparent';
+                if (essayDiv) {
+                    essayDiv.innerHTML = essayHtml;
+                    essayDiv.style.display = 'block';
+                    essayDiv.style.opacity = '0';
+                    setTimeout(() => { essayDiv.style.opacity = '1'; }, 50);
+                    _essayShown = true;
+                    hydrateEssayTimes();
+                    setInterval(hydrateEssayTimes, 300000);
+                }
+            } catch(e) { console.error('Essay fetch failed:', e); }
+        }, 60000);
+    }
+
     async function fetchNearbyMusicians() {
         try {
             const response = await fetch('/api/nearby');
             if (response.ok) {
                 const html = await response.text();
                 document.getElementById('nearby-musicians-container').innerHTML = html;
+                setTimeout(checkForEssay, 0);
                 updateNearbyMaxHeight();
+                const nearbyBtn = document.getElementById('nearby-btn');
+                if (nearbyBtn && nearbyBtn.classList.contains('active')) {
+                    requestAnimationFrame(() => {
+                        const container = document.getElementById('nearby-musicians-container');
+                        const grid = container && container.querySelector('.musician-grid');
+                        const rows = container ? Array.from(container.querySelectorAll('.musician-row')) : [];
+                        const totalRows = rows.length;
+                        if (!grid || totalRows === 0) return;
+                        const cols = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
+                        const containerRect = container.getBoundingClientRect();
+                        const containerH = Math.round(containerRect.height);
+                        const firstRow = rows[0].getBoundingClientRect();
+                        const rowH = Math.round(firstRow.height);
+                        const visibleRows = rows.filter(r => r.getBoundingClientRect().top < containerRect.bottom).length;
+                        Tracker.log('nearby_layout', { cols, visibleRows, totalRows, containerH, rowH });
+                    });
+                }
             }
         } catch (e) {
             console.error("Failed to fetch nearby musicians:", e);
@@ -2733,6 +3048,9 @@ const Tracker = {
 
     init: function() {
         this.log("session_start", { ua: navigator.userAgent, w: window.innerWidth, wh: window.innerHeight, dpr: window.devicePixelRatio, wd: navigator.webdriver ? 1 : 0, tp: navigator.maxTouchPoints });
+        const _lastVisit = localStorage.getItem('lastVisit');
+        if (_lastVisit) this.log('return_visit', { gap_min: Math.round((Date.now() - parseInt(_lastVisit)) / 60000) });
+        localStorage.setItem('lastVisit', Date.now());
 
         document.addEventListener("click", (e) => {
             let listenLnk = e.target.closest(".listenlink");
@@ -2743,6 +3061,7 @@ const Tracker = {
 
             if (e.target.id === "chk-dark-mode")   this.log("ui_dark",    { s: e.target.checked ? 1 : 0 });
             if (e.target.id === "chk-nearby-only") this.log("ui_nearby",  { s: e.target.checked ? 1 : 0 });
+            if (e.target.id === "chk-active-only") this.log("ui_active",  { s: e.target.checked ? 1 : 0 });
             if (e.target.id === "chk-hide-24")     this.log("ui_hide",    { s: e.target.checked ? 1 : 0 });
             if (e.target.id === "btn-servers")     this.log("tab_switch", { tab: "servers" });
             if (e.target.id === "btn-info")        this.log("tab_switch", { tab: "info" });
@@ -2769,6 +3088,10 @@ const Tracker = {
             } else {
                 this.fgStart = now;
                 this.log("tab_visible");
+                if (_lastArrivalName) {
+                    document.title = 'Jamulus.live';
+                    _lastArrivalName = null;
+                }
             }
         });
 
