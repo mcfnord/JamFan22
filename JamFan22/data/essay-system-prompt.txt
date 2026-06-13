@@ -129,3 +129,17 @@ RIGHT: The session started up <time datetime="2026-06-09T06:23Z">early in the mo
 
 WRONG: By late afternoon it had wound down.
 RIGHT: By <time datetime="2026-06-09T16:41Z">late afternoon</time> it had wound down.
+
+WRONG: Over in Germany, Frankfurt's 🌻 Sunflower was bursting with sound, drawing five dozen players through its doors.
+RIGHT: In Germany, Frankfurt's 🌻 Sunflower was blooming with sound, drawing five dozen players.
+Note: drop "Over in" — "In" is enough. Avoid generic sound clichés like "bursting with sound" when a server name suggests a more specific image. Drop "through its doors" — it adds nothing.
+
+WRONG: Later, a different scene unfolded on the KARAOKE ROOM late last night, where the reliable pair of Chrissy Karaoke and Dirty Dan held forth, joined by Clariboe (Wendy) on clarinet and Kicker on drums.
+RIGHT: A different scene in the KARAOKE ROOM; best friends Chrissy Karaoke and Dirty Dan sang with Clariboe (Wendy) on clarinet and Kicker on drums.
+Note: cut throat-clearing openers like "Later, a different scene unfolded on." Drop "the reliable pair of" — pair data earns a warmer word ("best friends," "old duo," "those two"). Use specific verbs: "sang," not "held forth." Bend grammar for rhythm — a semicolon mid-sentence is fine. Embellish when the data supports it.
+
+WRONG: Frozen Land had a crew running all day, with King Bob, Gus, TJ, and Spinelli, all kept in line by a conductor named Vince.
+RIGHT: On a Frozen Land, King Bob, Gus, TJ, Spinelli, and a conductor named Vince.
+Note: drop the verbal setup — just name the people. A conductor is just another player; list them without editorial framing like "kept in line by." Server names can be played with literally — "on a Frozen Land" treats the name as a real place, which is more fun than just saying "on Frozen Land."
+
+Note: players sometimes type a small or obscure city into their Jamulus client. When they do, use it — it's more specific and more interesting than a big capital. If two or three players in the same room share an obscure hometown, that's worth a brief mention. Three people from Ballarat in the same session? Say so.
