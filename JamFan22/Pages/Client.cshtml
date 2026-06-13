@@ -1563,58 +1563,49 @@ if (action.type === 'replace_server') {
             const el = document.getElementById(action.oldId);
             const toServerEl = document.getElementById(action.toServer);
             if (el && toServerEl) {
-                el.id = action.newId; // UPDATE ID TO NEW SERVER'S DOM ID
+                el.id = action.newId;
                 const fromServerEl = el.closest('.server-card');
                 ensureNoShrink(fromServerEl);
 
                 const clientsDiv = toServerEl.querySelector('.server-clients');
                 if (clientsDiv) {
                     const firstRect = el.getBoundingClientRect();
-                    
-                    // 1. Create the spacer to hold the gap on the origin server
+
+                    // Hold origin gap open with a spacer
                     const oldSpacer = document.createElement('div');
                     oldSpacer.style.height = el.offsetHeight + 'px';
                     oldSpacer.style.marginBottom = '2px';
                     el.parentNode.insertBefore(oldSpacer, el);
-                    
-                    // 2. Delay the collapse until AFTER the musician has landed
+
+                    // Zero-height placeholder reserves the destination slot
+                    const placeholder = document.createElement('div');
+                    placeholder.style.height = '0px';
+                    placeholder.style.overflow = 'hidden';
+                    clientsDiv.appendChild(placeholder);
+                    const destRect = placeholder.getBoundingClientRect();
+
+                    // Lift element to document.body as position:fixed so it flies above
+                    // all server card stacking contexts (z-index:100 relative is insufficient)
+                    el.remove();
+                    el.style.cssText = `position:fixed; top:${firstRect.top}px; left:${firstRect.left}px; width:${firstRect.width}px; max-height:${firstRect.height}px; overflow:hidden; z-index:9999; margin:0; transition:none;`;
+                    document.body.appendChild(el);
+
+                    void el.offsetWidth;
+
+                    el.style.transition = 'top 0.75s ease-in-out, left 0.75s ease-in-out';
+                    el.style.top = destRect.top + 'px';
+                    el.style.left = destRect.left + 'px';
+
                     setTimeout(() => {
-                        // Now start the collapse animation
+                        placeholder.replaceWith(el);
+                        el.style.cssText = 'max-height:50px; overflow:hidden; transition:none; margin-bottom:2px;';
+                        void el.offsetWidth;
+                        el.style.transition = 'all 0.75s ease-in-out';
+
                         oldSpacer.style.transition = 'height 0.75s ease-in-out, margin-bottom 0.75s ease-in-out';
                         oldSpacer.style.height = '0px';
                         oldSpacer.style.marginBottom = '0px';
-                        
-                        // 3. Remove from DOM after collapse finishes
                         setTimeout(() => oldSpacer.remove(), 750);
-                    }, 750);
-
-                    // Move the element in the DOM
-                    clientsDiv.appendChild(el);
-                    
-                    // Calculate the translation to fake the start position
-                    const lastRect = el.getBoundingClientRect();
-                    const invertX = firstRect.left - lastRect.left;
-                    const invertY = firstRect.top - lastRect.top;
-                    
-                    el.style.transition = 'none';
-                    el.style.transform = `translate(${invertX}px, ${invertY}px)`;
-                    el.style.zIndex = '100';
-                    el.style.position = 'relative';
-                    
-                    el.style.maxHeight = '0px';
-                    el.style.marginBottom = '0px';
-                    
-                    void el.offsetWidth; // Force browser reflow
-                    
-                    // Animate the musician to their new home
-                    el.style.transition = 'transform 0.75s ease-in-out, max-height 0.75s ease-in-out';
-                    el.style.transform = 'translate(0, 0)';
-                    el.style.maxHeight = '50px';
-                    el.style.marginBottom = '2px';
-                    
-                    setTimeout(() => {
-                        el.style.zIndex = '';
-                        el.style.position = '';
                     }, 750);
                 }
             }
@@ -2892,6 +2883,8 @@ async function fetchAndRender() {
 
     let _essayTimer = null;
     let _essayShown = false;
+    let _essayDelayMs = 60000;
+    let _essayHydrateInterval = null;
 
     function hydrateEssayTimes() {
         function relAgo(isoStr) {
@@ -2916,54 +2909,57 @@ async function fetchAndRender() {
         if (footer) {
             const age = footer.querySelector('time.essay-age');
             if (age) age.textContent = relAgo(footer.dataset.essayGenerated) || '';
+            const topBadge = document.getElementById('essay-age-top');
+            if (topBadge) topBadge.textContent = 'Written ' + (relAgo(footer.dataset.essayGenerated) || '');
         }
     }
 
-    function hasVisibleServerCards() {
-        const c = document.getElementById('nearby-musicians-container');
-        return c && Array.from(c.querySelectorAll('.musician-row')).some(r => r.offsetHeight > 0);
+    async function fetchAndShowEssay(isRefresh) {
+        try {
+            const resp = await fetch('/api/nearby-essay');
+            if (!resp.ok || resp.status === 204) return;
+            const essayHtml = await resp.text();
+            if (!essayHtml || !essayHtml.trim()) return;
+            const essayDiv = document.getElementById('daily-essay');
+            if (!essayDiv) return;
+            if (isRefresh) {
+                essayDiv.style.opacity = '0';
+                await new Promise(r => setTimeout(r, 1500));
+            }
+            essayDiv.innerHTML = essayHtml;
+            const _topBadge = document.createElement('div');
+            _topBadge.id = 'essay-age-top';
+            _topBadge.style.cssText = 'font-size:0.78em;color:#aaa;text-align:right;margin-bottom:0.5em';
+            essayDiv.prepend(_topBadge);
+            essayDiv.style.display = 'block';
+            essayDiv.style.opacity = '0';
+            setTimeout(() => { essayDiv.style.opacity = '1'; }, 50);
+            _essayShown = true;
+            hydrateEssayTimes();
+            if (!_essayHydrateInterval) _essayHydrateInterval = setInterval(hydrateEssayTimes, 300000);
+            document.getElementById('content-servers').style.display = 'none';
+            document.getElementById('content-info').style.display = 'none';
+            document.getElementById('btn-servers').style.backgroundColor = 'transparent';
+            document.getElementById('btn-info').style.backgroundColor = 'transparent';
+            setTimeout(() => {
+                _essayShown = false;
+                const d = document.getElementById('daily-essay');
+                if (d) { d.style.opacity = '0'; setTimeout(() => { d.style.display = 'none'; d.innerHTML = ''; }, 1500); }
+            }, 4 * 3600 * 1000);
+        } catch(e) { console.error('Essay fetch failed:', e); }
     }
 
     function checkForEssay() {
-        const essayDiv = document.getElementById('daily-essay');
-        if (hasVisibleServerCards()) {
-            if (_essayTimer) { clearTimeout(_essayTimer); _essayTimer = null; }
-            return; // essay stays once shown — clears only on page reload
-        }
         if (_essayTimer || _essayShown) return;
-        _essayTimer = setTimeout(async () => {
-            _essayTimer = null;
-            // Re-check visibility — filters may have changed while we were waiting
-            if (hasVisibleServerCards()) return;
-            try {
-                const resp = await fetch('/api/nearby-essay');
-                if (!resp.ok || resp.status === 204) return;
-                const essayHtml = await resp.text();
-                if (!essayHtml || !essayHtml.trim()) return;
-                // Re-check: cards may have appeared while the fetch was in flight
-                if (hasVisibleServerCards()) return;
-                // Close open tabs
-                document.getElementById('content-servers').style.display = 'none';
-                document.getElementById('content-info').style.display = 'none';
-                document.getElementById('btn-servers').style.backgroundColor = 'transparent';
-                document.getElementById('btn-info').style.backgroundColor = 'transparent';
-                if (essayDiv) {
-                    essayDiv.innerHTML = essayHtml;
-                    essayDiv.style.display = 'block';
-                    essayDiv.style.opacity = '0';
-                    setTimeout(() => { essayDiv.style.opacity = '1'; }, 50);
-                    _essayShown = true;
-                    hydrateEssayTimes();
-                    setInterval(hydrateEssayTimes, 300000);
-                }
-            } catch(e) { console.error('Essay fetch failed:', e); }
-        }, 60000);
+        _essayTimer = setTimeout(() => { _essayTimer = null; fetchAndShowEssay(false); }, _essayDelayMs);
     }
 
     async function fetchNearbyMusicians() {
         try {
             const response = await fetch('/api/nearby');
             if (response.ok) {
+                const delay = parseInt(response.headers.get('X-Essay-Delay') || '60', 10);
+                _essayDelayMs = delay * 1000;
                 const html = await response.text();
                 document.getElementById('nearby-musicians-container').innerHTML = html;
                 setTimeout(checkForEssay, 0);

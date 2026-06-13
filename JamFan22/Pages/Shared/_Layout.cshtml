@@ -161,6 +161,9 @@
                     }
                 });
 
+                connection.onreconnecting(() => { if (window.Tracker) window.Tracker.log('signalr_reconnecting'); });
+                connection.onreconnected(() => { if (window.Tracker) window.Tracker.log('signalr_reconnected'); });
+
                 connection.start().then(function () {
                     connection.invoke("GetHistory").then(function (history) {
                         document.getElementById("messagesList").innerHTML = ""; // Clear existing
