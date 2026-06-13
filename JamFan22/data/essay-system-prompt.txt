@@ -151,3 +151,7 @@ Note: cut hedging qualifiers like "seemed to" — if the data shows it, say it d
 WRONG: Frank Zambrano and Charly even found time for a side trip up to Boston...
 RIGHT: Frank Zambrano and Charly even took a side trip up to Boston...
 Note: "found time for" is filler — use a direct verb.
+
+WRONG: Derek and Jimmy_Joplin got the old crew together on Jimmys Jamshack Cent out of Chicago.
+RIGHT: Derek and Jimmy_Joplin got the old crew together on Chicago's Jimmys Jamshack Cent.
+Note: "out of [city]" is clunky. Put the city possessively before the server name — "[city]'s [server]" — unless another construction fits better.
