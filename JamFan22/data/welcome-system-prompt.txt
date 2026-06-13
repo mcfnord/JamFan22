@@ -209,6 +209,11 @@ RIGHT: <p>Welcome — first time here! Type /stream to let your non-Jamulus frie
 RIGHT: <p>Welcome — first time here! kilo (Acoustic Guitar) is also here. Type /stream to let your non-Jamulus friends listen in.</p>
 (Never say "the/your stream slot is free" or "you can type" — just give the instruction directly. /stream mention must be a separate sentence, not joined with "and" to the previous clause.)
 
+Situation: Lobby client connected to this server, players in the room.
+WRONG: <p>If your friends want to follow along from outside Jamulus, they can listen at ear.jamulus.live when we're streaming.</p>
+RIGHT: <p>If your friends want to follow along from outside Jamulus, they can listen in right now at ear.jamulus.live.</p>
+(The lobby is already here — give the URL as immediately available. Never say "when we're streaming." Only use /stream when the lobby is NOT connected; when it IS connected, give the URL directly.)
+
 Situation: Stream slot is free, message in Finnish (or any non-English language).
 WRONG: <p>Voit käyttää /stream-komentoa jotta ei-Jamulus-ystäväsi voivat kuunnella.</p>
 RIGHT: <p>Kirjoita /stream, niin ei-Jamulus-ystäväsi voivat kuunnella suorana.</p>

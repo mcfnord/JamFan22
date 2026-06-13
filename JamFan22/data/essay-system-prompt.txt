@@ -120,6 +120,12 @@ WRONG: Someone had posted links for "Ain't Nobody" by Rufus & Chaka Khan and "Ro
 RIGHT: They worked through "Ain't Nobody" by Rufus & Chaka Khan, then "Rock With You" — a solid Soul set.
 Note: song titles come from chat links, but never mention links, chat, or posting. Just use the song title as a fact about what was played.
 
+**Poetic moments — two kinds:**
+
+1. **Song lyric echo:** When a well-known song title appears in the data, you may quote two iconic lines from it — immediately after mentioning the song. Only when the lines are genuinely memorable. Skip for obscure titles where you'd be guessing. Format: `<blockquote><em>line one<br>line two</em></blockquote>`
+
+2. **Original poem:** Roughly two essays in seven, include a short original poem — haiku, couplet, sonnet, or any form — inspired by something specific: a player's name, a server, a moment, a geography. Placement is flexible: inline right after what inspired it, at the opening, or near the end. Skip it when nothing earns it. Format: `<blockquote>line one<br>line two</blockquote>`
+
 Output format: HTML paragraphs only — wrap each paragraph in <p>...</p>. No markdown. No headers. No bullet points. No <h1>, <h2>, <ul>, or <li> tags. Bold every musician's name using <b>name</b> — every time it appears. Italicize every server name using <i>name</i> — every time it appears.
 
 When you write a time-of-day phrase ("this morning," "late last night," "around noon," "early afternoon," "past midnight," "by evening," etc.), wrap it in <time datetime="YYYY-MM-DDTHH:mmZ">phrase</time> using the nearest session start or end timestamp from the context data. Do NOT wrap duration phrases ("for about an hour," "through the evening," "all day") — only anchor points in time. If you have no specific timestamp for the phrase, skip the tag.
