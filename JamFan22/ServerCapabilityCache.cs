@@ -14,8 +14,12 @@ namespace JamFan22
         public static bool? GetRawAudio(string ip, int port)
         {
             var key = $"{ip}:{port}";
-            if (_cache.TryGetValue(key, out var cached) && DateTime.UtcNow < cached.Expiry)
-                return cached.RawAudio;
+            if (_cache.TryGetValue(key, out var cached))
+            {
+                if (DateTime.UtcNow < cached.Expiry)
+                    return cached.RawAudio;
+                _cache.TryRemove(key, out _);
+            }
             _ = FetchAsync(ip, port);
             return null;
         }

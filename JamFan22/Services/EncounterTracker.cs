@@ -56,8 +56,9 @@ namespace JamFan22.Services
 
         public static Dictionary<string, string> m_guidNamePairs = new Dictionary<string, string>();
 
-        public static string GetHash(string name, string country, string instrument)
+        public static string GetHash(string? name, string? country, string? instrument)
         {
+            name ??= ""; country ??= ""; instrument ??= "";
             int totalLen = name.Length + country.Length + instrument.Length;
             Span<char> inputChars = totalLen < 1024 ? stackalloc char[totalLen] : new char[totalLen];
 

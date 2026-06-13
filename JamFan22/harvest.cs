@@ -52,6 +52,12 @@ namespace JamFan22
         private static readonly Regex LobbyPattern = new Regex(@"lobby", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public static System.Collections.Concurrent.ConcurrentDictionary<string, bool> m_loungeIsQuiet = new();
+        // Keyed by "ip:jamulusport". True = silent. Absent = unknown or no UDP response yet.
+        public static ConcurrentDictionary<string, bool> m_fleetSilenceStatus = new();
+        // Keyed by "ip:jamulusport". Value = per-slot audio levels indexed by chanid.
+        public static ConcurrentDictionary<string, int[]> m_fleetSlotLevels = new();
+        // Keyed by "ip:jamulusport". Value = playerName → audio level (from 1013/1015 cross-join).
+        public static ConcurrentDictionary<string, Dictionary<string, int>> m_fleetClientLevels = new();
 
         public static ConcurrentDictionary<string, (string Url, DateTime Stored)> m_discreetLinks = new();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
@@ -84,24 +90,48 @@ namespace JamFan22
         }
 
         static readonly Regex s_ugTitleRegex = new Regex(
-            @"(?:[a-z]{2}\.)?(?:tabs\.)?ultimate-guitar\.com/tab/([^/]+)/(.+?)(?:-(chords?|tabs?|bass-tabs?|ukulele|drum-tabs?|power-tabs?|guitar-pro|official|fingerstyle|classical))?-\d+$",
+            @"(?:[a-z]{2}\.)?(?:tabs\.)?ultimate-guitar\.com/tab/([^/]+)/(.+?)(?:-(chords?|tabs?|bass-tabs?|ukulele|drum-tabs?|power-tabs?|guitar-pro|official|fingerstyle|classical))?-\d+(?:[?#][^\s]*)?$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public static void AppendAcceptedLog(string url, string source, string serverAddr)
         {
-            string title = "";
+            string songTitle = "", artist = "";
             var ugMatch = s_ugTitleRegex.Match(url);
             if (ugMatch.Success)
             {
                 var tc = System.Globalization.CultureInfo.InvariantCulture.TextInfo;
-                string artist = tc.ToTitleCase(ugMatch.Groups[1].Value.Replace('-', ' ').ToLower());
-                string songTitle = tc.ToTitleCase(ugMatch.Groups[2].Value.Replace('-', ' ').ToLower());
-                title = $"{songTitle} — {artist}";
+                artist    = tc.ToTitleCase(ugMatch.Groups[1].Value.Replace('-', ' ').ToLower());
+                songTitle = tc.ToTitleCase(ugMatch.Groups[2].Value.Replace('-', ' ').ToLower());
             }
+            int nowMins = JamulusCacheManager.MinutesSince2023AsInt();
             File.AppendAllText("data/urls.csv",
-                JamulusCacheManager.MinutesSince2023AsInt() + "," + source + ","
+                nowMins + "," + source + ","
                 + serverAddr + "," + System.Web.HttpUtility.UrlEncode(url) + ","
-                + System.Web.HttpUtility.UrlEncode(title) + Environment.NewLine);
+                + System.Web.HttpUtility.UrlEncode(songTitle) + ","
+                + System.Web.HttpUtility.UrlEncode(artist) + Environment.NewLine);
+        }
+
+        // Called after ScrapeTitleAsync resolves so chords69cl Firebase titles are captured.
+        static void AppendGuidLog(string url, string serverAddr, string title)
+        {
+            if (string.IsNullOrEmpty(title)) return;
+            var svrSnapshot = JamulusAnalyzer.m_allMyServers;
+            if (svrSnapshot == null) return;
+            var guids = new List<string>();
+            foreach (var svr in svrSnapshot)
+            {
+                if (svr.serverIpAddress + ":" + svr.serverPort != serverAddr) continue;
+                if (svr.whoObjectFromSourceData != null)
+                    foreach (var c in svr.whoObjectFromSourceData)
+                        guids.Add(EncounterTracker.GetHash(c.name, c.country, c.instrument));
+                break;
+            }
+            if (guids.Count > 0)
+                File.AppendAllText("data/url-guids.csv",
+                    JamulusCacheManager.MinutesSince2023AsInt() + "," + serverAddr + ","
+                    + System.Web.HttpUtility.UrlEncode(url) + ","
+                    + System.Web.HttpUtility.UrlEncode(title) + ","
+                    + string.Join("|", guids) + Environment.NewLine);
         }
 
         public static void AppendRejectedLog(string url, string source, string addr) =>
@@ -124,8 +154,21 @@ namespace JamFan22
             bool isRoomUrl = Regex.IsMatch(url, @"chords69cl\.vercel\.app/[^?]*\?.*room=", RegexOptions.IgnoreCase);
 
             string title = await ScrapeTitleAsync(url);
+            AppendGuidLog(url, serverAddr, title);
             if (title != null)
             {
+                if (!s_ugTitleRegex.IsMatch(url))
+                {
+                    int sep = title.IndexOf(" — ", StringComparison.Ordinal);
+                    string scrapedSong   = sep > 0 ? title.Substring(0, sep)       : title;
+                    string scrapedArtist = sep > 0 ? title.Substring(sep + 3)      : "";
+                    int nowMins2 = JamulusCacheManager.MinutesSince2023AsInt();
+                    File.AppendAllText("data/urls.csv",
+                        nowMins2 + "," + source + ","
+                        + serverAddr + "," + System.Web.HttpUtility.UrlEncode(url) + ","
+                        + System.Web.HttpUtility.UrlEncode(scrapedSong) + ","
+                        + System.Web.HttpUtility.UrlEncode(scrapedArtist) + Environment.NewLine);
+                }
                 ShortLivedTitleForServerAtAddr(title, addrKey);
                 if (isRoomUrl)
                 {
@@ -160,7 +203,7 @@ namespace JamFan22
             Console.WriteLine($"[Harvest] Storing title '{title}' at key '{where.Replace(':', '-')}'");
             string key = where.Replace(':', '-');
             m_songTitleAtAddr[key] = title;
-            m_songTitleExpiry[key] = DateTime.UtcNow.AddMinutes(8);
+            m_songTitleExpiry[key] = DateTime.UtcNow.AddMinutes(16);
 
         }
 
@@ -169,7 +212,7 @@ namespace JamFan22
             if (title.Length > 0)
             {
                 m_songTitleAtAddr[serverAddr] = title;
-                m_songTitleExpiry[serverAddr] = DateTime.UtcNow.AddMinutes(8);
+                m_songTitleExpiry[serverAddr] = DateTime.UtcNow.AddMinutes(16);
             }
         }
 
@@ -188,6 +231,9 @@ namespace JamFan22
 
             // Seed m_connectedLounges so lounge→IP lookups work without needing a browser hit.
             await JamulusAnalyzer.LoadConnectedLoungesAsync();
+
+            _ = Task.Run(() => ChannelLevelPollLoopAsync(stoppingToken));
+            _ = Task.Run(() => NonFleetSilencePoller.PollLoopAsync(stoppingToken));
 
             var monitors = new Dictionary<string, Task>();
 
@@ -258,6 +304,165 @@ namespace JamFan22
 
                 await Task.Delay(60 * 1000, stoppingToken);
             }
+        }
+
+        // PROTMESSID_CLM_REQ_CHANNEL_LEVEL_LIST = 1028 = 0x0404 LE
+        // PROTMESSID_CLM_REQ_CONN_CLIENTS_LIST  = 1014 = 0x03F6 LE
+        // CRC: CCITT poly=0x1021, init=0xFFFF, inverted, stored LE
+        private static readonly byte[] s_clmReqFrame = BuildUdpFrame(0x04, 0x04);
+        private static readonly byte[] s_clmReqClientsFrame = BuildUdpFrame(0xF6, 0x03);
+
+        private static byte[] BuildUdpFrame(byte idLo, byte idHi)
+        {
+            byte[] f = new byte[9];
+            f[0]=0x00; f[1]=0x00; // TAG
+            f[2]=idLo; f[3]=idHi; // ID LE
+            f[4]=0x00;             // counter
+            f[5]=0x00; f[6]=0x00; // body length = 0
+            ushort crc = JamulusCrc(f, 7);
+            f[7]=(byte)(crc & 0xFF); f[8]=(byte)(crc >> 8); // CRC LE
+            return f;
+        }
+
+        private static ushort JamulusCrc(byte[] data, int len)
+        {
+            uint crc = 0xFFFF;
+            for (int i = 0; i < len; i++)
+            {
+                crc ^= (uint)data[i] << 8;
+                for (int b = 0; b < 8; b++)
+                    crc = (crc & 0x8000) != 0 ? ((crc << 1) ^ 0x1021u) & 0xFFFF : (crc << 1) & 0xFFFF;
+            }
+            return (ushort)(~crc & 0xFFFF);
+        }
+
+        static async Task ChannelLevelPollLoopAsync(CancellationToken stoppingToken)
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try { await PollFleetLevelsAsync(); }
+                catch (Exception ex) { Console.WriteLine($"[LEVEL-POLL] loop error: {ex.Message}"); }
+                await Task.Delay(29000, stoppingToken);
+            }
+        }
+
+        static async Task PollFleetLevelsAsync()
+        {
+            string[] lines;
+            try { lines = await File.ReadAllLinesAsync("data/fleet-server-ips.txt"); }
+            catch (Exception ex) { Console.WriteLine($"[LEVEL-POLL] Cannot read fleet file: {ex.Message}"); return; }
+
+            var tasks = new List<Task>();
+            foreach (var raw in lines)
+            {
+                var line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith('#')) continue;
+                var parts = line.Split(':');
+                if (parts.Length != 2 || !int.TryParse(parts[1], out int port)) continue;
+                string ip = parts[0];
+                tasks.Add(PollServerLevelsAsync(ip, port));
+            }
+            await Task.WhenAll(tasks);
+        }
+
+        static async Task PollServerLevelsAsync(string ip, int port)
+        {
+            string ipport = $"{ip}:{port}";
+            try
+            {
+                using var udp = new System.Net.Sockets.UdpClient();
+                udp.Connect(ip, port);
+                using var cts = new CancellationTokenSource(2000);
+
+                // Step 1: 1014 → 1013 (who is here, keyed by channel slot)
+                await udp.SendAsync(s_clmReqClientsFrame, s_clmReqClientsFrame.Length);
+                var recv1013 = await udp.ReceiveAsync(cts.Token);
+                var clients = Parse1013Body(recv1013.Buffer);
+
+                // Step 2: 1028 → 1015 (channel level nibbles)
+                await udp.SendAsync(s_clmReqFrame, s_clmReqFrame.Length);
+                var recv1015 = await udp.ReceiveAsync(cts.Token);
+                byte[] buf = recv1015.Buffer;
+
+                // Frame: TAG(2) + ID(2 LE) + counter(1) + bodylen(2 LE) + body(N) + CRC(2 LE)
+                if (buf.Length < 9) return;
+                ushort bodyLen = (ushort)(buf[5] | buf[6] << 8);
+                bool quiet = true;
+                var levelList = new List<int>();
+                if (bodyLen > 0)
+                {
+                    // Low nibble = even client index, high nibble = odd; 0xF high nibble = sentinel.
+                    int end = Math.Min(7 + bodyLen, buf.Length - 2);
+                    for (int i = 7; i < end; i++)
+                    {
+                        int lo = buf[i] & 0x0F;
+                        levelList.Add(lo);
+                        if (lo > 0) quiet = false;
+                        int hi = (buf[i] >> 4) & 0x0F;
+                        if (hi == 0x0F) break;
+                        levelList.Add(hi);
+                        if (hi > 0) quiet = false;
+                    }
+                }
+
+                // Cross-join: name → level by channel slot
+                var nameLevel = new Dictionary<string, int>(clients.Count);
+                foreach (var (channelId, name) in clients)
+                {
+                    int level = channelId < levelList.Count ? levelList[channelId] : 0;
+                    nameLevel[name] = level;
+                }
+
+                if (!m_fleetSilenceStatus.TryGetValue(ipport, out bool prev) || prev != quiet)
+                    Console.WriteLine($"[LEVEL-POLL] {ipport}: quiet={quiet} clients={clients.Count}");
+                m_fleetSilenceStatus[ipport] = quiet;
+                m_fleetSlotLevels[ipport] = levelList.ToArray();
+                m_fleetClientLevels[ipport] = nameLevel;
+            }
+            catch (OperationCanceledException)
+            {
+                if (m_fleetSilenceStatus.TryRemove(ipport, out _))
+                    Console.WriteLine($"[LEVEL-POLL] {ipport}: no response (removed)");
+                m_fleetSlotLevels.TryRemove(ipport, out _);
+                m_fleetClientLevels.TryRemove(ipport, out _);
+            }
+            catch (Exception ex)
+            {
+                if (m_fleetSilenceStatus.TryRemove(ipport, out _))
+                    Console.WriteLine($"[LEVEL-POLL] {ipport}: {ex.GetType().Name} (removed)");
+                m_fleetSlotLevels.TryRemove(ipport, out _);
+                m_fleetClientLevels.TryRemove(ipport, out _);
+            }
+        }
+
+        // Parses a 1013 CLM_CONN_CLIENTS_LIST response body.
+        // Record layout: ChannelId(1) + CountryId(2) + InstrumentId(4) + SkillLevel(1) + padding(4)
+        //                + nameLen(2 LE) + name(nameLen) + cityLen(2 LE) + city(cityLen)
+        static List<(int channelId, string name)> Parse1013Body(byte[] buf)
+        {
+            var result = new List<(int, string)>();
+            // Frame header: TAG(2)+ID(2)+counter(1)+bodyLen(2) = 7 bytes; body at offset 7.
+            if (buf.Length < 9) return result;
+            if (!(buf[2] == 0xF5 && buf[3] == 0x03)) return result; // not 1013
+            int bodyLen = buf[5] | buf[6] << 8;
+            int pos = 7;
+            int end = Math.Min(7 + bodyLen, buf.Length - 2);
+            while (pos + 16 <= end) // minimum record = 12 fixed + 2+0 + 2+0 = 16
+            {
+                int channelId = buf[pos];
+                pos += 12; // skip CountryId(2)+InstrumentId(4)+SkillLevel(1)+padding(4)+channelId already read
+                if (pos + 2 > end) break;
+                int nameLen = buf[pos] | buf[pos + 1] << 8;
+                pos += 2;
+                if (pos + nameLen > end) break;
+                string name = System.Text.Encoding.UTF8.GetString(buf, pos, nameLen);
+                pos += nameLen;
+                if (pos + 2 > end) break;
+                int cityLen = buf[pos] | buf[pos + 1] << 8;
+                pos += 2 + cityLen;
+                result.Add((channelId, name));
+            }
+            return result;
         }
 
         static async Task<List<string>> FetchThaiLoungeUrlsAsync()
@@ -358,8 +563,22 @@ namespace JamFan22
                         }
 
                         string title = await ScrapeTitleAsync(inlineURL);
+                        AppendGuidLog(inlineURL, loungeServer, title);
                         if (title != null)
+                        {
+                            if (!s_ugTitleRegex.IsMatch(inlineURL))
+                            {
+                                int sep2 = title.IndexOf(" — ", StringComparison.Ordinal);
+                                string scrapedSong2   = sep2 > 0 ? title.Substring(0, sep2)   : title;
+                                string scrapedArtist2 = sep2 > 0 ? title.Substring(sep2 + 3)  : "";
+                                File.AppendAllText("data/urls.csv",
+                                    JamulusCacheManager.MinutesSince2023AsInt() + ",lounge,"
+                                    + loungeServer + "," + System.Web.HttpUtility.UrlEncode(inlineURL) + ","
+                                    + System.Web.HttpUtility.UrlEncode(scrapedSong2) + ","
+                                    + System.Web.HttpUtility.UrlEncode(scrapedArtist2) + Environment.NewLine);
+                            }
                             ShortLivedTitleForServer(title, inlineURL, loungeUrl);
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -482,6 +701,14 @@ namespace JamFan22
                             if (inner.Success) title = inner.Groups[1].Value;
                         }
                     }
+                    else if (url.ToLower().Contains("https://www.virtualsheetmusic.com/"))
+                    {
+                        Match m = Regex.Match(s, @"<meta[^>]+property=""og:title""[^>]+content=""([^""]+)""", RegexOptions.IgnoreCase);
+                        if (!m.Success)
+                            m = Regex.Match(s, @"<meta[^>]+content=""([^""]+)""[^>]+property=""og:title""", RegexOptions.IgnoreCase);
+                        if (m.Success)
+                            title = m.Groups[1].Value.Trim();
+                    }
                     else if (url.ToLower().Contains("https://www.dochord.com/"))
                     {
                         Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
@@ -492,7 +719,44 @@ namespace JamFan22
                             if (inner.Success) title = inner.Groups[1].Value;
                         }
                     }
-
+                    else if (Regex.IsMatch(url, @"guitarians\.com/", RegexOptions.IgnoreCase))
+                    {
+                        Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>");
+                        if (m.Success)
+                        {
+                            // Format: "{artist} - {song} 結他譜 Chord譜 ... | Guitarians.com"
+                            string raw = m.Groups[1].Value;
+                            int cut = raw.IndexOf(" 結他譜", StringComparison.Ordinal);
+                            if (cut < 0) cut = raw.IndexOf(" |", StringComparison.Ordinal);
+                            if (cut > 0) raw = raw.Substring(0, cut).Trim();
+                            title = raw.Replace(" - ", " — ");
+                        }
+                    }
+                    else if (Regex.IsMatch(url, @"jimsrootsandblues\.com/", RegexOptions.IgnoreCase))
+                    {
+                        Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>", RegexOptions.IgnoreCase);
+                        if (m.Success)
+                        {
+                            // Format: "Song Name – Jim's Roots &amp; Blues"
+                            string raw = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
+                            int sep = raw.IndexOf(" – ", StringComparison.Ordinal); // en dash
+                            if (sep > 0) raw = raw.Substring(0, sep).Trim();
+                            title = raw;
+                        }
+                    }
+                    else if (Regex.IsMatch(url, @"thesession\.org/", RegexOptions.IgnoreCase))
+                    {
+                        Match m = Regex.Match(s, @"<title>\s*(.+?)\s*</title>", RegexOptions.IgnoreCase);
+                        if (m.Success)
+                        {
+                            // Format: "Tune Name (type) on The Session"
+                            string raw = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
+                            const string suffix = " on The Session";
+                            if (raw.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                                raw = raw.Substring(0, raw.Length - suffix.Length).Trim();
+                            title = raw;
+                        }
+                    }
 
                     if (title != null)
                     {

@@ -1091,8 +1091,8 @@ public static class WelcomeContext
                            ?? "https://ear.jamulus.live";
         if (streamActiveHere)
             sb.AppendLine($"This server is streaming live right now at {streamUrl}. Include this line in your message: \"Non-Jamulus fans can listen at {streamUrl}!\"");
-        else if (lobbyPresent)
-            sb.AppendLine($"A lobby client is holding the streaming slot open on this server. When live, non-Jamulus friends can listen at {streamUrl}. Mention this naturally — e.g., \"if your friends want to follow along from outside Jamulus, they can listen at {streamUrl} when we're streaming.\"");
+        else if (lobbyPresent && others.Count >= 2)
+            sb.AppendLine($"Lobby client connected — non-Jamulus friends can listen right now at {streamUrl}. Tell the player their friends can tune in at {streamUrl}. Do NOT say 'when we're streaming' — the lobby is already here.");
         else if (minsUntilLobbyStream.HasValue)
             sb.AppendLine($"Stream starts in {minsUntilLobbyStream.Value} minutes at {streamUrl} — mention this, not /stream.");
         else if (streamState.IsFree && JamFan22.StreamGate.IsEligibleServer(serverIp) && others.Count >= 2)

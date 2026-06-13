@@ -663,7 +663,7 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
             if (_tooltipCache != null && !_tooltipCache.IsExpired) return _tooltipCache.Data;
 
             var map = new Dictionary<string, string>();
-            string path = "tooltips.json"; 
+            string path = "wwwroot/tooltips.json";
 
             if (File.Exists(path))
             {

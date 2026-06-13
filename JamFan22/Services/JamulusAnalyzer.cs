@@ -235,9 +235,14 @@ public string DurationHere(string server, string who, string nationCode)
             // mjth.live, other static lounges, and Studio D (via ActiveJamulusServer)
             if (!m_connectedLounges.TryGetValue(ipport, out string url))
             {
-                if (ipport != StreamGate.ActiveJamulusServer)
+                if (ipport == StreamGate.ActiveJamulusServer)
+                {
+                    url = "https://ear.jamulus.live/";
+                }
+                else
+                {
                     return "";
-                url = "https://ear.jamulus.live/";
+                }
             }
             foreach (var user in s.whoObjectFromSourceData)
             {
@@ -272,10 +277,12 @@ public string DurationHere(string server, string who, string nationCode)
             foreach (var key in JamulusCacheManager.LastReportedList.Keys)
             {
                 var serversOnList = JsonSerializer.Deserialize<List<JamulusServers>>(JamulusCacheManager.LastReportedList[key]);
+                if (serversOnList == null) continue;
                 Console.WriteLine($"[DEBUG] Processing {key}: {serversOnList.Count} servers.");
 
                 foreach (var server in serversOnList)
                 {
+                    if (server == null) continue;
                     totalProcessed++;
                     int people = server.clients?.GetLength(0) ?? 0;
 
@@ -314,9 +321,13 @@ public string DurationHere(string server, string who, string nationCode)
 
         public bool ShouldSkipServer(JamulusServers server, int people)
         {
-            if (server.name.ToLower().Contains("script") || server.city.ToLower().Contains("script") ||
-                server.name.ToLower().Contains("jxw")    || server.city.ToLower().Contains("peterborough") ||
-                server.name.ToLower().Contains("peachjam3"))
+            string n = server.name ?? "";
+            string c = server.city ?? "";
+            if (n.Contains("script", StringComparison.OrdinalIgnoreCase) ||
+                c.Contains("script", StringComparison.OrdinalIgnoreCase) ||
+                n.Contains("jxw",    StringComparison.OrdinalIgnoreCase) ||
+                c.Contains("peterborough", StringComparison.OrdinalIgnoreCase) ||
+                n.Contains("peachjam3", StringComparison.OrdinalIgnoreCase))
                 return true;
             return people < 1;
         }

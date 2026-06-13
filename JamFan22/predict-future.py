@@ -187,7 +187,7 @@ def find_imminent_hotspots(file_path='data/census.csv',
     try:
         print("\nScanning for latest timestamp...")
         max_minutes = 0
-        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip'], chunksize=100000, usecols=['mins']):
+        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip', 'audible'], chunksize=100000, usecols=['mins']):
             chunk['mins'] = pd.to_numeric(chunk['mins'], errors='coerce')
             max_minutes = max(max_minutes, chunk['mins'].max())
 
@@ -201,7 +201,7 @@ def find_imminent_hotspots(file_path='data/census.csv',
         print(f"Loading data from last {ANALYSIS_WINDOW_DAYS} days...")
         
         chunks = []
-        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip'], chunksize=100000):
+        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip', 'audible'], chunksize=100000):
             chunk['mins'] = pd.to_numeric(chunk['mins'], errors='coerce')
             chunk.dropna(subset=['mins'], inplace=True)
             relevant = chunk[chunk['mins'] >= min_minutes]
@@ -297,12 +297,12 @@ def find_imminent_hotspots(file_path='data/census.csv',
 
     # --- 8. TRIGGER TOOLTIPS (Moved before output to ensure execution) ---
     predicted_guids = {r['guid'] for r in results}
-    live_threshold = max_minutes - 1440
+    live_threshold = max_minutes - 10080  # 7 days — covers all regular players regardless of day
     live_guids = set(df_raw[df_raw['mins'] > live_threshold]['guid'].unique())
     all_targets = predicted_guids.union(live_guids)
     
     if all_targets:
-        generate_tooltips(df_raw, server_map, context_info, all_targets, max_minutes)
+        generate_tooltips(df_raw, server_map, context_info, all_targets, max_minutes, output_path='wwwroot/tooltips.json')
 
     # --- 9. Output Predictions ---
     results_df = pd.DataFrame(results).sort_values('pred_mins')

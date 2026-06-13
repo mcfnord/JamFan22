@@ -26,6 +26,8 @@ namespace JamFan22.Services
         private static readonly ConcurrentDictionary<string, (JObject Json, DateTime Expiry)> _ipApiCache
             = new ConcurrentDictionary<string, (JObject, DateTime)>();
 
+        public static volatile bool WarmupComplete = false;
+
         /// <summary>
         /// Single shared gate for all ip-api.com lookups. Returns null if throttled or on error.
         /// Results are cached for 48 hours — callers never need their own ip-api caches.
@@ -35,7 +37,7 @@ namespace JamFan22.Services
             ip = ip.Replace("::ffff:", "");
 
             if (_ipApiCache.TryGetValue(ip, out var cached) && DateTime.UtcNow < cached.Expiry)
-                return cached.Json;
+                return cached.Json; // null here means recently failed — negative cache hit
 
             TimeSpan throttleWait;
             lock (_ipApiLock)
@@ -46,6 +48,7 @@ namespace JamFan22.Services
                     if (!waitIfThrottled)
                     {
                         Console.WriteLine($"[ip-api] THROTTLED: {ip}, retry after {remaining.TotalSeconds:F0}s");
+                        _ipApiCache[ip] = (null, DateTime.UtcNow.Add(remaining) + TimeSpan.FromSeconds(5));
                         return null;
                     }
                     throttleWait = remaining;
@@ -75,6 +78,7 @@ namespace JamFan22.Services
                 {
                     lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
                     Console.WriteLine($"[ip-api] 429 for {ip}, backoff now {_ipApiBackoffSeconds}s");
+                    _ipApiCache[ip] = (null, DateTime.UtcNow.AddMinutes(5));
                     return null;
                 }
 
@@ -84,8 +88,13 @@ namespace JamFan22.Services
 
                 if (json["status"]?.ToString() != "success")
                 {
-                    lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
-                    Console.WriteLine($"[ip-api] non-success for {ip}: {json["message"]}, backoff now {_ipApiBackoffSeconds}s");
+                    var msg = json["message"]?.ToString() ?? "";
+                    bool permanent = msg is "private range" or "reserved range" or "invalid query";
+                    if (!permanent)
+                        lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
+                    var ttl = permanent ? DateTime.UtcNow.AddHours(24) : DateTime.UtcNow.AddMinutes(5);
+                    Console.WriteLine($"[ip-api] non-success for {ip}: {msg} ({(permanent ? "permanent" : "transient")}), backoff now {_ipApiBackoffSeconds}s");
+                    _ipApiCache[ip] = (null, ttl);
                     return null;
                 }
 
@@ -97,12 +106,14 @@ namespace JamFan22.Services
             catch (OperationCanceledException)
             {
                 Console.WriteLine($"[ip-api] timeout for {ip}");
+                _ipApiCache[ip] = (null, DateTime.UtcNow.AddMinutes(5));
                 return null;
             }
             catch (Exception ex)
             {
                 lock (_ipApiLock) { _ipApiBackoffSeconds *= 2; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(_ipApiBackoffSeconds); }
                 Console.WriteLine($"[ip-api] error for {ip}: {ex.Message}, backoff now {_ipApiBackoffSeconds}s");
+                _ipApiCache[ip] = (null, DateTime.UtcNow.AddMinutes(5));
                 return null;
             }
         }

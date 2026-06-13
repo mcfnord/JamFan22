@@ -10,7 +10,7 @@ mv census.csv censusfrozen.csv
 touch census.csv
 
 # Sort and remove duplicates from the frozen census file, then store it in newcensus.csv
-cat censusfrozen.csv | sort | uniq > newcensus.csv
+sort -t',' -k1,1n -k2,2 -k3,3 -k4,4r censusfrozen.csv | awk -F',' '!seen[$1","$2","$3]++' > newcensus.csv
 rm censusfrozen.csv
 
 # Calculate max minutes and filter for the last 90 days (129600 minutes)

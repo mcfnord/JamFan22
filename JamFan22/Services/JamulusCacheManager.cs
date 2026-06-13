@@ -1,3 +1,4 @@
+using JamFan22;
 using JamFan22.Models;
 using System;
 using System.Collections.Generic;
@@ -53,6 +54,7 @@ namespace JamFan22.Services
 
         public static Dictionary<string, DateTime> DirectoryLastUpdated = new Dictionary<string, DateTime>();
         public static Dictionary<string, string>   LastReportedList     = new Dictionary<string, string>();
+        public static volatile int NetworkClientCount = 0;
         static DateTime? LastReportedListGatheredAt = null;
         public static List<string> ListServicesOffline = new List<string>();
 
@@ -75,6 +77,9 @@ namespace JamFan22.Services
         // key (e.g. "Any Genre 1") they belong to — populated from London full-directory fetches.
         public static readonly Dictionary<string, (string Name, string City, string Country, string DirectoryKey)>
             AltServerMeta = new Dictionary<string, (string, string, string, string)>(StringComparer.Ordinal);
+        // Servers that returned no data from either explorer endpoint — skip for 5 minutes.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _altSourceBackoff =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
 
         // GUIDs already persisted to censusgeo.csv — prevents unbounded file growth from duplicate appends
         private static readonly HashSet<string> _censusgeoWritten = new HashSet<string>(StringComparer.Ordinal);
@@ -144,61 +149,129 @@ namespace JamFan22.Services
         {
             try
             {
-                var text = await s_refreshClient.GetStringAsync("http://137.184.43.255/blocked.php", ct);
-                var keys = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var line in text.Split('\n'))
-                {
-                    var t = line.Trim();
-                    if (t.Length > 0 && !t.StartsWith('#')) keys.Add(t);
-                }
-                BlockedServerKeys = keys;
-                // Evict cache entries for servers no longer on the blocked list.
-                foreach (var stale in _altSourceCache.Keys.Except(keys).ToList())
-                    _altSourceCache.Remove(stale);
+                // Sweep all 3 alt instances in parallel across all 7 directory hosts.
+                // Collect every server with ping >= 0 from any instance.
+                var altSeen = new Dictionary<string, (JamulusServers Srv, string Dir)>(StringComparer.Ordinal);
+                var altLock  = new object();
+                var tasks    = new List<Task>();
 
-                // Fetch real server metadata (name/city/country/directory) from London full-directory
-                // responses. The per-server API only returns the IP as name; the directory response
-                // has the full metadata. Run after updating BlockedServerKeys so we know what to seek.
+                async Task SweepOneAsync(string url, string dirLabel)
+                {
+                    try
+                    {
+                        var json    = await s_refreshClient.GetStringAsync(url, ct);
+                        var servers = JsonSerializer.Deserialize<List<JamulusServers>>(json);
+                        if (servers == null) return;
+                        lock (altLock)
+                        {
+                            foreach (var s in servers)
+                            {
+                                if (s == null || s.ping < 0 || s.ip == null) continue;
+                                string addr = s.ip + ":" + s.port;
+                                // Keep first sighting; upgrade to a real name if we only have the IP.
+                                if (!altSeen.TryGetValue(addr, out var existing)
+                                    || (existing.Srv.name == existing.Srv.ip && s.name?.Length > 0 && s.name != s.ip))
+                                    altSeen[addr] = (s, dirLabel);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
                 foreach (var (dirLabel, primaryUrl) in JamulusListURLs)
                 {
                     var parts = primaryUrl.Split("/servers_data/");
                     if (parts.Length < 2) continue;
                     string dirHost = parts[1].Split('/')[0];
-                    try
-                    {
-                        var json = await s_refreshClient.GetStringAsync(
-                            $"https://explorer.jamulus.io/servers.php?directory={dirHost}", ct);
-                        var servers = JsonSerializer.Deserialize<List<JamulusServers>>(json);
-                        if (servers == null) continue;
-                        foreach (var s in servers)
-                        {
-                            string addr = s.ip + ":" + s.port;
-                            if (keys.Contains(addr) && s.name?.Length > 0 && s.name != s.ip)
-                                AltServerMeta[addr] = (s.name, s.city ?? "", s.country ?? "", dirLabel);
-                        }
-                    }
-                    catch { }
+                    tasks.Add(SweepOneAsync($"https://explorer.jamulus.io/servers.php?directory={dirHost}",      dirLabel));
+                    tasks.Add(SweepOneAsync($"https://explorer.jamulus.io/servers-lon2.php?directory={dirHost}", dirLabel));
+                    tasks.Add(SweepOneAsync($"http://24.199.107.192/servers-ffm.php?directory={dirHost}",        dirLabel));
+                }
+                await Task.WhenAll(tasks);
+
+                // Primary-reachable: IP:ports where m_deserializedCache reports ping >= 0.
+                var primaryReachable = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var servers in m_deserializedCache.Values)
+                    foreach (var s in servers)
+                        if (s != null && s.ping >= 0 && s.ip != null)
+                            primaryReachable.Add(s.ip + ":" + s.port);
+
+                // Guard: if primary cache is empty (startup race), skip the update entirely.
+                // Without this, every alt server looks newly-blocked and 288 polls fire at once.
+                if (primaryReachable.Count == 0)
+                {
+                    Console.WriteLine("[ALT] Skipping blocked list refresh — primary cache not yet populated.");
+                    return;
+                }
+
+                // Blocked = alt-reachable minus primary-reachable.
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var addr in altSeen.Keys)
+                    if (!primaryReachable.Contains(addr))
+                        keys.Add(addr);
+
+                var newlyBlocked = keys.Except(BlockedServerKeys).ToList();
+                BlockedServerKeys = keys;
+
+                // Evict cache entries for servers no longer blocked.
+                foreach (var stale in _altSourceCache.Keys.Except(keys).ToList())
+                {
+                    _altSourceCache.Remove(stale);
+                    _altSourceBackoff.TryRemove(stale, out _);
+                }
+
+                // Update AltServerMeta from sweep results.
+                foreach (var kvp in altSeen)
+                {
+                    if (!keys.Contains(kvp.Key)) continue;
+                    var s = kvp.Value.Srv;
+                    if (s.name?.Length > 0 && s.name != s.ip)
+                        AltServerMeta[kvp.Key] = (s.name, s.city ?? "", s.country ?? "", kvp.Value.Dir);
                 }
                 // Remove metadata for servers no longer blocked.
                 foreach (var stale in AltServerMeta.Keys.Except(keys).ToList())
                     AltServerMeta.Remove(stale);
 
-                Console.WriteLine($"[ALT] Blocked list refreshed: {keys.Count} servers, meta={AltServerMeta.Count}, altCached={_altSourceCache.Count}.");
+                // Immediately poll any servers that just appeared on the blocked list.
+                if (newlyBlocked.Count > 0)
+                {
+                    Console.WriteLine($"[ALT] {newlyBlocked.Count} newly blocked — polling immediately: {string.Join(", ", newlyBlocked)}");
+                    await Task.WhenAll(newlyBlocked.Select(k => PollOneServerByKeyAsync(k, ct)));
+                }
+
+                Console.WriteLine($"[ALT] Blocked list refreshed: {keys.Count} servers (alt={altSeen.Count} primary={primaryReachable.Count}), meta={AltServerMeta.Count}, altCached={_altSourceCache.Count}.");
             }
-            catch (Exception ex) { Console.WriteLine($"[ALT] blocked.php fetch failed: {ex.Message}"); }
+            catch (Exception ex) { Console.WriteLine($"[ALT] blocked list refresh failed: {ex.Message}"); }
         }
 
         // Poll one blocked server round-robin via explorer.jamulus.io per-server API.
         // London-1 is tried first; London-2 is the fallback. The result updates _altSourceCache
         // and republishes LastReportedList[AltSourceKey] so the web UI and census loop see it.
+        // Servers that returned no data are skipped for 5 minutes (backoff) so cycles are not
+        // wasted on unreachable servers; the index still advances past skipped entries.
         private async Task PollOneAltSourceServerAsync(CancellationToken ct)
         {
             var blocked = BlockedServerKeys;
             if (blocked.Count == 0) return;
             var list = blocked.ToList();
-            string serverKey = list[_altRoundRobinIdx % list.Count];
-            _altRoundRobinIdx++;
+            var now = DateTime.UtcNow;
+            string serverKey = null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var candidate = list[_altRoundRobinIdx % list.Count];
+                _altRoundRobinIdx++;
+                if (!_altSourceBackoff.TryGetValue(candidate, out var retryAfter) || now >= retryAfter)
+                {
+                    serverKey = candidate;
+                    break;
+                }
+            }
+            if (serverKey == null) return;
+            await PollOneServerByKeyAsync(serverKey, ct);
+        }
 
+        private async Task PollOneServerByKeyAsync(string serverKey, CancellationToken ct)
+        {
             JamulusServers srv = null;
             string endpoint = null;
             foreach (var (baseUrl, label) in new[] {
@@ -215,11 +288,21 @@ namespace JamFan22.Services
             }
             if (srv == null)
             {
-                Console.WriteLine($"[ALT] {serverKey}: no response from either explorer endpoint");
+                _altSourceBackoff[serverKey] = DateTime.UtcNow.AddMinutes(5);
+                // Evict stale cache entry so the card disappears rather than showing old client data.
+                if (_altSourceCache.Remove(serverKey))
+                {
+                    var evictJson = JsonSerializer.Serialize(_altSourceCache.Values.ToList());
+                    await m_serializerMutex.WaitAsync(ct);
+                    try { LastReportedList[AltSourceKey] = evictJson; }
+                    finally { m_serializerMutex.Release(); }
+                }
+                Console.WriteLine($"[ALT] {serverKey}: no response from either explorer endpoint — backing off 5min");
                 return;
             }
+            _altSourceBackoff.TryRemove(serverKey, out _);
 
-            // Apply real metadata (name/city/country) from the hourly directory fetch.
+            // Apply real metadata (name/city/country) from the directory fetch.
             // The per-server API always returns the IP as name with no city/country.
             if (AltServerMeta.TryGetValue(serverKey, out var meta))
             {
@@ -252,6 +335,7 @@ namespace JamFan22.Services
             async Task GenerateLiveStatusJsonAsync(Dictionary<string, Task<string>> serverStates)
             {
                 var liveStatus = new Dictionary<string, object>();
+                int networkTotal = 0;
 
                 foreach (var kvp in serverStates)
                 {
@@ -276,16 +360,22 @@ namespace JamFan22.Services
                         foreach (var server in servers)
                         {
                             if (server.clients == null || server.clients.Length == 0) continue;
+                            networkTotal += server.clients.Length;
                             string serverKey = $"{server.ip}:{server.port}";
                             var guids = new List<string>();
                             foreach (var client in server.clients)
                                 guids.Add(EncounterTracker.GetHash(client.name, client.country, client.instrument));
                             if (guids.Count > 0)
+                            {
                                 liveStatus[serverKey] = new { name = server.name, clients = guids };
+                                RecentDepartureTracker.UpdateSnapshot(serverKey, guids, MinutesSince2023AsInt());
+                            }
                         }
                     }
                     catch { }
                 }
+
+                NetworkClientCount = networkTotal;
 
                 try
                 {
@@ -304,10 +394,10 @@ namespace JamFan22.Services
 
                 try
                 {
-                    // Refresh blocked list hourly; poll two blocked servers per cycle (round-robin)
+                    // Refresh blocked list every minute; poll two blocked servers per cycle (round-robin)
                     // so the full rotation completes in ~37s instead of ~75s, keeping census samples
                     // within the 60-second per-minute window.
-                    if ((DateTime.UtcNow - _blockedListFetchedAt).TotalHours >= 1)
+                    if ((DateTime.UtcNow - _blockedListFetchedAt).TotalMinutes >= 1)
                     {
                         await RefreshBlockedListAsync(stoppingToken);
                         _blockedListFetchedAt = DateTime.UtcNow;
@@ -402,7 +492,7 @@ namespace JamFan22.Services
                         foreach (var keyHere in JamulusListURLs.Keys)
                         {
                             var serversOnList = JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[keyHere]);
-                            if (serversOnList.Count == 0) { newOfflineList.Add(keyHere); fMissingSamplePresent = true; }
+                            if (serversOnList == null || serversOnList.Count == 0) { newOfflineList.Add(keyHere); fMissingSamplePresent = true; }
                         }
                         ListServicesOffline = newOfflineList;
 
@@ -430,6 +520,7 @@ namespace JamFan22.Services
 
                             foreach (var server in serversOnList)
                             {
+                                if (server == null) continue;
                                 int people = server.clients?.Length ?? 0;
                                 if (people < 1) continue;
 
@@ -444,10 +535,32 @@ namespace JamFan22.Services
                                     string stringHashOfGuy = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument);
                                     _tracker.NotateWhoHere(server.ip + ":" + server.port, stringHashOfGuy);
 
-                                    censusCsvBuilder.Append(MinutesSince2023() + ","
+                                    string censusAddr = server.ip + ":" + server.port;
+                                    int censusMins = MinutesSince2023AsInt();
+                                    string audibleField = "";
+                                    if (harvest.m_fleetClientLevels.TryGetValue(censusAddr, out var clientLevels)
+                                        && clientLevels.TryGetValue(guy.name ?? "", out int clientLevel))
+                                    {
+                                        int totalAudible = clientLevels.Values.Count(l => l > 0);
+                                        audibleField = clientLevel > 0
+                                            ? Math.Min(totalAudible, 15).ToString("x")
+                                            : "0";
+                                    }
+                                    if (audibleField.Length == 0
+                                        && NonFleetSilencePoller.ClientLevels.TryGetValue(censusAddr, out var nfLevels)
+                                        && nfLevels.TryGetValue(guy.name ?? "", out int nfLevel))
+                                    {
+                                        int nfTotal = nfLevels.Values.Count(l => l > 0);
+                                        audibleField = nfLevel > 0
+                                            ? Math.Min(nfTotal, 15).ToString("x")
+                                            : "0";
+                                    }
+                                    censusCsvBuilder.Append(censusMins + ","
                                         + stringHashOfGuy + ","
-                                        + server.ip + ":" + server.port
+                                        + censusAddr
+                                        + (audibleField.Length > 0 ? "," + audibleField : "")
                                         + Environment.NewLine);
+                                    CensusIndex.AddTick(censusMins, stringHashOfGuy, censusAddr, audibleField);
 
                                     if (_censusgeoWritten.Add(stringHashOfGuy))
                                         censusGeoCsvBuilder.Append(stringHashOfGuy + ","
@@ -508,11 +621,12 @@ namespace JamFan22.Services
                         var primaryServerKeys = new HashSet<string>(StringComparer.Ordinal);
                         foreach (var k in JamulusListURLs.Keys)
                             if (m_deserializedCache.TryGetValue(k, out var sl))
-                                foreach (var sv in sl) primaryServerKeys.Add(sv.ip + ":" + sv.port);
+                                foreach (var sv in sl) { if (sv != null) primaryServerKeys.Add(sv.ip + ":" + sv.port); }
 
                         int altActive = 0, altClients = 0;
                         foreach (var server in _altSourceCache.Values.ToList())
                         {
+                            if (server == null) continue;
                             int people = server.clients?.Length ?? 0;
                             if (people < 1) continue;
                             string addr = server.ip + ":" + server.port;
@@ -528,7 +642,29 @@ namespace JamFan22.Services
                             {
                                 string hash = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument);
                                 _tracker.NotateWhoHere(addr, hash);
-                                censusCsvBuilder.Append(MinutesSince2023() + "," + hash + "," + addr + Environment.NewLine);
+                                int altCensusMins = MinutesSince2023AsInt();
+                                string altAudibleField = "";
+                                if (harvest.m_fleetClientLevels.TryGetValue(addr, out var altClientLevels)
+                                    && altClientLevels.TryGetValue(guy.name ?? "", out int altClientLevel))
+                                {
+                                    int totalAudible = altClientLevels.Values.Count(l => l > 0);
+                                    altAudibleField = altClientLevel > 0
+                                        ? Math.Min(totalAudible, 15).ToString("x")
+                                        : "0";
+                                }
+                                if (altAudibleField.Length == 0
+                                    && NonFleetSilencePoller.ClientLevels.TryGetValue(addr, out var altNfLevels)
+                                    && altNfLevels.TryGetValue(guy.name ?? "", out int altNfLevel))
+                                {
+                                    int altNfTotal = altNfLevels.Values.Count(l => l > 0);
+                                    altAudibleField = altNfLevel > 0
+                                        ? Math.Min(altNfTotal, 15).ToString("x")
+                                        : "0";
+                                }
+                                censusCsvBuilder.Append(altCensusMins + "," + hash + "," + addr
+                                    + (altAudibleField.Length > 0 ? "," + altAudibleField : "")
+                                    + Environment.NewLine);
+                                CensusIndex.AddTick(altCensusMins, hash, addr, altAudibleField);
                                 if (_censusgeoWritten.Add(hash))
                                     censusGeoCsvBuilder.Append(hash + ","
                                         + System.Web.HttpUtility.UrlEncode(guy.name) + ","
@@ -558,8 +694,9 @@ namespace JamFan22.Services
                         foreach (var key in JamulusListURLs.Keys)
                         {
                             var serversOnList = JsonSerializer.Deserialize<List<JamulusServers>>(LastReportedList[key]);
-                            foreach (var server in serversOnList)
+                            foreach (var server in serversOnList ?? new())
                             {
+                                if (server == null) continue;
                                 string addr = server.ip + ":" + server.port;
                                 if (!m_serverFirstSeen.ContainsKey(addr))
                                     m_serverFirstSeen.Add(addr, DateTime.Now);
@@ -567,6 +704,7 @@ namespace JamFan22.Services
                         }
                         foreach (var server in _altSourceCache.Values)
                         {
+                            if (server == null) continue;
                             string addr = server.ip + ":" + server.port;
                             if (!m_serverFirstSeen.ContainsKey(addr))
                                 m_serverFirstSeen.Add(addr, DateTime.Now);

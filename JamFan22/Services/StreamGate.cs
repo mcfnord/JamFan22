@@ -22,6 +22,7 @@ namespace JamFan22
             public string ActiveIp      { get; set; } = "";
             public string JamulusServer { get; set; } = "";
             public DateTime ExpiryUtc   { get; set; } = DateTime.MinValue;
+            public DateTime GrantedUtc  { get; set; } = DateTime.MinValue;
         }
 
         class WeeklyReservation
@@ -119,6 +120,22 @@ namespace JamFan22
         private static DateTime NextWindowStart(WeeklyReservation r, DateTime utcNow)
             => MostRecentOccurrence(r.DayOfWeek, r.StartHour, utcNow).AddDays(7);
 
+        /// Returns minutes until the next scheduled lobby stream for the given server starts,
+        /// or null if one is already active or none is upcoming within horizonHours.
+        public static int? MinutesUntilNextScheduledStream(string jamulusServer, int horizonHours = 3)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var res in _reservations)
+            {
+                if (res.JamulusServer != jamulusServer) continue;
+                if (IsWeeklyWindowActive(res, now)) return null;
+                var nextStart = MostRecentOccurrence(res.DayOfWeek, res.StartHour, now).AddDays(7);
+                int minsUntil = (int)Math.Ceiling((nextStart - now).TotalMinutes);
+                if (minsUntil <= horizonHours * 60) return minsUntil;
+            }
+            return null;
+        }
+
         // Returns the most recent past (or current) UTC DateTime at (dow, startHour:00).
         private static DateTime MostRecentOccurrence(DayOfWeek dow, int startHour, DateTime utcNow)
         {
@@ -127,6 +144,39 @@ namespace JamFan22
             candidate     = candidate.AddDays(-daysBack);
             if (candidate > utcNow) candidate = candidate.AddDays(-7);
             return candidate;
+        }
+
+        // Returns true if the current lease holder's server has no non-lobby clients connected.
+        private static async Task<bool> CurrentServerIsEmptyAsync()
+        {
+            string server = _currentState.JamulusServer;
+            if (string.IsNullOrEmpty(server)) return true;
+            string ip = server.Split(':')[0];
+            try
+            {
+                using var tcp = new System.Net.Sockets.TcpClient();
+                using var cts = new System.Threading.CancellationTokenSource(5000);
+                await tcp.ConnectAsync(ip, 9999, cts.Token);
+                using var stream = tcp.GetStream();
+                using var writer = new System.IO.StreamWriter(stream, leaveOpen: true) { AutoFlush = true };
+                using var reader = new System.IO.StreamReader(stream, leaveOpen: true);
+                string secret = (await System.IO.File.ReadAllTextAsync("/secret.txt")).Trim();
+                await writer.WriteLineAsync($"{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"jamulus/apiAuth\",\"params\":{{\"secret\":\"{secret}\"}}}}");
+                await reader.ReadLineAsync();
+                await writer.WriteLineAsync("{\"id\":2,\"jsonrpc\":\"2.0\",\"method\":\"jamulusserver/getClients\",\"params\":{}}");
+                string? response = await reader.ReadLineAsync();
+                if (string.IsNullOrEmpty(response)) return true;
+                using var doc = System.Text.Json.JsonDocument.Parse(response);
+                if (!doc.RootElement.TryGetProperty("result", out var result)) return true;
+                int realClients = result.EnumerateArray()
+                    .Count(c => !c.GetProperty("name").GetString()?.Contains("lobby", StringComparison.OrdinalIgnoreCase) ?? true);
+                return realClients == 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[StreamGate] Lease-break RPC failed for {ip}: {ex.Message}");
+                return false;
+            }
         }
 
         // Strip ::ffff: prefix so we get a plain IPv4 address for the Jamulus server.
@@ -141,7 +191,7 @@ namespace JamFan22
                 {
                     var servers = JsonSerializer.Deserialize<List<JamulusServers>>(json);
                     if (servers == null) continue;
-                    var match = servers.FirstOrDefault(s => s.ip == bareIp);
+                    var match = servers.FirstOrDefault(s => s.ip == bareIp && s.port == 22224);
                     if (match != null) return (int)match.port;
                 }
                 catch { }
@@ -170,13 +220,21 @@ namespace JamFan22
             return (guids.Count, days.Count);
         }
 
-        public static string TryRequestStream(string requestIp, bool isWeekly)
+        public static bool IsEligibleServer(string bareIp)
+        {
+            var fleetIps = File.ReadLines("data/fleet-server-ips.txt")
+                .Where(l => !l.StartsWith('#') && l.Contains(':'))
+                .Select(l => l.Split(':')[0].Trim());
+            return fleetIps.Contains(bareIp);
+        }
+
+        public static async Task<string> TryRequestStream(string requestIp, bool isWeekly, int knownPort = 0)
         {
             bool   allocated = false;
             string message;
             string previousServer = "";
             string bareIp        = BareIp(requestIp);
-            int    port          = FindPortInDirectory(bareIp);
+            int    port          = knownPort > 0 ? knownPort : FindPortInDirectory(bareIp);
             string jamulusServer = $"{bareIp}:{port}";
 
             // Only check history if the slot is free — if occupied, let them see the "in use" message
@@ -187,8 +245,25 @@ namespace JamFan22
             {
                 var (uniqueGuids, activeDays) = ReadServerHistory(bareIp);
                 if (uniqueGuids < 16 || activeDays < 3)
+                {
+                    Console.WriteLine($"[StreamGate] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Prohibited: {bareIp} (guids={uniqueGuids} days={activeDays})");
                     return "Prohibited.\n";
+                }
             }
+
+            // Check if the current lease can be broken: at least 1 hour elapsed and nobody with the lobby.
+            bool leaseBreakable = false;
+            lock (_gateLock)
+            {
+                if (DateTime.UtcNow < _currentState.ExpiryUtc &&
+                    _currentState.ActiveIp != requestIp &&
+                    (DateTime.UtcNow - _currentState.GrantedUtc).TotalHours >= 1.0)
+                {
+                    leaseBreakable = true;
+                }
+            }
+            if (leaseBreakable)
+                leaseBreakable = await CurrentServerIsEmptyAsync();
 
             lock (_gateLock)
             {
@@ -197,6 +272,7 @@ namespace JamFan22
                     int minsLeft = (int)Math.Ceiling((_currentState.ExpiryUtc - DateTime.UtcNow).TotalMinutes);
                     if (_currentState.ActiveIp == requestIp)
                     {
+                        Console.WriteLine($"[StreamGate] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Already streaming: {bareIp} ({minsLeft} min left)");
                         if (isWeekly)
                         {
                             SaveWeeklyReservation(requestIp, jamulusServer);
@@ -205,12 +281,19 @@ namespace JamFan22
                         return $"Already streaming. {minsLeft} minutes remaining.\n";
                     }
 
-                    return $"In use by another server for {minsLeft} more minutes.\n";
+                    if (!leaseBreakable)
+                    {
+                        Console.WriteLine($"[StreamGate] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} In use: {bareIp} denied ({minsLeft} min left, active={_currentState.ActiveIp})");
+                        return $"In use by another server for {minsLeft} more minutes.\n";
+                    }
+
+                    Console.WriteLine($"[StreamGate] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Lease broken: {BareIp(_currentState.ActiveIp)} had {minsLeft} min left, lobby empty — transferring to {bareIp}");
                 }
 
                 previousServer              = _currentState.JamulusServer;
                 _currentState.ActiveIp      = requestIp;
                 _currentState.JamulusServer = jamulusServer;
+                _currentState.GrantedUtc    = DateTime.UtcNow;
 
                 // Cap lease to avoid blocking an upcoming weekly reservation from another IP.
                 var proposedExpiry = DateTime.UtcNow.AddHours(4);
@@ -238,6 +321,7 @@ namespace JamFan22
                 {
                     message = $"Stream allocated for {minsAllocated} minutes{capNote}.\n";
                 }
+                Console.WriteLine($"[StreamGate] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Granted: {jamulusServer} for {minsAllocated} min{capNote}{(isWeekly ? " weekly" : "")}");
             }
 
             if (allocated)
@@ -268,7 +352,7 @@ namespace JamFan22
             else
                 _reservations.Add(newEntry);
             SaveReservations();
-            Console.WriteLine($"[StreamGate] Weekly reservation saved for {ip}: every {now.DayOfWeek} {now.Hour:00}:00 UTC");
+            Console.WriteLine($"[StreamGate] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Weekly reservation saved for {ip}: every {now.DayOfWeek} {now.Hour:00}:00 UTC");
         }
 
         // Update this URL when the lounge moves to a new address.
@@ -301,60 +385,12 @@ namespace JamFan22
             return "Your stream has been stopped and the slot is now free.\n";
         }
 
-        private static bool ServerHasActivity(string ipport)
-        {
-            var colonIdx = ipport.LastIndexOf(':');
-            if (colonIdx < 0) return false;
-            string ip = ipport.Substring(0, colonIdx);
-
-            foreach (var json in JamulusCacheManager.LastReportedList.Values)
-            {
-                try
-                {
-                    var servers = JsonSerializer.Deserialize<List<JamulusServers>>(json);
-                    if (servers == null) continue;
-                    var match = servers.FirstOrDefault(s => s.ip == ip);
-                    if (match?.clients == null) continue;
-                    if (match.clients.Any(c => c.name != null && c.name != "" && !c.name.Contains("obby")))
-                        return true;
-                }
-                catch { }
-            }
-            return false;
-        }
-
         public static async Task PostLeaseMonitorAsync()
         {
             while (true)
             {
                 await Task.Delay(TimeSpan.FromMinutes(20));
-
                 RestoreFromWeeklyIfNeeded();
-
-                string orphanedServer;
-                lock (_gateLock)
-                {
-                    if (_currentState.JamulusServer == "" || DateTime.UtcNow < _currentState.ExpiryUtc)
-                        continue;
-                    orphanedServer = _currentState.JamulusServer;
-                }
-
-                bool hasActivity = ServerHasActivity(orphanedServer);
-                bool shouldDisconnect = !hasActivity || Random.Shared.Next(2) == 0;
-                Console.WriteLine($"[StreamGate] Post-lease check: server={orphanedServer} activity={hasActivity} disconnect={shouldDisconnect}");
-
-                if (shouldDisconnect)
-                {
-                    lock (_gateLock)
-                    {
-                        if (_currentState.JamulusServer == orphanedServer)
-                        {
-                            _currentState.JamulusServer = "";
-                            SaveState();
-                        }
-                    }
-                    _ = DisconnectGojamAsync();
-                }
             }
         }
 
@@ -377,6 +413,7 @@ namespace JamFan22
             var colonIdx = jamulusServer.LastIndexOf(':');
             if (colonIdx < 0) return "Studio D";
             string ip = jamulusServer.Substring(0, colonIdx);
+            int serverPort = int.TryParse(jamulusServer.Substring(colonIdx + 1), out var p) ? p : 22224;
 
             foreach (var json in JamulusCacheManager.LastReportedList.Values)
             {
@@ -384,7 +421,7 @@ namespace JamFan22
                 {
                     var servers = JsonSerializer.Deserialize<List<JamulusServers>>(json);
                     if (servers == null) continue;
-                    var match = servers.FirstOrDefault(s => s.ip == ip);
+                    var match = servers.FirstOrDefault(s => s.ip == ip && s.port == serverPort);
                     if (match?.name != null && match.name != "") return match.name;
                 }
                 catch { }
@@ -420,3 +457,5 @@ namespace JamFan22
             => "'" + value.Replace("'", "'\\''") + "'";
     }
 }
+
+
