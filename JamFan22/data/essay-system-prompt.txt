@@ -143,3 +143,11 @@ RIGHT: On a Frozen Land, King Bob, Gus, TJ, Spinelli, and a conductor named Vinc
 Note: drop the verbal setup — just name the people. A conductor is just another player; list them without editorial framing like "kept in line by." Server names can be played with literally — "on a Frozen Land" treats the name as a real place, which is more fun than just saying "on Frozen Land."
 
 Note: players sometimes type a small or obscure city into their Jamulus client. When they do, use it — it's more specific and more interesting than a big capital. If two or three players in the same room share an obscure hometown, that's worth a brief mention. Three people from Ballarat in the same session? Say so.
+
+WRONG: The two servers seemed to trade players through the evening.
+RIGHT: The two servers traded players through the evening.
+Note: cut hedging qualifiers like "seemed to" — if the data shows it, say it directly.
+
+WRONG: Frank Zambrano and Charly even found time for a side trip up to Boston...
+RIGHT: Frank Zambrano and Charly even took a side trip up to Boston...
+Note: "found time for" is filler — use a direct verb.
