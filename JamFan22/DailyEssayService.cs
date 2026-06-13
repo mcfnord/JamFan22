@@ -20,6 +20,20 @@ public static class DailyEssayService
         ["WORLD"]= new(0.0,    0.0, Array.Empty<string>(),                                                                                                                "gemini-2.5-pro",  "the World"),
     };
 
+    // Representative IANA timezone for each center — used to convert UTC session times
+    // to approximate local server time for that region.
+    private static readonly Dictionary<string, string> s_centerTz = new()
+    {
+        ["EU-W"]  = "Europe/Berlin",
+        ["IT"]    = "Europe/Rome",
+        ["UK"]    = "Europe/London",
+        ["NA-E"]  = "America/New_York",
+        ["NA-W"]  = "America/Los_Angeles",
+        ["SA"]    = "America/Sao_Paulo",
+        ["SEA"]   = "Asia/Bangkok",
+        ["WORLD"] = "UTC",
+    };
+
     private static readonly Dictionary<string, string> s_lang = new(StringComparer.OrdinalIgnoreCase)
     {
         ["DE"]="German",  ["AT"]="German",
@@ -38,6 +52,18 @@ public static class DailyEssayService
         ["CN"]="Chinese", ["TW"]="Chinese",   ["HK"]="Chinese",
         ["JP"]="Japanese",["KR"]="Korean",
         ["RU"]="Russian", ["TR"]="Turkish",   ["ID"]="Indonesian",
+    };
+
+    private static readonly Dictionary<string, int> s_essayDelay = new()
+    {
+        ["EU-W"]  = 60,
+        ["IT"]    = 120,
+        ["UK"]    = 120,
+        ["NA-W"]  = 120,
+        ["NA-E"]  = 180,
+        ["SEA"]   = 240,
+        ["SA"]    = 240,
+        ["WORLD"] = 240,
     };
 
     private static readonly ConcurrentDictionary<string, (string Html, DateTime At)> s_cache = new();
@@ -60,6 +86,16 @@ public static class DailyEssayService
         catch (Exception ex) { Console.WriteLine($"[ESSAY] key missing: {ex.Message}"); }
     }
 
+    public static async Task<int> GetEssayDelaySecondsAsync(string clientIp)
+    {
+        clientIp = clientIp.Replace("::ffff:", "");
+        var geo = await JamFan22.Services.IpAnalyticsService.FetchIpApiAsync(clientIp);
+        double lat = (double?)geo?["lat"] ?? 0;
+        double lon = (double?)geo?["lon"] ?? 0;
+        string centerId = NearestCenter(lat, lon);
+        return s_essayDelay.TryGetValue(centerId, out var d) ? d : 240;
+    }
+
     // ── Public entry point ─────────────────────────────────────────────────────
 
     public static async Task<string?> GetEssayHtmlAsync(string clientIp)
@@ -79,6 +115,7 @@ public static class DailyEssayService
 
         if (s_cache.TryGetValue(cacheKey, out var hit) && DateTime.UtcNow - hit.At < s_ttl)
         {
+            Console.WriteLine($"[ESSAY-REQ] {DateTime.UtcNow:HH:mm:ss} ip={clientIp} key={cacheKey} cache=hit");
             s_hitCount.AddOrUpdate(cacheKey, 1, (_, n) => n + 1);
             return hit.Html;
         }
@@ -86,19 +123,21 @@ public static class DailyEssayService
         var sem = s_locks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
         if (!await sem.WaitAsync(TimeSpan.FromSeconds(70)))
         {
-            Console.WriteLine($"[ESSAY] sem timeout {cacheKey}");
+            Console.WriteLine($"[ESSAY] sem timeout {cacheKey} ip={clientIp}");
             return null;
         }
         try
         {
             if (s_cache.TryGetValue(cacheKey, out hit) && DateTime.UtcNow - hit.At < s_ttl)
             {
+                Console.WriteLine($"[ESSAY-REQ] {DateTime.UtcNow:HH:mm:ss} ip={clientIp} key={cacheKey} cache=hit2");
                 s_hitCount.AddOrUpdate(cacheKey, 1, (_, n) => n + 1);
                 return hit.Html;
             }
 
             var prevReaders = s_hitCount.TryGetValue(cacheKey, out var hr) ? hr : 0;
             s_hitCount[cacheKey] = 0;
+            Console.WriteLine($"[ESSAY-REQ] {DateTime.UtcNow:HH:mm:ss} ip={clientIp} key={cacheKey} cache=gen prev_readers={prevReaders}");
             Console.WriteLine($"[ESSAY] generating {cacheKey} prev_readers={prevReaders}");
             var html = await GenerateAsync(centerId, language);
             if (html != null) s_cache[cacheKey] = (html, DateTime.UtcNow);
@@ -233,7 +272,7 @@ public static class DailyEssayService
         var pairs = FindNotablePairs(allSessions, geoMap, ttMap);
         var jammerLinks = new List<(string Label, string Url)>(); // disabled — see TODO
         var jazzKeys = GetJazzServerKeys();
-        string ctx = BuildContext(center.Label, language, local, global, songs, meta, pairs, lore, jammerLinks, jazzKeys);
+        string ctx = BuildContext(centerId, center.Label, language, local, global, songs, meta, pairs, lore, jammerLinks, jazzKeys);
         var html = await CallLlmAsync(ctx, language, center.Model);
         if (html != null)
         {
@@ -491,7 +530,7 @@ public static class DailyEssayService
             }
     }
 
-    private static string BuildContext(string centerLabel, string language,
+    private static string BuildContext(string centerId, string centerLabel, string language,
         List<SessionEntry> local, List<SessionEntry> global,
         List<(string ServerKey, string Title, string Artist)> songs,
         Dictionary<string, (string N, string C, string Na)> meta,
@@ -500,10 +539,18 @@ public static class DailyEssayService
         List<(string Label, string Url)> jammerLinks,
         HashSet<string> jazzKeys)
     {
+        var tzId = s_centerTz.TryGetValue(centerId, out var tz) ? tz : "UTC";
+        TimeZoneInfo tzInfo;
+        try { tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId); }
+        catch { tzInfo = TimeZoneInfo.Utc; }
+        var localNow   = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzInfo);
+        var tzOffset   = tzInfo.GetUtcOffset(DateTime.UtcNow);
+        var tzLabel    = $"UTC{(tzOffset >= TimeSpan.Zero ? "+" : "")}{tzOffset:hh\\:mm}";
+
         var sb = new StringBuilder();
         sb.AppendLine($"Language: {language}");
         sb.AppendLine($"Reader's region: {centerLabel}");
-        sb.AppendLine($"Current date/time (UTC): {DateTime.UtcNow:dddd, yyyy-MM-dd HH:mm}");
+        sb.AppendLine($"Current date/time (server-local): {localNow:dddd, yyyy-MM-dd HH:mm} ({tzLabel})");
         sb.AppendLine();
 
         sb.AppendLine("LOCAL SERVERS — active in the reader's region, last 24 hours:");
@@ -520,9 +567,11 @@ public static class DailyEssayService
                 var sname = string.IsNullOrWhiteSpace(s.Name) ? s.Key : s.Name;
                 sb.AppendLine();
                 sb.AppendLine($"{sname} ({where})");
-                var tStart = s_epoch.AddMinutes(s.FirstMin).ToString("yyyy-MM-ddTHH:mmZ");
-                var tEnd   = s_epoch.AddMinutes(s.LastMin).ToString("yyyy-MM-ddTHH:mmZ");
-                sb.AppendLine($"  {s.GuidTicks.Count} players · {tStart}–{tEnd} · ~{ApproxDuration(s.LastMin - s.FirstMin)}");
+                var tStartUtc = s_epoch.AddMinutes(s.FirstMin);
+                var tEndUtc   = s_epoch.AddMinutes(s.LastMin);
+                var tStart = TimeZoneInfo.ConvertTimeFromUtc(tStartUtc, tzInfo).ToString("yyyy-MM-ddTHH:mm");
+                var tEnd   = TimeZoneInfo.ConvertTimeFromUtc(tEndUtc,   tzInfo).ToString("yyyy-MM-ddTHH:mm");
+                sb.AppendLine($"  {s.GuidTicks.Count} players · {tStart}–{tEnd} ({tzLabel}) · ~{ApproxDuration(s.LastMin - s.FirstMin)}");
                 if (s.Players.Count > 0)
                     sb.AppendLine("  " + string.Join(", ", s.Players.Select(p => $"{p.Name} ({p.Instr})")));
                 AppendLore(sb, s.Key, lore);
@@ -581,8 +630,6 @@ public static class DailyEssayService
 
         return sb.ToString();
     }
-
-    private static string MinToTime(long min) => s_epoch.AddMinutes(min).ToString("HH:mm");
 
     private static string ApproxDuration(long minutes) => minutes switch
     {
