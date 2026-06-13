@@ -54,6 +54,10 @@ FILES_TO_COPY=(
     "data/census.csv"
     "data/censusgeo.csv"
     "data/fleet-guid-ip.csv"
+    "data/fleet-server-ips.txt"
+    "data/gemini-key.txt"
+    "data/welcome-config.txt"
+    "data/welcome-system-prompt.txt"
 
     # --- Wwwroot State/Text Files ---
     "wwwroot/paircount.csv"
@@ -65,6 +69,9 @@ FILES_TO_COPY=(
     "wwwroot/halo-streaming.txt"
     "wwwroot/can-dock.txt"
     "wwwroot/cannot-dock.txt"
+
+    # --- Kill switches ---
+    "silence-poller-disabled"
 )
 
 # Loop through the array and copy each file if it exists

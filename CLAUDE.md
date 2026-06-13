@@ -141,10 +141,6 @@ This Flask service (`call-servers-php.service`) caches upstream directory data w
 **Normal behavior:** JamFan22 polls every ~5s; the cache is refreshed on-demand when stale (upstream responds in ~8ms).
 Max staleness under normal operation: ~305s. `[ON-DEMAND-REFRESH]` lines in the Layer 1 journal confirm refreshes.
 
-**Known issue (2026-06-03):** Port 5001 is publicly accessible (`0.0.0.0`). Two external callers are filling the cache
-with 42 wrong hostname:port cross-combinations, causing periodic ~80s refresh bursts every 300s. Does not cause
-data corruption (the 7 correct keys stay fresh), but adds background load. Fix: firewall port 5001 to
-`127.0.0.1` + `134.199.209.51` — see `ips-from-joins/CLAUDE.md` on `24.199.107.192`.
 
 **Diagnosing staleness from JamFan22's side:** if `[WARN] Slow fetch` lines appear in `output.log`, the 7 parallel
 `GetStringAsync` calls each took >5s wall-clock — check if `call-servers-php.service` is running on `24.199.107.192`.
@@ -336,9 +332,9 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 **Web user IP cache** (`WelcomeContext.cs`): `_webUserIps` is refreshed from `data/telemetry.log` every hour. Tracks IPs that have visited the web UI. Used in welcome context to signal whether an arriving player has a web presence.
 
 
-## Daily Essay — "Empty State" Easter Egg
+## Daily Essay — Easter Egg
 
-When no server cards appear in the nearby list, a prose essay about the last 24 hours on the Jamulus network appears after a 60-second delay. It's a genuine narrative — specific names, instruments, durations, servers — not a data dump. Written in the user's native language. Nobody expects it.
+A prose essay about the last 24 hours on the Jamulus network appears 60 seconds after page load. It's a genuine narrative — specific names, instruments, durations, servers — not a data dump. Written in the user's native language. Nobody expects it. After the essay is shown, a 4-hour in-memory suppression prevents auto-refetch (saving LLM cost on unattended tabs); the suppression resets on manual page refresh.
 
 ### Geographic Centers (hard-coded)
 
