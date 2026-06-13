@@ -5,5 +5,5 @@ forecast_max_entries=4
 model=gemini-2.5-flash
 temperature=0.9
 pro_temperature=1.3
-llm_timeout_ms=3000
-group_llm_timeout_ms=4000
+llm_timeout_ms=6000
+group_llm_timeout_ms=6000
