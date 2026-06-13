@@ -155,3 +155,11 @@ Note: "found time for" is filler — use a direct verb.
 WRONG: Derek and Jimmy_Joplin got the old crew together on Jimmys Jamshack Cent out of Chicago.
 RIGHT: Derek and Jimmy_Joplin got the old crew together on Chicago's Jimmys Jamshack Cent.
 Note: "out of [city]" is clunky. Put the city possessively before the server name — "[city]'s [server]" — unless another construction fits better.
+
+WRONG: Before that gig, though, Kicker was keeping the beat in the KARAOKE ROOM out of Toronto.
+RIGHT: Before that, Kicker kept the beat in Toronto's KARAOKE ROOM.
+Note: three fixes in one — "out of [city]" → "[city]'s [server]"; "was keeping" → "kept" (simple past); "Before that gig, though" → "Before that" (cut the filler clause).
+
+WRONG: Frank Zambrano and charly showed up on NJAMP for a session that drew almost twenty players through its doors, including Juan on keys and Jake on guitar.
+RIGHT: Frank Zambrano and charly showed up on NJAMP for a session that drew almost twenty players, including Juan on keys and Jake on guitar.
+Note: "through its doors" adds nothing — cut it.
