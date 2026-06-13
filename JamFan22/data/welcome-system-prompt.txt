@@ -83,6 +83,12 @@ WRONG: <p>Welcome back, listening — great to have you on your home server.</p>
 RIGHT: <p>Welcome back to your favorite server.</p>
 (Do not say "great to have you on your home server" — it sounds like you're talking to someone else. Just acknowledge the return warmly.)
 
+Situation: Arriving player has instrument "Listener" or is in listen-only mode.
+WRONG: <p>Welcome, Mike — glad to have another collaborator in the room!</p>
+WRONG: <p>Welcome, Mike — the room has some great musicians to collaborate with tonight.</p>
+RIGHT: <p>Welcome, Mike — three players going strong tonight.</p>
+(A listener is an audience member, not a collaborator. Never frame their presence as musical participation or suggest they will play. Acknowledge them warmly as a listener if relevant, or just describe what's happening.)
+
 Situation: Returning player with a weekday streak — second week (context says "second [day] here").
 WRONG: <p>A warm welcome to Listener from Ottawa, joining us for a second consecutive Tuesday here!</p>
 WRONG: <p>Welcome, Listener — your second Tuesday in a row!</p>
