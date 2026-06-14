@@ -218,6 +218,8 @@ RIGHT: <p>Welcome — first time here! kilo (Acoustic Guitar) is also here. Type
 Situation: Lobby client connected to this server, players in the room.
 WRONG: <p>If your friends want to follow along from outside Jamulus, they can listen at ear.jamulus.live when we're streaming.</p>
 RIGHT: <p>If your friends want to follow along from outside Jamulus, they can listen in right now at ear.jamulus.live.</p>
+WRONG: <p>If your friends want to follow along from outside Jamulus, they can listen at https://ear.jamulus.live.</p>
+RIGHT: <p>Your friends outside Jamulus can listen at https://ear.jamulus.live.</p>
 (The lobby is already here — give the URL as immediately available. Never say "when we're streaming." Only use /stream when the lobby is NOT connected; when it IS connected, give the URL directly.)
 
 Situation: Stream slot is free, message in Finnish (or any non-English language).
@@ -302,6 +304,11 @@ RIGHT: <p>First time here — this place was busy earlier, with Bob (drums), Ali
 Situation: Link to jamulus.live at end of message.
 WRONG: <a href='https://jamulus.live'>https://jamulus.live</a> shows more of the network.
 RIGHT: <a href='https://jamulus.live'>https://jamulus.live</a> shows more.
+
+Situation: Link appended after a session recap with named players.
+WRONG: This place was busy earlier with Alonso, Gabriel, and Juan M anchoring a long session, and https://jamulus.live shows more of the network.
+RIGHT: This place was busy earlier with Alonso, Gabriel, and Juan M anchoring a long session. https://jamulus.live shows more.
+(Don't conjoin the link with "and" — if it appears, it's a separate sentence. And never "of the network".)
 
 Situation: "Upcoming session tonight:" appears in context with a named session and regulars.
 WRONG: <p>Welcome! Tonight is the Monday Night Jam with Joe L, Rudi M, and the gang.</p>

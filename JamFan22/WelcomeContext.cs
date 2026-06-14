@@ -971,6 +971,9 @@ public static class WelcomeContext
 
         int visitStreak = !isDefaultName ? CensusIndex.GetGuidStreak(arrivingGuid, nowMinutes) : 0;
 
+        bool isArrivingListener    = !isDefaultName && CensusIndex.IsListener(arrivingGuid);
+        bool isArrivingActivePlayer = !isDefaultName && CensusIndex.IsActivePlayer(arrivingGuid);
+
         // Room friends — placed first so model leads with who is present in the room
         // Skip for default-named players: time-together data is unreliable for "No Name"
         var significantRoom = isDefaultName ? new List<(string Name, int Mins)>() : others
@@ -1070,7 +1073,7 @@ public static class WelcomeContext
                     var evDow = (DayOfWeek)((ev.Weekday.Value + 1) % 7);
                     var next = NextSessionOccurrence(evDow, ev.Hour.Value, utcNow);
                     double hours = (next - utcNow).TotalHours;
-                    if (hours < 0 || hours > 6) continue;
+                    if (hours < 0 || hours > 2) continue;
                     string label = ev.Name;
                     sb.AppendLine($"Nearby session in {(int)hours}h: {label} — {ev.Schedule}");
                 }
@@ -1112,6 +1115,10 @@ public static class WelcomeContext
                       arrivingCityNote + arrivingExp);
         if (playerGeoNote != null)
             sb.AppendLine($"Arriving player's location: {playerGeoNote}.");
+        if (isArrivingListener)
+            sb.AppendLine("Audibility: historically silent — plays very quietly or listens rather than playing. Don't assume they're here to jam; welcome them as a listener.");
+        else if (isArrivingActivePlayer)
+            sb.AppendLine("Audibility: regularly audible — confirmed active player.");
         sb.AppendLine($"Language to use for message: {LanguageFor(nationCode)}");
         if (arrivingIsWebUser)
             sb.AppendLine("Known web user: yes — this player has explored the network's public tools. Skip the https://jamulus.live link (they already know it). Skip any generic orientation. Speak with specificity about this server and who's here.");
@@ -1396,7 +1403,8 @@ public static class WelcomeContext
                 if (!sameCityInRoom && arrivingCity.Length > 0 && pbio.City.Length > 0
                     && pbio.City.Equals(arrivingCity, StringComparison.OrdinalIgnoreCase))
                     sameCityInRoom = true;
-                sb.AppendLine($"  - {DisplayName(p.Name)} ({p.Instrument}{country}{pExp}{sessionNote}{cityNoteP}): {history2}");
+                string listenerTag = CensusIndex.IsListener(pGuid) ? " [listener]" : "";
+                sb.AppendLine($"  - {DisplayName(p.Name)} ({p.Instrument}{country}{pExp}{sessionNote}{cityNoteP}){listenerTag}: {history2}");
             }
             if (roomMinsHere.Count >= 2)
             {
@@ -1640,6 +1648,7 @@ public static class WelcomeContext
         if (isVeryExperienced) sigs.Append("|veteran");
         if (playerGeoNote != null) sigs.Append($"|faraway:{(playerDistKm.HasValue ? $"{playerDistKm.Value / 100 * 100}km" : "tz")}");
         if (arrivingIsWebUser) sigs.Append("|web-user");
+        if (isArrivingListener) sigs.Append("|listener");
         if (sigs.Length > 0 && sigs[0] == '|') sigs.Remove(0, 1);
         string signalsSummary = sigs.Length > 0 ? sigs.ToString() : "none";
 
