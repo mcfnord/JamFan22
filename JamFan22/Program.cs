@@ -526,13 +526,21 @@ app.MapPost("/chat-url-client", async (HttpContext context) =>
         {
             Console.WriteLine($"[CHAT-URL-CLIENT] WARN client-supplied serverAddr={req.serverAddr} missing port — ignoring");
         }
-        else
+        else if (bestServer == null)
         {
-            if (bestServer != null && bestServer != req.serverAddr)
-                Console.WriteLine($"[CHAT-URL-CLIENT] WARN serverAddr mismatch: client says {req.serverAddr}, inferred {bestServer} via guid={bestGuid}");
             bestServer = req.serverAddr;
-            Console.WriteLine($"[CHAT-URL-CLIENT] using client-supplied serverAddr={bestServer}");
+            Console.WriteLine($"[CHAT-URL-CLIENT] using client-supplied serverAddr={bestServer} (no guid resolution)");
         }
+        else if (bestServer != req.serverAddr)
+        {
+            Console.WriteLine($"[CHAT-URL-CLIENT] WARN serverAddr mismatch ignored: client says {req.serverAddr}, keeping inferred {bestServer} via guid={bestGuid}");
+        }
+    }
+
+    if (guidStrengths.Count == 0 && FleetGuidCache.GetGuidsByIp(remoteIp).Count == 0)
+    {
+        Console.WriteLine($"[CHAT-URL-CLIENT] REJECTED ip={remoteIp} — no identity (0 join-events, 0 fleet GUIDs)");
+        return Results.Ok();
     }
 
     if (bestServer == null)
@@ -621,6 +629,13 @@ app.MapPost("/chat-command-server", async (HttpContext context) =>
     var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
     if (!string.IsNullOrEmpty(xff)) remoteIp = xff.Split(',')[0].Trim();
     if (!remoteIp.Contains("::ffff:")) remoteIp = "::ffff:" + remoteIp;
+
+    var bareIp = remoteIp.Replace("::ffff:", "");
+    if (!FleetIpAllowlist.Contains(bareIp))
+    {
+        Console.WriteLine($"[CHAT-CMD] rejected non-fleet caller ip={bareIp}");
+        return Results.StatusCode(403);
+    }
 
     Console.WriteLine($"[CHAT-CMD] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} server={remoteIp} port={req.port} command={req.command}");
     string message = await StreamGate.TryRequestStream(remoteIp, false, req.port);
