@@ -159,7 +159,9 @@ namespace JamFan22.Services
                 {
                     try
                     {
-                        var json    = await s_refreshClient.GetStringAsync(url, ct);
+                        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        cts.CancelAfter(TimeSpan.FromSeconds(4));
+                        var json    = await s_refreshClient.GetStringAsync(url, cts.Token);
                         var servers = JsonSerializer.Deserialize<List<JamulusServers>>(json);
                         if (servers == null) return;
                         lock (altLock)
@@ -185,7 +187,6 @@ namespace JamFan22.Services
                     string dirHost = parts[1].Split('/')[0];
                     tasks.Add(SweepOneAsync($"https://explorer.jamulus.io/servers.php?directory={dirHost}",      dirLabel));
                     tasks.Add(SweepOneAsync($"https://explorer.jamulus.io/servers-lon2.php?directory={dirHost}", dirLabel));
-                    tasks.Add(SweepOneAsync($"http://24.199.107.192/servers-ffm.php?directory={dirHost}",        dirLabel));
                 }
                 await Task.WhenAll(tasks);
 
@@ -280,7 +281,9 @@ namespace JamFan22.Services
             {
                 try
                 {
-                    var json = await s_refreshClient.GetStringAsync(baseUrl + serverKey, ct);
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    cts.CancelAfter(TimeSpan.FromSeconds(4));
+                    var json = await s_refreshClient.GetStringAsync(baseUrl + serverKey, cts.Token);
                     var parsed = JsonSerializer.Deserialize<List<JamulusServers>>(json);
                     if (parsed?.Count > 0 && parsed[0].ping >= 0) { srv = parsed[0]; endpoint = label; break; }
                 }
@@ -394,15 +397,16 @@ namespace JamFan22.Services
 
                 try
                 {
-                    // Refresh blocked list every minute; poll two blocked servers per cycle (round-robin)
-                    // so the full rotation completes in ~37s instead of ~75s, keeping census samples
-                    // within the 60-second per-minute window.
+                    // Refresh blocked list every minute; poll three blocked servers per cycle (round-robin)
+                    // so the full rotation completes in ~40s instead of ~60s. 4s per-request timeouts
+                    // ensure extra slots don't stall the loop on failures.
                     if ((DateTime.UtcNow - _blockedListFetchedAt).TotalMinutes >= 1)
                     {
                         await RefreshBlockedListAsync(stoppingToken);
                         _blockedListFetchedAt = DateTime.UtcNow;
                     }
                     await Task.WhenAll(
+                        PollOneAltSourceServerAsync(stoppingToken),
                         PollOneAltSourceServerAsync(stoppingToken),
                         PollOneAltSourceServerAsync(stoppingToken));
 

@@ -209,11 +209,6 @@ namespace JamFan22.Services
             return false;
         }
 
-        // ── ASN cache ─────────────────────────────────────────────────────────
-
-        public static Dictionary<string, DateTime> m_ArnOfIpGoodUntil = new Dictionary<string, DateTime>();
-        public static Dictionary<string, string>   m_ArnOfIp          = new Dictionary<string, string>();
-
         // ── IP detail lookup ──────────────────────────────────────────────────
 
         public static async Task<JObject> GetClientIPDetailsAsync(string clientIP)
@@ -221,28 +216,8 @@ namespace JamFan22.Services
 
         public static async Task<string> AsnOfThisIpAsync(string ip)
         {
-        RE_SAMPLE:
-            if (!m_ArnOfIpGoodUntil.ContainsKey(ip))
-            {
-                var jsonGeo = await FetchIpApiAsync(ip);
-                if (jsonGeo == null)
-                {
-                    m_ArnOfIp[ip] = null;
-                    m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(5);
-                    return null;
-                }
-                var rnd = new Random();
-                m_ArnOfIp[ip] = jsonGeo["as"]?.ToString();
-                m_ArnOfIpGoodUntil[ip] = DateTime.Now.AddMinutes(rnd.Next(60 * 22, 60 * 26));
-                return m_ArnOfIp[ip];
-            }
-            else
-            {
-                if (m_ArnOfIpGoodUntil[ip] > DateTime.Now)
-                    return m_ArnOfIp[ip];
-                m_ArnOfIpGoodUntil.Remove(ip);
-                goto RE_SAMPLE;
-            }
+            var json = await FetchIpApiAsync(ip);
+            return json?["as"]?.ToString();
         }
 
         // ── Nation string builder ─────────────────────────────────────────────
