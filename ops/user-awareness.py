@@ -4,8 +4,8 @@ user-awareness.py
 Total Situation Awareness — correlates website telemetry with Jamulus census
 to build a behavioural profile of each visitor.
 
-Run from /root/JamFan22/JamFan22/:
-    python3 ../user-awareness.py [--hash <musicianHash>] [--ip <clientIP>]
+Run from any directory:
+    python3 /root/JamFan22/ops/user-awareness.py [--hash <musicianHash>] [--ip <clientIP>]
 
 Without flags, prints a summary of all visitors ranked by engagement.
 """
@@ -18,9 +18,9 @@ from urllib.request import urlopen
 import ipaddress
 
 # ---------------------------------------------------------------------------
-# Paths (relative to JamFan22/ app root)
+# Paths
 # ---------------------------------------------------------------------------
-BASE = os.path.dirname(os.path.abspath(__file__)) + "/JamFan22"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/JamFan22"
 TELEMETRY_PATH   = BASE + "/data/telemetry.log"
 CENSUS_PATH      = BASE + "/data/census.csv"
 JOIN_EVENTS_PATH = BASE + "/join-events.csv"
