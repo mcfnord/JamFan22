@@ -58,6 +58,8 @@ namespace JamFan22
         public static ConcurrentDictionary<string, int[]> m_fleetSlotLevels = new();
         // Keyed by "ip:jamulusport". Value = playerName → audio level (from 1013/1015 cross-join).
         public static ConcurrentDictionary<string, Dictionary<string, int>> m_fleetClientLevels = new();
+        // UTC time of last successful 1013 poll per fleet server.
+        public static ConcurrentDictionary<string, DateTime> m_fleetClientLevelsAt = new();
 
         public static ConcurrentDictionary<string, (string Url, DateTime Stored)> m_discreetLinks = new();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
@@ -418,6 +420,7 @@ namespace JamFan22
                 m_fleetSilenceStatus[ipport] = quiet;
                 m_fleetSlotLevels[ipport] = levelList.ToArray();
                 m_fleetClientLevels[ipport] = nameLevel;
+                m_fleetClientLevelsAt[ipport] = DateTime.UtcNow;
             }
             catch (OperationCanceledException)
             {
@@ -425,6 +428,7 @@ namespace JamFan22
                     Console.WriteLine($"[LEVEL-POLL] {ipport}: no response (removed)");
                 m_fleetSlotLevels.TryRemove(ipport, out _);
                 m_fleetClientLevels.TryRemove(ipport, out _);
+                m_fleetClientLevelsAt.TryRemove(ipport, out _);
             }
             catch (Exception ex)
             {
@@ -432,6 +436,7 @@ namespace JamFan22
                     Console.WriteLine($"[LEVEL-POLL] {ipport}: {ex.GetType().Name} (removed)");
                 m_fleetSlotLevels.TryRemove(ipport, out _);
                 m_fleetClientLevels.TryRemove(ipport, out _);
+                m_fleetClientLevelsAt.TryRemove(ipport, out _);
             }
         }
 

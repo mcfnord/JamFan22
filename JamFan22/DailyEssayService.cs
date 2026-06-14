@@ -220,6 +220,7 @@ public static class DailyEssayService
 
     private static async Task<string?> GenerateAsync(string centerId, string language)
     {
+        CensusIndex.EnsureBuilt();
         var center = s_centers[centerId];
         long nowMin = JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt();
         long cutoff = nowMin - 1440;
@@ -255,9 +256,20 @@ public static class DailyEssayService
             sess.FirstMin   = sess.GuidTicks.Values.Min(v => v.F);
             sess.LastMin    = sess.GuidTicks.Values.Max(v => v.L);
             sess.Players    = sess.GuidTicks
-                .Select(kv => { geoMap.TryGetValue(kv.Key, out var g); return (Name: g.N ?? "", Instr: g.I ?? "", Ticks: kv.Value.T); })
+                .Select(kv =>
+                {
+                    geoMap.TryGetValue(kv.Key, out var g);
+                    bool isLis = CensusIndex.IsListener(kv.Key);
+                    bool isAct = !isLis && CensusIndex.IsActivePlayer(kv.Key);
+                    // Listeners: instrument overridden to "listener" regardless of their spec.
+                    // Priority: 0=confirmed active (amplify), 1=unknown, 2=listener (de-emphasize).
+                    string instr = isLis ? "listener" : g.I is { Length: > 0 } i ? i : "musician";
+                    int pri = isAct ? 0 : isLis ? 2 : 1;
+                    return (Name: g.N ?? "", Instr: instr, Ticks: kv.Value.T, Pri: pri);
+                })
                 .Where(p => !string.IsNullOrEmpty(p.Name) && !p.Name.StartsWith("lobby", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(p => p.Ticks).Take(6).ToList();
+                .OrderBy(p => p.Pri).ThenByDescending(p => p.Ticks).Take(6)
+                .Select(p => (p.Name, p.Instr, p.Ticks)).ToList();
         }
 
         bool IsValidSession(SessionEntry s) =>

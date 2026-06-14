@@ -465,12 +465,38 @@ namespace JamFan22.Pages
 
                     if (s.whoObjectFromSourceData != null)
                     {
-                        var sortedFilteredUsers = s.whoObjectFromSourceData
+                        // For fleet servers: use 1013 UDP snapshot (≤29s old) to prune departed
+                        // clients and surface new arrivals not yet in the stale directory data.
+                        HashSet<string> fleet1013Names = null;
+                        if (harvest.m_fleetClientLevels.TryGetValue(serverAddress, out var fleetSnap)
+                            && harvest.m_fleetClientLevelsAt.TryGetValue(serverAddress, out var fleetSnapAt)
+                            && (DateTime.UtcNow - fleetSnapAt).TotalSeconds < 60)
+                        {
+                            fleet1013Names = new HashSet<string>(fleetSnap.Keys, StringComparer.Ordinal);
+                        }
+
+                        IEnumerable<JamFan22.Models.Client> sourceClients = fleet1013Names != null
+                            ? s.whoObjectFromSourceData.Where(c => fleet1013Names.Contains(c.name ?? ""))
+                            : s.whoObjectFromSourceData;
+
+                        var sortedFilteredUsers = sourceClients
                             .Where(cat => !JamulusAnalyzer.NukeThisUsername(cat.name, cat.instrument, s.name.ToLower().Contains("cbvb")))
                             .Where(cat => !HiddenPersonaManager.IsHidden(EncounterTracker.GetHash(cat.name, cat.country, cat.instrument)))
                             .OrderByDescending(guy => { string h = EncounterTracker.GetHash(guy.name, guy.country, guy.instrument); double d = _tracker.DurationHereInMins(serverAddress, h); return d < 0 ? 0 : d; })
                             .ThenBy(guy => guy.name)
                             .ToList();
+
+                        if (fleet1013Names != null)
+                        {
+                            var existingNames = sortedFilteredUsers.Select(c => c.name ?? "").ToHashSet(StringComparer.Ordinal);
+                            bool cbvb = s.name.ToLower().Contains("cbvb");
+                            foreach (var n in fleet1013Names)
+                            {
+                                if (n.Length == 0 || existingNames.Contains(n)) continue;
+                                if (JamulusAnalyzer.NukeThisUsername(n, "", cbvb)) continue;
+                                sortedFilteredUsers.Add(new JamFan22.Models.Client { name = n, country = "", instrument = "", skill = "", city = "" });
+                            }
+                        }
 
                         apiSvr.smartNations = _ipAnalytics.SmartNations(sortedFilteredUsers.ToArray(), s.country);
 

@@ -16,9 +16,10 @@ Your essay:
 - Covers local servers in depth (at least half the essay), global highlights briefly
 - Is written natively in the language specified — never translated-feeling
 - Stops when the story is told — no padding, no summary paragraph at the end
+- Formats any inline poems or lyric citations as indented, italicized HTML: use `<blockquote><em>…</em></blockquote>`
 
 BANNED phrases (never use these or their language equivalents):
-"global community", "passion for music", "connect musicians worldwide", "around the world", "across the globe", "the beauty of", "musicians gathered", "love of music", "transcends borders", "musical journey", "testament to", "vibrant community", "thriving", "wonderful", "amazing", "beautiful community", "share their music", "came together", "participating as musicians", "contributed as a musician", "contributed", "likely the same individual", "recorded [N] players" (use "saw" or "had" instead), "lobby", "two connections", "floor warm" (say "kept X warm", not "kept X floor warm"), "wasn't sleeping" (don't use this phrase or variants like "the rest of the world wasn't sleeping, either"), "just taking it all in" (and similar filler like "soaking it in", "drinking it all in" — cut the qualifier, just say what they did), "held court" / "holding court" (say what they actually did — played, ran a session, anchored the evening, etc.)
+"the usual suspects", "global community", "passion for music", "connect musicians worldwide", "around the world", "across the globe", "the beauty of", "musicians gathered", "love of music", "transcends borders", "musical journey", "testament to", "vibrant community", "thriving", "wonderful", "amazing", "beautiful community", "share their music", "came together", "participating as musicians", "contributed as a musician", "contributed", "likely the same individual", "recorded [N] players" (use "saw" or "had" instead), "lobby", "two connections", "floor warm" (say "kept X warm", not "kept X floor warm"), "wasn't sleeping" (don't use this phrase or variants like "the rest of the world wasn't sleeping, either"), "just taking it all in" (and similar filler like "soaking it in", "drinking it all in" — cut the qualifier, just say what they did), "held court" / "holding court" (say what they actually did — played, ran a session, anchored the evening, etc.)
 
 WRONG: Many musicians played on servers near you yesterday, sharing their love of music across borders.
 RIGHT: Sometime past midnight, three players held court on Cascadia Jazz — RustyShackleford on drums, a bassist from Salem known only as "jbb", and a keyboard player who joined late. They were there for over an hour.
@@ -31,6 +32,27 @@ RIGHT: a bassist from Salem known only as "jbb"
 
 WRONG: Markus and RustyShackleford have accumulated over 80 hours playing together on this network.
 RIGHT: Markus and RustyShackleford — two besties who clearly know each other's habits by now.
+
+WRONG: It's always a good sign when you see the recurring trio of Derek, Jimmy_Joplin, and Uncle Bobs House settle in for the long haul.
+RIGHT: The recurring trio of Derek, Jimmy_Joplin, and Uncle Bobs House settled in.
+
+WRONG: With HEY JOE on keyboard and Jimmy_Joplin's accordion in the mix, they kept the place running clear past midnight.
+RIGHT: HEY JOE on keyboard and Jimmy_Joplin's accordion kept the place running past midnight.
+
+WRONG: Of course, Matt was on bass.
+RIGHT: Matt was on bass.
+
+WRONG: Before showing up in Chicago, Matt put in time with JOT and John R over on the Trio server.
+RIGHT: Before visiting Chicago, Matt played with JOT and John R on a Trio server.
+
+WRONG: And before that, he anchored the low end at Dallas's pondmeet DAL alongside Steve-O and G-Rad for a few hours.
+RIGHT: Before that, he joined Dallas's pondmeet DAL alongside Steve-O and G-Rad for a few hours.
+
+WRONG: On OpenJam.TH, they worked through some Loso tunes, including "เคยรักฉันบ้างไหม," with 💎Dr.Cat💎彡★💎★彡 conducting the proceedings.
+RIGHT: On OpenJam.TH, they worked through some Loso tunes, including "เคยรักฉันบ้างไหม," with 💎Dr.Cat💎彡★💎★彡 conducting.
+
+WRONG: He was also spotted on Bunnies Jam !, which saw nearly four dozen players come through.
+RIGHT: He was also spotted on Bunnies Jam !, where four dozen players came through.
 
 WRONG: Across the globe, Thailand proved to be a hotbed of activity.
 RIGHT: Thailand was hot last night!
@@ -112,6 +134,10 @@ WRONG: The usual gang got together on NJAMP Studio. captain spalding held court 
 RIGHT: The gang held court on NJAMP Studio most of the day — captain spalding, Nance Da Crab, Lori G, BrianG, Honest.
 Note: don't repeat the same word ("usual") twice in adjacent sentences. Say less — list the names and move on.
 
+WRONG: When they hook up, they tend to stay a while.
+RIGHT: [omit — this adds nothing. The session duration already tells that story. Don't editorialize about group dynamics with filler observations.]
+Note: any sentence of the form "when X happens, Y tends to follow" is usually a filler pattern. Cut it and let the facts speak.
+
 WRONG: The gang held court on NJAMP Studio most of the day again.
 RIGHT: NJAMP Studio does this almost every day — captain spalding and the regulars, same hour, same cast.
 Note: when a group assembles with clear regularity (same players, same server, same rough time), call out the pattern — that's more interesting than yet another description of the session itself.
@@ -169,3 +195,11 @@ Note: three fixes in one — "out of [city]" → "[city]'s [server]"; "was keepi
 WRONG: Frank Zambrano and charly showed up on NJAMP for a session that drew almost twenty players through its doors, including Juan on keys and Jake on guitar.
 RIGHT: Frank Zambrano and charly showed up on NJAMP for a session that drew almost twenty players, including Juan on keys and Jake on guitar.
 Note: "through its doors" adds nothing — cut it.
+
+WRONG: The Wednesday Jazz Jam runs every week at Studio D — be sure to join next time!
+RIGHT: Yesterday, Marsha K and the band pushed out the jazz standards at the Wednesday Jazz Jam until 2am!
+Note: if a recurring event happened and people attended, name the event and write about the actual session — names, what they played, how long. Let the data speak; never promote next week's event. If nobody attended, don't mention the event at all.
+
+WRONG: That room was a different story entirely, running from late through to this morning with a strange and wonderful sound: scratching from bots named MDK 🤖 and Die 🤖, and Kai playing a recorder into the chaos.
+RIGHT: A different story there: scratching from bots named MDK 🤖 and Die 🤖, with Kai playing a recorder into the chaos.
+Note: cut the windup clause ("That room was a different story entirely, running from...") — the content itself shows it's different. Also cut "strange and wonderful" — show, don't tell.

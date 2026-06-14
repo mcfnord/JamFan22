@@ -20,6 +20,9 @@ public static class CensusIndex
     // hour number (minutes/60) → distinct GUID count in that hour
     private static Dictionary<int, int> _hourlyGuidCounts = new();
 
+    // Historical audibility from census.csv col 3: guid → (silentTicks, audibleTicks)
+    private static Dictionary<string, (int Silent, int Audible)> _snapshotAudible = new();
+
     // Live audible delta: "guid:server" → (silentTicks, audibleTicks) since startup
     private static readonly ConcurrentDictionary<string, (int Silent, int Audible)> _deltaAudible = new(StringComparer.Ordinal);
     // Live delta: ticks added since startup (after the initial build completes)
@@ -84,6 +87,38 @@ public static class CensusIndex
     public static (int Silent, int Audible) GetLiveAudibleCounts(string guid, string serverKey) =>
         _deltaAudible.TryGetValue(guid + ":" + serverKey, out var v) ? v : (0, 0);
 
+    /// <summary>
+    /// Merges historical (census.csv col 3) and live delta audible counts for a GUID across all servers.
+    /// Returns (0,0) when no audibility data exists (most GUIDs on non-fleet servers).
+    /// </summary>
+    public static (int Silent, int Audible) GetGuidAudibility(string guid)
+    {
+        _snapshotAudible.TryGetValue(guid, out var snap);
+        int s = snap.Silent, a = snap.Audible;
+        string prefix = guid + ":";
+        foreach (var kv in _deltaAudible)
+            if (kv.Key.StartsWith(prefix, StringComparison.Ordinal)) { s += kv.Value.Silent; a += kv.Value.Audible; }
+        return (s, a);
+    }
+
+    private const int AudibilityMinTicks = 20;
+
+    /// <summary>True when a GUID has enough audibility data and is almost always silent (listener / lurker).</summary>
+    public static bool IsListener(string guid)
+    {
+        var (s, a) = GetGuidAudibility(guid);
+        int total = s + a;
+        return total >= AudibilityMinTicks && (double)a / total < 0.15;
+    }
+
+    /// <summary>True when a GUID has enough audibility data and is frequently audible (active player).</summary>
+    public static bool IsActivePlayer(string guid)
+    {
+        var (s, a) = GetGuidAudibility(guid);
+        int total = s + a;
+        return total >= AudibilityMinTicks && (double)a / total > 0.5;
+    }
+
     private static void Build()
     {
         var byServer         = new Dictionary<string, Dictionary<string, (int, int)>>(StringComparer.Ordinal);
@@ -91,6 +126,7 @@ public static class CensusIndex
         var byGuidDays       = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
         var byGuidServerDays = new Dictionary<string, Dictionary<string, HashSet<int>>>(StringComparer.Ordinal);
         var hourGuids        = new Dictionary<int, HashSet<string>>();
+        var snapshotAudible  = new Dictionary<string, (int Silent, int Audible)>(StringComparer.Ordinal);
 
         int lines = 0;
         try
@@ -108,6 +144,22 @@ public static class CensusIndex
                 var i3 = line.IndexOf(',', i2 + 1);
                 string server = i3 >= 0 ? line.Substring(i2 + 1, i3 - i2 - 1) : line.Substring(i2 + 1).TrimEnd();
                 if (guid.Length != 32) continue;
+
+                // col 3: audible flag (0/1) — only present for fleet-polled ticks
+                if (i3 >= 0)
+                {
+                    var col3 = line.AsSpan(i3 + 1).Trim();
+                    if (col3.Length == 1)
+                    {
+                        bool isAud = col3[0] == '1';
+                        bool isSil = col3[0] == '0';
+                        if (isAud || isSil)
+                        {
+                            snapshotAudible.TryGetValue(guid, out var av);
+                            snapshotAudible[guid] = isAud ? (av.Silent, av.Audible + 1) : (av.Silent + 1, av.Audible);
+                        }
+                    }
+                }
 
                 // byServer
                 if (!byServer.TryGetValue(server, out var sDict))
@@ -153,10 +205,11 @@ public static class CensusIndex
         _byGuid           = byGuid;
         _byGuidDays       = byGuidDays;
         _byGuidServerDays = byGuidServerDays;
+        _snapshotAudible  = snapshotAudible;
         var hc = new Dictionary<int, int>(hourGuids.Count);
         foreach (var kv in hourGuids) hc[kv.Key] = kv.Value.Count;
         _hourlyGuidCounts = hc;
-        Console.WriteLine($"[CENSUS-INDEX] Built: {lines} rows, {byServer.Count} servers, {byGuid.Count} guids");
+        Console.WriteLine($"[CENSUS-INDEX] Built: {lines} rows, {byServer.Count} servers, {byGuid.Count} guids, {snapshotAudible.Count} with audibility data");
     }
 
     private static bool HasDay(string guid, int dayNum)
