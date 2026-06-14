@@ -106,15 +106,6 @@
 
 - **Self-updating server lore** (`data/server-lore.json`, new script `lore-update.py`): weekly cron job that reads `census.csv` (last 4 weeks) and updates `server-lore.json` automatically — adding emerging patterns, removing dead ones. For each fleet server: detect recurring session windows (≥2 of last 4 matching weekday/hour slots with ≥5 players), compare against current `events[]` entries, add new ones and remove any that have missed ≥2 consecutive scheduled occurrences. Also refresh `themes[]` from instrument/genre distribution if shifted significantly. No manual hand-holding — runs weekly, commits the result or at minimum writes `data/server-lore.json` in-place (app re-reads on next call). Pair with the existing `band-finder.py` cron cadence. The hype must reflect reality.
 
-- **Replace blocked list with dynamic alt-derived target set (three alt instances: lon1, lon2, ffm)** (`JamulusCacheManager.cs`, `RefreshBlockedListAsync`): The current `blocked-servers.txt` / `blocked.php` is a manually-curated ratchet — things get added but rarely removed, and any server that blocks the primary without being caught is silently ignored by the alt-source poller. Replace it entirely with a derived set.
-
-  **The formula:** `alt_targets = {s | alt_ping >= 0 on lon1 OR lon2 OR ffm} - {s | primary_ping >= 0}`. Take the union of servers reachable by *any* alt instance, then subtract what the primary already reaches. Using the union matters: a server may block some alt IPs but not others, so any sighting is sufficient to include it as an alt-poll candidate.
-
-  **Implementation:** In `RefreshBlockedListAsync`, replace the `blocked.php` HTTP fetch with a full directory sweep run against *all three* alt instances in parallel. For each `dirHost` in `JamulusListURLs` across all genre dirs (anygenre1–3 :22124/:22224, jazz:22324, classical:22424/:22524, choral:22624/:22724, rock:22224), fire requests to: `https://explorer.jamulus.io/servers.php?directory={dirHost}` (lon1, London), `https://explorer.jamulus.io/servers-lon2.php?directory={dirHost}` (lon2, London), and `http://24.199.107.192/servers-ffm.php?directory={dirHost}` (ffm, Frankfurt — proxy to `3.72.75.211`). Union all IP:ports that return `ping >= 0` from any instance. Subtract the set of IP:ports the primary currently sees with `ping >= 0` (available in `m_deserializedCache`). Write the remainder into `BlockedServerKeys`. The rest of the machinery (`PollOneAltSourceServerAsync`, `AltServerMeta`, census pipeline) is unchanged.
-
-  **Benefits:** Self-healing — servers that stop blocking fall out automatically on the next refresh. Catches new blockers (e.g. Rick's NJ, the Toronto Chamber cluster at a new IP) without any manual step. Also catches servers the primary has never reached that London can — true independent discovery. Refresh cadence: every 10–15 minutes is sufficient (the set of blocking servers changes slowly).
-
-  **Verified gap (2026-06-09):** a live three-way comparison found 13 servers with primary `ping=-1` that London could reach but that were not on the blocked list, including Rick's Open/Raw Jam NJ (`45.79.142.148`), Chamber Soundings/Tones/Classical Improv at a moved IP (`74.15.252.200`), Frankfurt Jam and Frankfurt Rock Jam (`167.99.132.213:22124/22127`), Blues/Rock Zwolle, BACKSTAGE Ålesund, Lomox2 Paris, and others. All invisible to the alt poller under the current design.
 
 - **Ear silence sampler** (`NonFleetSilencePoller.cs`): rewrite scheduler with GUID-urgency scoring. Kill switch currently active (`silence-poller-disabled`). Design:
 
@@ -148,9 +139,8 @@
   **Silence-only GUID suppression** *(future)*: if a GUID has ≥1 audible sample and ALL samples are `0`, hide or deprioritize that GUID from the nearby list and essay. Evidence of all-silence = likely listener/bot. Only fires on positive evidence, not absence. Implement after Ear coverage grows.
 
   **Fleet level-detection accuracy tests** (validate 1014+1028 same-socket slot mapping):
-  - **Python probe script**: send 1014+1028 on same socket to a fleet server, print `name → channelId → level` cross-join; run while watching the live UI and verify active players have level > 0 and silent ones have level = 0. Repeat every ~5s to observe levels changing in real time. Extend `probe-1028.py` or write a standalone `fleet-probe.py`.
-  - **Debug API endpoint**: add `/debug/fleet-levels` (localhost only) returning current `m_fleetClientLevels` as JSON; cross-reference against the live grid — any player shown with a sound icon should have level > 0.
   - **census.csv audible column spot-check**: for a fleet server during a known active session, `grep` census.csv rows for that time window and verify the audible field is non-zero for GUIDs that were playing.
+  - Probe live: `python3 fleet-probe.py` (optional `--loop`). Cross-reference: `curl -s http://localhost:5000/debug/fleet-levels | python3 -m json.tool`.
 
   **M4 — Essay filtering** *(the payoff)*
   - `DailyEssayService.ScanCensusAsync`: when all of a GUID's ticks in a session window have `audible=0`, exclude that GUID from the player list passed to the LLM.
@@ -165,9 +155,6 @@
 
 - **Alt-source silent-state slow polling** (`JamulusCacheManager.cs`): when all clients on a blocked server have `minsHere > 8h` (bots), skip N round-robin cycles. Clear on any short-duration client.
 
-- **Alt-source explorer poll: explicit short timeout** (`JamulusCacheManager.cs`): `s_refreshClient` has no `Timeout` set, so failed explorer polls fall back to .NET's 100s default. Add a short `CancellationTokenSource` (e.g. 8–10s) on the `GetStringAsync` calls inside `PollOneServerByKeyAsync` so failed requests release quickly and don't stall the loop. Keep the primary alt-source fetches (the 7 `JamulusListURLs` calls) unaffected — those go through the same client but respond reliably.
-
-- **Alt-source: increase parallel polls per cycle** (`JamulusCacheManager.cs`): currently 2 `PollOneAltSourceServerAsync` calls per `Task.WhenAll` per loop cycle. With 25 blocked servers and many in 5-min backoff after failures, boosting to 3–4 concurrent polls would tighten the rotation for the servers that do respond. Combine with the explicit timeout above so additional slots don't add wall-clock time on failures.
 
 - **fleet-guid-ip.csv fallback for prediction geolocation** (`Program.cs`, `FleetGuidCache`): use most recent non-blocked `client_ip` when join-events col 11 is empty.
 
