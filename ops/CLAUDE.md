@@ -50,7 +50,8 @@ The response JSON has: `context` (what was sent to the LLM), `signals` (compact 
 - **`prospect-radar.py`** — finds musicians doing 7-slot sweeps who haven't visited JamFan22 yet.
 - **`traffic.py`** — counts live human users by tier. Default window 60 min; pass arg for different window (e.g. `python3 traffic.py 30`). Do not write ad-hoc telemetry parsing — this script already implements correct tier classification and owner/fleet IP exclusions.
 - **`fleet-probe.py`**, **`probe-1028.py`**, **`fleet-server-stats.py`** — fleet server diagnostics.
-- **`tail-welcomes.py`** — tails the welcome events log.
+- **`fleet-report.py`** — historical fleet activity summary for a time window: welcome messages (with signals), silence state changes, and session durations from census. Default 4h; `--hours N` or `--today`. Run from any directory.
+- **`tail-welcomes.py`** — live tail of welcome-llm.log. Auto-translates non-English messages via Gemini, shows signal context alongside each message. For reviewing history use `fleet-report.py` instead.
 
 ## Live User Count — Tier Classification
 

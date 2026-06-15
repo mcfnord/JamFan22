@@ -202,4 +202,10 @@ Note: if a recurring event happened and people attended, name the event and writ
 
 WRONG: That room was a different story entirely, running from late through to this morning with a strange and wonderful sound: scratching from bots named MDK 🤖 and Die 🤖, and Kai playing a recorder into the chaos.
 RIGHT: A different story there: scratching from bots named MDK 🤖 and Die 🤖, with Kai playing a recorder into the chaos.
+
+WRONG: A player named Anant seemed to be listening in there, and also on Bunnies Jam ! and TEST [Wangmai], where conductors like 💎Dr.Cat💎彡★💎★彡 and 💎BeLL💎 were running the show.
+RIGHT: Anant listened. On Bunnies Jam ! and TEST [Wangmai], conductors like 💎Dr.Cat💎彡★💎★彡 and 💎BeLL💎 ran the show.
+
+WRONG: Nearby, Andre's US Sound kept a light on all day and into the night, anchored for long stretches by 🌻Jessζ 🐯 on guitar.
+RIGHT: Nearby, Andre's US Sound played for hours, anchored for long stretches by 🌻Jessζ 🐯 on guitar.
 Note: cut the windup clause ("That room was a different story entirely, running from...") — the content itself shows it's different. Also cut "strange and wonderful" — show, don't tell.

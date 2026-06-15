@@ -236,7 +236,7 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 - **Self-exclusion from room list** (`WelcomeContext.GatherAsync`): arriving player excluded by GUID hash (`EncounterTracker.GetHash(p.Name, p.Country, p.Instrument) != arrivingGuid`). `[WARN-WELCOME-SELF-IN-ROOM]` fires (with diagnostic details) if the arriving player's name still appears in `others` after hash-based exclusion.
 - **Empty-name fix** (`WelcomeContext.cs` lines ~761/770): blank `p.Name` (not just literal "No Name") now falls through to `m_guidNamePairs`/censusgeo lookups instead of leaving `arrivingName=""`, which caused the LLM to use city field as player name.
 - **Crew-elsewhere humor** (`WelcomeContext.cs` ~line 1070): when server is empty and `usualCrewElsewhere.Count > 0`, LLM gets a hint to acknowledge with light humor that the arriving player is alone while their usual crew is active elsewhere.
-- **Studio D Jazz Jam tip** (`WelcomeContext.cs`, `IsStudioDFirstHour`): when a player joins any non-Studio-D fleet server during Studio D's first reservation hour (Wednesday 02:xx UTC), the context includes a tip that Marsha K's Jazz Jam just started — LLM weaves it into the welcome. Fires for the first hour only by design.
+- **Studio D Jazz Jam tip** (`WelcomeContext.cs`, `IsStudioDFirstHour`): when a player joins any non-Studio-D fleet server during Studio D's first reservation hour (Tuesday night California time = Wednesday 02:xx UTC), the context includes a tip that Marsha K's Jazz Jam just started — LLM weaves it into the welcome. Fires for the first hour only by design.
 
 **Prompt engineering notes:**
 - Banned phrases must be language-agnostic; English strings don't prevent Italian/French equivalents.

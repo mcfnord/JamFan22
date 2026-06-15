@@ -24,7 +24,12 @@ def is_owner(guid):
 fleet_servers = []
 for line in open(f"{DATA}/fleet-server-ips.txt"):
     s = line.strip()
-    if s: fleet_servers.append(s)
+    if not s or s.startswith('#'): continue
+    parts = s.split(':')
+    if len(parts) >= 2:
+        fleet_servers.append(f"{parts[0]}:{parts[1]}")
+    else:
+        fleet_servers.append(s)
 
 # Load censusgeo -> guid -> name (for lobby detection)
 guid_name = {}

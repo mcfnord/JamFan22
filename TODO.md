@@ -28,8 +28,6 @@
 
 ## LLM Welcome
 
-- **Welcome narrator — proactive event messages**: full design in [`WELCOME-NARRATOR.md`](WELCOME-NARRATOR.md). Start with Step 1 (WelcomeEventDetector). Hottest-pair arrival is highest-signal event.
-
 - **Session gap + reunion recognition** (`WelcomeContext.cs`, `DailyEssayService.cs`): when a player returns after a significant absence (suggest ≥14 days since last fleet appearance in `fleet-guid-ip.csv`) AND known co-players from their history are currently on the same server, surface the reunion explicitly. Welcome: "You've been away for 6 weeks — Jonas and Felix are both here." Essay: narrative mention when a known regular returns after a gap; the gap duration itself is worth naming ("first time back in months" lands differently than "haven't seen you in two weeks"). Applies to both fleet welcome messages and the daily essay for web app users. Gap duration comes from `fleet-guid-ip.csv` last-seen timestamp per GUID.
 
 - **Returning-player recognition** (`WelcomeContext.cs`, `data/server-lore.json`): `WelcomeContext.cs` already knows `returningPlayer`. For 2nd+ visits the LLM prompt should signal "this person is a familiar face — acknowledge their return and the community they're part of, not generic orientation." A `returning_themes` field in `server-lore.json` (separate from `themes`) lets each server customize this voice without a prompt change. Requires: text edit to `server-lore.json` + small C# addition to pass `returning_themes` when `returningPlayer == true`.

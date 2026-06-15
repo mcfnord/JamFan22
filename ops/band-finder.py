@@ -256,11 +256,11 @@ def find_bands(events, names, min_sessions, top_n):
     results.sort(key=lambda r: -r["score"])
     return results[:top_n]
 
-def predict_assembly(band, events, guid_buckets, names, lookahead=2,
+def predict_assembly(band, events, guid_buckets, names, lookahead=1,
                      primary_server=None, guid_server_buckets=None):
     """
     For each quorum size N (1..size-1), compute:
-      P(full band assembles within lookahead buckets | N members currently together)
+      P(full band assembles within lookahead hours | N members currently together)
 
     Also per-member: given this player is online (any server), P(full assembly soon).
     'Full assembly' = all members on the same server in the same bucket (as detected).
@@ -363,8 +363,8 @@ def timing_summary(session_times):
     lines.append(f"  Date range:  {earliest} → {latest}")
     return "\n".join(lines)
 
-STRONG_CANARY_THRESH = 0.70
-PAIR_CANARY_THRESH   = 0.55
+STRONG_CANARY_THRESH = 0.74
+PAIR_CANARY_THRESH   = 0.75
 
 def write_bands_json(bands, names, cities, path):
     # Preserve manually-set 'disabled' flags from the existing file (keyed by band_name).
