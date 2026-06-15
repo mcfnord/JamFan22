@@ -971,6 +971,14 @@ public static class WelcomeContext
 
         int visitStreak = !isDefaultName ? CensusIndex.GetGuidStreak(arrivingGuid, nowMinutes) : 0;
 
+        int networkAbsenceDays = 0;
+        if (!isDefaultName)
+        {
+            int lastSeenMinute = CensusIndex.GetGuidLastSeenMinute(arrivingGuid);
+            if (lastSeenMinute > 0)
+                networkAbsenceDays = Math.Max(0, (nowMinutes - lastSeenMinute) / 1440);
+        }
+
         bool isArrivingListener    = !isDefaultName && CensusIndex.IsListener(arrivingGuid);
         bool isArrivingActivePlayer = !isDefaultName && CensusIndex.IsActivePlayer(arrivingGuid);
 
@@ -994,6 +1002,18 @@ public static class WelcomeContext
             var roomDesc = string.Join(", ", significantRoom.Select(x =>
                 $"{x.Name} ({(x.Mins >= 60 ? $"{x.Mins / 60}h" : $"{x.Mins}min")} together)"));
             sb.AppendLine($"IN THE ROOM: {roomDesc}");
+            sb.AppendLine();
+        }
+
+        if (networkAbsenceDays >= 14 && !isDefaultName)
+        {
+            string absencePhrase = networkAbsenceDays >= 60 ? $"{networkAbsenceDays / 30} months"
+                                 : networkAbsenceDays >= 14 ? $"{networkAbsenceDays / 7} weeks"
+                                 : $"{networkAbsenceDays} days";
+            string reunionNote = significantRoom.Count > 0
+                ? $"away {absencePhrase}. Known crew in room: {string.Join(", ", significantRoom.Select(x => x.Name))}."
+                : $"away {absencePhrase}.";
+            sb.AppendLine($"RETURNING AFTER ABSENCE: {reunionNote}");
             sb.AppendLine();
         }
 
@@ -1094,8 +1114,8 @@ public static class WelcomeContext
                            ?? "https://ear.jamulus.live";
         if (streamActiveHere)
             sb.AppendLine($"This server is streaming live right now at {streamUrl}. Include this line in your message: \"Non-Jamulus fans can listen at {streamUrl}!\"");
-        else if (lobbyPresent && others.Count >= 2)
-            sb.AppendLine($"Lobby client connected — non-Jamulus friends can listen right now at {streamUrl}. Tell the player their friends can tune in at {streamUrl}. Do NOT say 'when we're streaming' — the lobby is already here.");
+        else if (lobbyPresent)
+            sb.AppendLine($"Lobby client connected — include this line verbatim: \"Friends can listen at {streamUrl}. Works in most browsers.\"");
         else if (minsUntilLobbyStream.HasValue)
             sb.AppendLine($"Stream starts in {minsUntilLobbyStream.Value} minutes at {streamUrl} — mention this, not /stream.");
         else if (streamState.IsFree && JamFan22.StreamGate.IsEligibleServer(serverIp) && others.Count >= 2)
@@ -1595,9 +1615,10 @@ public static class WelcomeContext
         bool hasSongContext = hasSharedSongs || hasRoomSongs || hasArrivingHistory
             || arrivingDominantArtist != null || roomDominantArtist != null || mostRecentArrivingSong != null;
         bool hasStreak = visitStreak >= 5;
+        bool hasAbsence = networkAbsenceDays >= 14;
         if (!hasHistory && !hasPrediction && !hasOthers && !hasTodayVisitors && !hasForecast && !hasCrewElsewhere
             && !isNetworkNewcomer && !isHomeServer && !hasDistinctHomeServer && !isRareInstrument && !isHopper
-            && !hasSongContext && !hasStreak && !hasBandNote && !hasEssayMention)
+            && !hasSongContext && !hasStreak && !hasBandNote && !hasEssayMention && !hasAbsence)
             sb.AppendLine("Nothing notable — use a short one-line welcome only.");
 
         bool isGroupNoteworthy = anyOldFriendInRoom || anyReunion
@@ -1626,6 +1647,7 @@ public static class WelcomeContext
         if (hasDistinctHomeServer) sigs.Append("|home-elsewhere");
         if (isRareInstrument) sigs.Append($"|rare-instrument:{instrumentNetworkCount}");
         if (anyReunion) sigs.Append("|reunion");
+        if (networkAbsenceDays >= 14) sigs.Append($"|absent:{networkAbsenceDays}d");
         if (isHopper) sigs.Append($"|hopper:{hopperCount}");
         if (hasSharedSongs) sigs.Append($"|songs:{sharedSongs.Count}");
         if (hasRoomSongs) sigs.Append($"|room-songs:{roomSongs.Count}");

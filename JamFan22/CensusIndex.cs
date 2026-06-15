@@ -314,6 +314,17 @@ public static class CensusIndex
         return total;
     }
 
+    /// <summary>Returns the most recent census minute for a GUID across all servers, or 0 if never seen.</summary>
+    public static int GetGuidLastSeenMinute(string guid)
+    {
+        int last = 0;
+        if (_byGuid.TryGetValue(guid, out var gDict))
+            foreach (var kv in gDict) if (kv.Value.LastMinute > last) last = kv.Value.LastMinute;
+        if (_deltaByGuid.TryGetValue(guid, out var dgDict))
+            foreach (var kv in dgDict) if (kv.Value.LastMinute > last) last = kv.Value.LastMinute;
+        return last;
+    }
+
     /// <summary>Returns the number of consecutive calendar days (ending today) on which the GUID was seen.
     /// nowMinutes is minutes since the census epoch (same as census.csv values).</summary>
     public static int GetGuidStreak(string guid, int nowMinutes)
