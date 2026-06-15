@@ -69,6 +69,8 @@ namespace JamFan22.Services
         private static DateTime _blockedListFetchedAt = DateTime.MinValue;
         private static readonly Dictionary<string, JamulusServers> _altSourceCache =
             new Dictionary<string, JamulusServers>(StringComparer.Ordinal);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _altCacheAge =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
         private static int _altRoundRobinIdx = 0;
         // Synthetic LastReportedList key — ProcessServerListsAsync iterates LastReportedList.Keys
         // so alt-source servers appear in the web UI without any changes to that code path.
@@ -205,9 +207,14 @@ namespace JamFan22.Services
                     return;
                 }
 
-                // Blocked = alt-reachable minus primary-reachable.
+                // Blocked = (alt-reachable ∪ previously-blocked) minus primary-reachable.
+                // Retain previously-blocked servers even when a partial explorer sweep misses
+                // them — only remove a server when it transitions to primary-reachable.
                 var keys = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var addr in altSeen.Keys)
+                    if (!primaryReachable.Contains(addr))
+                        keys.Add(addr);
+                foreach (var addr in BlockedServerKeys)
                     if (!primaryReachable.Contains(addr))
                         keys.Add(addr);
 
@@ -219,6 +226,7 @@ namespace JamFan22.Services
                 {
                     _altSourceCache.Remove(stale);
                     _altSourceBackoff.TryRemove(stale, out _);
+                    _altCacheAge.TryRemove(stale, out _);
                 }
 
                 // Update AltServerMeta from sweep results.
@@ -240,7 +248,7 @@ namespace JamFan22.Services
                     await Task.WhenAll(newlyBlocked.Select(k => PollOneServerByKeyAsync(k, ct)));
                 }
 
-                Console.WriteLine($"[ALT] Blocked list refreshed: {keys.Count} servers (alt={altSeen.Count} primary={primaryReachable.Count}), meta={AltServerMeta.Count}, altCached={_altSourceCache.Count}.");
+                Console.WriteLine($"[ALT] Blocked list refreshed: {keys.Count} servers (alt={altSeen.Count} primary={primaryReachable.Count} new={newlyBlocked.Count}), meta={AltServerMeta.Count}, altCached={_altSourceCache.Count}.");
             }
             catch (Exception ex) { Console.WriteLine($"[ALT] blocked list refresh failed: {ex.Message}"); }
         }
@@ -292,15 +300,19 @@ namespace JamFan22.Services
             if (srv == null)
             {
                 _altSourceBackoff[serverKey] = DateTime.UtcNow.AddMinutes(5);
-                // Evict stale cache entry so the card disappears rather than showing old client data.
-                if (_altSourceCache.Remove(serverKey))
+                // Keep stale cache entry for 10 minutes so one failed poll doesn't immediately
+                // hide the server card. Evict only after the grace period expires.
+                bool graceExpired = !_altCacheAge.TryGetValue(serverKey, out var cachedAt)
+                    || (DateTime.UtcNow - cachedAt).TotalMinutes >= 10;
+                if (graceExpired && _altSourceCache.Remove(serverKey))
                 {
+                    _altCacheAge.TryRemove(serverKey, out _);
                     var evictJson = JsonSerializer.Serialize(_altSourceCache.Values.ToList());
                     await m_serializerMutex.WaitAsync(ct);
                     try { LastReportedList[AltSourceKey] = evictJson; }
                     finally { m_serializerMutex.Release(); }
                 }
-                Console.WriteLine($"[ALT] {serverKey}: no response from either explorer endpoint — backing off 5min");
+                Console.WriteLine($"[ALT] {serverKey}: no response — backoff 5min{(graceExpired ? ", evicted" : ", kept (grace)")}");
                 return;
             }
             _altSourceBackoff.TryRemove(serverKey, out _);
@@ -321,6 +333,7 @@ namespace JamFan22.Services
             }
             srv.ipaddrs ??= "";
 
+            _altCacheAge[serverKey] = DateTime.UtcNow;
             _altSourceCache[serverKey] = srv;
             Console.WriteLine($"[ALT] {serverKey}: {srv.clients?.Length ?? 0} clients via {endpoint}");
 
