@@ -70,6 +70,7 @@ namespace JamFan22.Pages
         private string m_TwoLetterNationCode = "US";
 
         private static readonly HttpClient httpClient = new HttpClient();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _canaryFirstSeen = new();
 
         public ApiModel(
             JamulusAnalyzer analyzer,
@@ -435,6 +436,15 @@ namespace JamFan22.Pages
                         new[] { serverAddr }, JamulusCacheManager.MinutesSince2023AsInt(), maxAgoMinutes: 60);
                     var recentDepGuids = recentDeps.Select(d => d.Guid).ToHashSet();
                     var bandSoon = BandIndex.GetBandSoon(currentGuids, currentNames, serverAddr, recentDepGuids);
+                    if (bandSoon == null)
+                    {
+                        _canaryFirstSeen.TryRemove(serverAddr, out _);
+                    }
+                    else
+                    {
+                        var canaryStart = _canaryFirstSeen.GetOrAdd(serverAddr, _ => DateTime.UtcNow);
+                        if ((DateTime.UtcNow - canaryStart).TotalMinutes > 25) bandSoon = null;
+                    }
                     if (bandSoon != null)
                     {
                         // De-dup: skip names already queued by the prediction system
