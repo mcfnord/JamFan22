@@ -313,6 +313,10 @@ namespace JamFan22
         // CRC: CCITT poly=0x1021, init=0xFFFF, inverted, stored LE
         private static readonly byte[] s_clmReqFrame = BuildUdpFrame(0x04, 0x04);
         private static readonly byte[] s_clmReqClientsFrame = BuildUdpFrame(0xF6, 0x03);
+        private static readonly byte[] s_clmReqServerListFrame = BuildUdpFrame(0xEF, 0x03); // CLM_REQ_SERVER_LIST = 1007
+        private static readonly ConcurrentDictionary<string, System.Net.Sockets.UdpClient> s_serverSockets = new();
+        // Adaptive punch tracking: missing=unknown (try direct), true=OCI/needs punch, false=confirmed direct
+        private static readonly ConcurrentDictionary<string, bool> s_requiresPunch = new();
 
         private static byte[] BuildUdpFrame(byte idLo, byte idHi)
         {
@@ -344,7 +348,7 @@ namespace JamFan22
             {
                 try { await PollFleetLevelsAsync(); }
                 catch (Exception ex) { Console.WriteLine($"[LEVEL-POLL] loop error: {ex.Message}"); }
-                await Task.Delay(29000, stoppingToken);
+                await Task.Delay(50000, stoppingToken);
             }
         }
 
@@ -360,31 +364,64 @@ namespace JamFan22
                 var line = raw.Trim();
                 if (line.Length == 0 || line.StartsWith('#')) continue;
                 var parts = line.Split(':');
-                if (parts.Length != 2 || !int.TryParse(parts[1], out int port)) continue;
+                if (parts.Length < 2 || !int.TryParse(parts[1], out int port)) continue;
                 string ip = parts[0];
-                tasks.Add(PollServerLevelsAsync(ip, port));
+                string? dirHost = parts.Length >= 5 ? parts[3] : null;
+                int dirPort = parts.Length >= 5 && int.TryParse(parts[4], out int dp) ? dp : 0;
+                tasks.Add(PollServerLevelsAsync(ip, port, dirHost, dirPort));
             }
             await Task.WhenAll(tasks);
         }
 
-        static async Task PollServerLevelsAsync(string ip, int port)
+        static async Task PollServerLevelsAsync(string ip, int port, string? dirHost, int dirPort)
         {
             string ipport = $"{ip}:{port}";
+            var serverAddr = System.Net.IPAddress.Parse(ip);
+            var serverEp   = new System.Net.IPEndPoint(serverAddr, port);
+
+            // Persistent unconnected socket — same local port across all polls so OCI
+            // stateful entries created by hole-punches remain valid on subsequent cycles.
+            var udp = s_serverSockets.GetOrAdd(ipport, _ => new System.Net.Sockets.UdpClient());
+
+            bool hasDirInfo = dirHost != null && dirPort > 0;
+            // Punch before every poll for confirmed-OCI servers; try direct first for unknown/confirmed-direct.
+            bool requiresPunch = hasDirInfo && s_requiresPunch.GetValueOrDefault(ipport, false);
+
             try
             {
-                using var udp = new System.Net.Sockets.UdpClient();
-                udp.Connect(ip, port);
+                if (requiresPunch)
+                {
+                    try
+                    {
+                        var dirAddrs = await System.Net.Dns.GetHostAddressesAsync(dirHost!);
+                        var dirEp = new System.Net.IPEndPoint(dirAddrs[0], dirPort);
+                        await udp.SendAsync(s_clmReqServerListFrame, s_clmReqServerListFrame.Length, dirEp);
+                        await Task.Delay(400);
+                        Console.WriteLine($"[LEVEL-POLL] {ipport}: hole-punch via {dirHost}:{dirPort}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[LEVEL-POLL] {ipport}: hole-punch failed: {ex.Message}"); }
+                }
+
                 using var cts = new CancellationTokenSource(2000);
 
                 // Step 1: 1014 → 1013 (who is here, keyed by channel slot)
-                await udp.SendAsync(s_clmReqClientsFrame, s_clmReqClientsFrame.Length);
-                var recv1013 = await udp.ReceiveAsync(cts.Token);
-                var clients = Parse1013Body(recv1013.Buffer);
+                // Receive loop skips noise: 1009 hole-punch empties and packets from other senders.
+                await udp.SendAsync(s_clmReqClientsFrame, s_clmReqClientsFrame.Length, serverEp);
+                var r1013 = await udp.ReceiveAsync(cts.Token);
+                while (!r1013.RemoteEndPoint.Address.Equals(serverAddr)
+                       || r1013.Buffer.Length < 4
+                       || (ushort)(r1013.Buffer[2] | r1013.Buffer[3] << 8) != 1013)
+                    r1013 = await udp.ReceiveAsync(cts.Token);
+                var clients = Parse1013Body(r1013.Buffer);
 
                 // Step 2: 1028 → 1015 (channel level nibbles)
-                await udp.SendAsync(s_clmReqFrame, s_clmReqFrame.Length);
-                var recv1015 = await udp.ReceiveAsync(cts.Token);
-                byte[] buf = recv1015.Buffer;
+                await udp.SendAsync(s_clmReqFrame, s_clmReqFrame.Length, serverEp);
+                var r1015 = await udp.ReceiveAsync(cts.Token);
+                while (!r1015.RemoteEndPoint.Address.Equals(serverAddr)
+                       || r1015.Buffer.Length < 4
+                       || (ushort)(r1015.Buffer[2] | r1015.Buffer[3] << 8) != 1015)
+                    r1015 = await udp.ReceiveAsync(cts.Token);
+                byte[] buf = r1015.Buffer;
 
                 // Frame: TAG(2) + ID(2 LE) + counter(1) + bodylen(2 LE) + body(N) + CRC(2 LE)
                 if (buf.Length < 9) return;
@@ -415,12 +452,80 @@ namespace JamFan22
                     nameLevel[name] = level;
                 }
 
+                // If no named clients, treat as quiet regardless of level nibbles
+                // (spurious 1015 data can appear when server was just emptied)
+                if (clients.Count == 0) quiet = true;
+
                 if (!m_fleetSilenceStatus.TryGetValue(ipport, out bool prev) || prev != quiet)
                     Console.WriteLine($"[LEVEL-POLL] {ipport}: quiet={quiet} clients={clients.Count}");
                 m_fleetSilenceStatus[ipport] = quiet;
                 m_fleetSlotLevels[ipport] = levelList.ToArray();
                 m_fleetClientLevels[ipport] = nameLevel;
                 m_fleetClientLevelsAt[ipport] = DateTime.UtcNow;
+
+                // Direct poll succeeded — remember so we skip punching next cycle
+                if (hasDirInfo && !requiresPunch)
+                    s_requiresPunch[ipport] = false;
+            }
+            catch (OperationCanceledException) when (!requiresPunch && hasDirInfo)
+            {
+                // Direct attempt timed out — punch and retry in this same cycle.
+                Console.WriteLine($"[LEVEL-POLL] {ipport}: direct timeout, retrying with hole-punch");
+                try
+                {
+                    var dirAddrs2 = await System.Net.Dns.GetHostAddressesAsync(dirHost!);
+                    await udp.SendAsync(s_clmReqServerListFrame, s_clmReqServerListFrame.Length, new System.Net.IPEndPoint(dirAddrs2[0], dirPort));
+                    await Task.Delay(400);
+                    Console.WriteLine($"[LEVEL-POLL] {ipport}: hole-punch via {dirHost}:{dirPort}");
+                }
+                catch (Exception pex) { Console.WriteLine($"[LEVEL-POLL] {ipport}: hole-punch failed: {pex.Message}"); }
+
+                try
+                {
+                    using var cts2 = new CancellationTokenSource(2000);
+                    await udp.SendAsync(s_clmReqClientsFrame, s_clmReqClientsFrame.Length, serverEp);
+                    var rb1013 = await udp.ReceiveAsync(cts2.Token);
+                    while (!rb1013.RemoteEndPoint.Address.Equals(serverAddr) || rb1013.Buffer.Length < 4
+                           || (ushort)(rb1013.Buffer[2] | rb1013.Buffer[3] << 8) != 1013)
+                        rb1013 = await udp.ReceiveAsync(cts2.Token);
+                    var clients2 = Parse1013Body(rb1013.Buffer);
+
+                    await udp.SendAsync(s_clmReqFrame, s_clmReqFrame.Length, serverEp);
+                    var rb1015 = await udp.ReceiveAsync(cts2.Token);
+                    while (!rb1015.RemoteEndPoint.Address.Equals(serverAddr) || rb1015.Buffer.Length < 4
+                           || (ushort)(rb1015.Buffer[2] | rb1015.Buffer[3] << 8) != 1015)
+                        rb1015 = await udp.ReceiveAsync(cts2.Token);
+                    byte[] buf2 = rb1015.Buffer;
+
+                    if (buf2.Length < 9) return;
+                    ushort bl2 = (ushort)(buf2[5] | buf2[6] << 8);
+                    bool quiet2 = true;
+                    var ll2 = new List<int>();
+                    if (bl2 > 0)
+                        for (int i = 7; i < Math.Min(7 + bl2, buf2.Length - 2); i++)
+                        { int lo = buf2[i] & 0x0F; ll2.Add(lo); if (lo > 0) quiet2 = false;
+                          int hi = (buf2[i] >> 4) & 0x0F; if (hi == 0x0F) break; ll2.Add(hi); if (hi > 0) quiet2 = false; }
+                    var nl2 = new Dictionary<string, int>();
+                    foreach (var (cid, nm) in clients2) nl2[nm] = cid < ll2.Count ? ll2[cid] : 0;
+                    if (clients2.Count == 0) quiet2 = true;
+
+                    if (!m_fleetSilenceStatus.TryGetValue(ipport, out bool p2) || p2 != quiet2)
+                        Console.WriteLine($"[LEVEL-POLL] {ipport}: quiet={quiet2} clients={clients2.Count}");
+                    m_fleetSilenceStatus[ipport] = quiet2;
+                    m_fleetSlotLevels[ipport] = ll2.ToArray();
+                    m_fleetClientLevels[ipport] = nl2;
+                    m_fleetClientLevelsAt[ipport] = DateTime.UtcNow;
+
+                    s_requiresPunch[ipport] = true; // confirmed OCI — punch every future poll
+                    Console.WriteLine($"[LEVEL-POLL] {ipport}: marked as requiring hole-punch");
+                }
+                catch (OperationCanceledException)
+                {
+                    if (m_fleetSilenceStatus.TryRemove(ipport, out _))
+                        Console.WriteLine($"[LEVEL-POLL] {ipport}: no response even with hole-punch (removed)");
+                    m_fleetSlotLevels.TryRemove(ipport, out _); m_fleetClientLevels.TryRemove(ipport, out _); m_fleetClientLevelsAt.TryRemove(ipport, out _);
+                    if (s_serverSockets.TryRemove(ipport, out var bs)) try { bs.Dispose(); } catch { }
+                }
             }
             catch (OperationCanceledException)
             {
@@ -429,6 +534,8 @@ namespace JamFan22
                 m_fleetSlotLevels.TryRemove(ipport, out _);
                 m_fleetClientLevels.TryRemove(ipport, out _);
                 m_fleetClientLevelsAt.TryRemove(ipport, out _);
+                if (s_serverSockets.TryRemove(ipport, out var badSock))
+                    try { badSock.Dispose(); } catch { }
             }
             catch (Exception ex)
             {
@@ -437,6 +544,8 @@ namespace JamFan22
                 m_fleetSlotLevels.TryRemove(ipport, out _);
                 m_fleetClientLevels.TryRemove(ipport, out _);
                 m_fleetClientLevelsAt.TryRemove(ipport, out _);
+                if (s_serverSockets.TryRemove(ipport, out var badSock))
+                    try { badSock.Dispose(); } catch { }
             }
         }
 
@@ -511,9 +620,9 @@ namespace JamFan22
                     using var streamReader = new StreamReader(
                         await response.Content.ReadAsStreamAsync(stoppingToken));
 
+                    response.EnsureSuccessStatusCode();
                     retryDelay = 5;
                     clientNames = new List<string>();
-                    response.EnsureSuccessStatusCode();
                     while (!streamReader.EndOfStream && !stoppingToken.IsCancellationRequested)
                     {
                         var line = await streamReader.ReadLineAsync();
