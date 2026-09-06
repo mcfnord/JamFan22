@@ -13,15 +13,18 @@ namespace JamFan22
     /// </summary>
     public static class BandIndex
     {
-        record BandMember(string Guid, string Name, string CanaryLevel);
-        record Band(int Id, string? BandName, string? PrimaryServer, List<BandMember> Members);
+        record BandMember(string Guid, string Name, string CanaryLevel, double TriggerRate);
+        record Band(int Id, string? BandName, string? PrimaryServer, List<BandMember> Members,
+                    int SessionCount, double SpanWeeks, double CoreStability);
 
         /// <summary>Returned when a canary triggers.</summary>
         public record BandSoonResult(
             int BandId,
             string? BandName,
-            string CanaryNames,    // e.g. "Susan" or "KAV + Pascal"
-            List<string> Missing); // members not yet on server, not yet in Soon
+            string CanaryNames,         // e.g. "Susan" or "KAV + Pascal"
+            List<string> Missing,       // members not yet on server, not yet in Soon
+            double CanaryTriggerRate,   // solo_trigger_rate of the highest-rate triggering canary
+            bool HasLore);              // eligible for a band lore paragraph
 
         static List<Band>? _bands;
         static DateTime _lastLoaded = DateTime.MinValue;
@@ -41,12 +44,17 @@ namespace JamFan22
                         .Select(m => new BandMember(
                             m.GetProperty("guid").GetString()!,
                             m.GetProperty("name").GetString()!,
-                            m.GetProperty("canary_level").GetString()!))
+                            m.GetProperty("canary_level").GetString()!,
+                            m.TryGetProperty("solo_trigger_rate", out var tr) ? tr.GetDouble() : 1.0))
                         .ToList();
                     if (b.TryGetProperty("disabled", out var dis) && dis.GetBoolean()) continue;
                     string? bandName = b.TryGetProperty("band_name", out var bn) ? bn.GetString() : null;
                     string? primaryServer = b.TryGetProperty("primary_server", out var ps) ? ps.GetString() : null;
-                    bands.Add(new Band(b.GetProperty("id").GetInt32(), bandName, primaryServer, members));
+                    int sessionCount = b.TryGetProperty("session_count", out var sc) ? sc.GetInt32() : 0;
+                    double spanWeeks = b.TryGetProperty("span_weeks", out var sw) ? sw.GetDouble() : 0;
+                    double coreStability = b.TryGetProperty("core_stability", out var cs) ? cs.GetDouble() : 0;
+                    bands.Add(new Band(b.GetProperty("id").GetInt32(), bandName, primaryServer, members,
+                                       sessionCount, spanWeeks, coreStability));
                 }
                 _bands = bands;
                 _lastLoaded = DateTime.UtcNow;
@@ -90,14 +98,28 @@ namespace JamFan22
                              && !(recentlyDepartedGuids?.Contains(m.Guid) ?? false))
                     .Select(m => m.Name)
                     .ToList();
-                if (missing.Count == 0) continue;
 
-                string canaryNames = string.Join(" + ", present
-                    .Where(m => m.CanaryLevel is "strong" or "pair")
-                    .Select(m => m.Name));
+                var triggeringCanaries = present.Where(m => m.CanaryLevel is "strong" or "pair").ToList();
+                string canaryNames = string.Join(" + ", triggeringCanaries.Select(m => m.Name));
+                double topRate = triggeringCanaries.Max(m => m.TriggerRate);
+                bool hasLore = band.SessionCount >= 4 && band.SpanWeeks >= 3.0 && band.CoreStability >= 0.75;
 
-                return new BandSoonResult(band.Id, band.BandName, canaryNames, missing);
+                return new BandSoonResult(band.Id, band.BandName, canaryNames, missing, topRate, hasLore);
             }
+
+            return null;
+        }
+
+        /// <summary>Looks up which band a guid belongs to, if any. Used to detect band members
+        /// on arrival for fleet-invite eligibility — independent of canary/current-server state.</summary>
+        public static (int BandId, string? BandName)? FindBandForGuid(string guid)
+        {
+            RefreshIfStale();
+            if (_bands == null) return null;
+
+            foreach (var band in _bands)
+                if (band.Members.Any(m => m.Guid == guid))
+                    return (band.Id, band.BandName);
 
             return null;
         }
