@@ -28,15 +28,29 @@ var _telemetryLock = new object();
 // /chat-url-client rate limit: 3 requests per minute per IP
 var _chatUrlClientRateLimit = new System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime Window)>();
 
+// /api/nearby-essay rate limit: 2 requests per hour per IP
+var _essayRateLimit = new System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime Window)>();
+
+// Fleet WebSocket channel registry: "{callerIP}:{serverPort}" → open WebSocket
+var _fleetWsRegistry = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Net.WebSockets.WebSocket>(StringComparer.Ordinal);
+// Pending JSON-RPC responses: "{regKey}:{id}" → TaskCompletionSource (completed by receive loop)
+var _fleetWsRpcPending = new System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<string>>(StringComparer.Ordinal);
+// Per-connection RPC request ID counter
+var _fleetWsRpcSeq = new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+// Per-socket send semaphore — WebSocket.SendAsync must not overlap
+var _fleetWsSendLocks = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
+
 // Fleet GUID-IP cache lives in FleetGuidCache (static class, accessible from IdentityManager)
 
 Console.WriteLine($"[STARTUP] JamFan22 starting. PID={Environment.ProcessId} Time={DateTime.Now:yyyy-MM-dd HH:mm:ss}");
 FleetGuidCache.HydrateFromCsv();   // sync — loads fleet GUID cache from fleet-guid-ip.csv
 StreamRequestManager.Load();        // sync — loads stream-requests.json
+BandInviteTracker.Load();           // sync — loads band-invite-log.json
 StreamGate.Load();                  // sync — loads stream-gate.json (current lease)
 _ = StreamGate.PostLeaseMonitorAsync(); // background — watches for lease expiry
 WelcomeMessageGenerator.LoadApiKey();   // sync — reads data/gemini-key.txt
 DailyEssayService.LoadApiKey();         // sync — same key
+BandLoreService.LoadApiKey();           // sync — same key
 Task.Run(CensusIndex.EnsureBuilt);      // background — O(n) scan of census.csv; logs [CENSUS-INDEX] Built
 
 // background — after 15s delay, pre-warms ip-api cache for all census server IPs;
@@ -69,7 +83,7 @@ builder.WebHost.UseKestrel(serverOptions =>
         port = p;
 
     if (port == 443)
-        serverOptions.ListenAnyIP(port, listenOptions => listenOptions.UseHttps("keyApr26.pfx", "jamfan"));
+        serverOptions.ListenAnyIP(port, listenOptions => listenOptions.UseHttps("key-current.pfx", "jamfan"));
     else
         serverOptions.ListenAnyIP(port);
 });
@@ -141,10 +155,100 @@ app.Use(async (context, next) =>
     await next(context);
 });
 
+app.UseWebSockets();
 app.UseRouting();
 app.UseAuthorization();
 app.MapRazorPages();
 app.MapHub<JamFan22.ChatHub>("/chathub");
+
+// Send a JSON-RPC request over the fleet WebSocket and return the raw response JSON.
+// Returns null on timeout (5s), WS not found, or send error.
+async Task<string?> FleetWsRpcCallAsync(string regKey, System.Net.WebSockets.WebSocket ws,
+    string method, object @params, System.Text.Json.JsonSerializerOptions opts)
+{
+    int rpcId = _fleetWsRpcSeq.AddOrUpdate(regKey, 1, (_, v) => v + 1);
+    string pendingKey = $"{regKey}:{rpcId}";
+    var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+    _fleetWsRpcPending[pendingKey] = tcs;
+    try
+    {
+        var reqBytes = System.Text.Encoding.UTF8.GetBytes(
+            System.Text.Json.JsonSerializer.Serialize(
+                new { id = rpcId, jsonrpc = "2.0", method, @params }, opts));
+        if (!_fleetWsSendLocks.TryGetValue(regKey, out var sem))
+        { _fleetWsRpcPending.TryRemove(pendingKey, out _); return null; }
+        await sem.WaitAsync();
+        try { await ws.SendAsync(new ArraySegment<byte>(reqBytes), System.Net.WebSockets.WebSocketMessageType.Text, true, default); }
+        finally { sem.Release(); }
+        using var cts = new System.Threading.CancellationTokenSource(5000);
+        cts.Token.Register(() =>
+        { if (_fleetWsRpcPending.TryRemove(pendingKey, out var t)) t.TrySetCanceled(); });
+        return await tcs.Task;
+    }
+    catch { _fleetWsRpcPending.TryRemove(pendingKey, out _); return null; }
+}
+
+app.Map("/fleet-rpc-channel", async (HttpContext context) =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    { context.Response.StatusCode = 400; return; }
+    string wsClientIP = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    wsClientIP = wsClientIP.Replace("::ffff:", "");
+    string wsPort = context.Request.Query["port"].FirstOrDefault() ?? "";
+    string wsBuild = context.Request.Query["build"].FirstOrDefault() ?? "";
+    if (wsPort.Length == 0) { context.Response.StatusCode = 400; return; }
+    string regKey = $"{wsClientIP}:{wsPort}";
+    using var ws = await context.WebSockets.AcceptWebSocketAsync();
+    _fleetWsRegistry[regKey] = ws;
+    _fleetWsSendLocks[regKey] = new SemaphoreSlim(1, 1);
+    Console.WriteLine($"[fleet-rpc-channel] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} connected key={regKey}"
+                      + (wsBuild.Length > 0 ? $" build={wsBuild}" : ""));
+    var buf = new byte[8192];
+    try
+    {
+        while (ws.State == System.Net.WebSockets.WebSocketState.Open)
+        {
+            using var ms = new System.IO.MemoryStream();
+            System.Net.WebSockets.WebSocketReceiveResult rcvResult;
+            do
+            {
+                rcvResult = await ws.ReceiveAsync(new ArraySegment<byte>(buf), context.RequestAborted);
+                if (rcvResult.Count > 0) ms.Write(buf, 0, rcvResult.Count);
+            } while (!rcvResult.EndOfMessage);
+
+            if (rcvResult.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "bye", context.RequestAborted);
+            else if (rcvResult.MessageType == System.Net.WebSockets.WebSocketMessageType.Text && ms.Length > 0)
+            {
+                string json = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("id", out var idEl)
+                        && idEl.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        string pendingKey = $"{regKey}:{idEl.GetInt32()}";
+                        if (_fleetWsRpcPending.TryRemove(pendingKey, out var tcs))
+                            tcs.TrySetResult(json);
+                    }
+                }
+                catch { }
+            }
+        }
+    }
+    catch { }
+    finally
+    {
+        _fleetWsRegistry.TryRemove(regKey, out _);
+        _fleetWsSendLocks.TryRemove(regKey, out _);
+        _fleetWsRpcSeq.TryRemove(regKey, out _);
+        string prefix = regKey + ":";
+        foreach (var k in _fleetWsRpcPending.Keys.ToList())
+            if (k.StartsWith(prefix) && _fleetWsRpcPending.TryRemove(k, out var t))
+                t.TrySetCanceled();
+        Console.WriteLine($"[fleet-rpc-channel] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} disconnected key={regKey}");
+    }
+});
 
 app.MapGet("/countries", (HttpContext context) =>
 {
@@ -218,15 +322,17 @@ app.MapGet("/debug/welcome-preview", async (HttpContext context) =>
     var nameColors = gatherDebug.NameColors;
     string signals = WelcomeContext.TakeSignals(guid);
     bool rich = WelcomeContext.IsRich(ctx);
-    string? llmMessage = rich ? (await WelcomeMessageGenerator.GetAsync(ctx, nation, nameColors)).Message : null;
+    bool usePro = WelcomeContext.IsLoreGuest(serverKey, gatherDebug.ArrivingName, guid);
+    int fleetMinutes = WelcomeContext.FleetMinutes(guid);
+    string? llmMessage = rich ? (await WelcomeMessageGenerator.GetAsync(ctx, nation, nameColors, usePro: usePro)).Message : null;
     string? englishMessage = null;
     if (rich && nation != "US")
     {
         var ctxEn = System.Text.RegularExpressions.Regex.Replace(ctx,
             @"Language to use for message: \S+", "Language to use for message: English");
-        englishMessage = (await WelcomeMessageGenerator.GetAsync(ctxEn, "US", nameColors)).Message;
+        englishMessage = (await WelcomeMessageGenerator.GetAsync(ctxEn, "US", nameColors, usePro: usePro)).Message;
     }
-    WelcomeEventLog.Append(serverKey, nation, rich, llmMessage != null ? "1" : "0", signals, 0, llmMessage ?? WelcomeMessages.Get(nation));
+    WelcomeEventLog.Append($"preview:{serverKey}", nation, rich, llmMessage != null ? "1" : "0", signals, 0, llmMessage ?? WelcomeMessages.Get(nation));
 
     return Results.Json(new
     {
@@ -236,7 +342,9 @@ app.MapGet("/debug/welcome-preview", async (HttpContext context) =>
         llmMessage,
         english = englishMessage,
         fallback = WelcomeMessages.Get(nation),
-        usingLlm = llmMessage != null
+        usingLlm = llmMessage != null,
+        usingPro = usePro,
+        fleetMinutes
     });
 });
 
@@ -278,10 +386,11 @@ app.MapGet("/api/nearby", async (HttpContext context) =>
     Console.WriteLine($"[VISIT] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {clientIP}");
 
     var finder = new JamFan22.MusicianFinder();
-    var htmlTask  = finder.FindMusiciansHtmlAsync(clientIP);
-    var delayTask = DailyEssayService.GetEssayDelaySecondsAsync(clientIP);
-    await Task.WhenAll(htmlTask, delayTask);
-    context.Response.Headers["X-Essay-Delay"] = delayTask.Result.ToString();
+    var htmlTask   = finder.FindMusiciansHtmlAsync(clientIP);
+    var statusTask = DailyEssayService.GetEssayStatusAsync(clientIP);
+    await Task.WhenAll(htmlTask, statusTask);
+    context.Response.Headers["X-Essay-Delay"] = statusTask.Result.DelaySeconds.ToString();
+    context.Response.Headers["X-Essay-Ready"] = statusTask.Result.Ready ? "1" : "0";
     return Results.Content(htmlTask.Result, "text/html");
 });
 
@@ -296,9 +405,48 @@ app.MapGet("/api/nearby-essay", async (HttpContext context) =>
         else
             clientIP = "0.0.0.0";
     }
+    var now = DateTime.UtcNow;
+    // Only successful deliveries count against the limit — polling while the essay
+    // isn't ready yet must not burn the quota (see TODO.md "Daily Essay").
+    if (_essayRateLimit.TryGetValue(clientIP, out var existing) &&
+        now - existing.Window <= TimeSpan.FromHours(1) &&
+        existing.Count > 2)
+    {
+        Console.WriteLine($"[ESSAY] rate-limit ip={clientIP} count={existing.Count}");
+        return Results.NoContent();
+    }
     var html = await DailyEssayService.GetEssayHtmlAsync(clientIP);
     if (html == null) return Results.NoContent();
+    // Personalize: if this visitor's IP resolves to a GUID featured in the essay they're being
+    // served, prepend a "You're in this one" banner. Silent no-op for everyone else.
+    try
+    {
+        var banner = DailyEssayService.TryGetVisitorBanner(clientIP, await DailyEssayService.ResolveCacheKeyAsync(clientIP));
+        if (banner != null) html = banner + html;
+    }
+    catch (Exception ex) { Console.WriteLine($"[ESSAY-YOU] banner error: {ex.Message}"); }
+    _essayRateLimit.AddOrUpdate(clientIP,
+        _ => (1, now),
+        (_, old) => now - old.Window > TimeSpan.FromHours(1) ? (1, now) : (old.Count + 1, old.Window));
     return Results.Content(html, "text/html");
+});
+
+app.MapGet("/api/band-lore", async (HttpContext context) =>
+{
+    if (!int.TryParse(context.Request.Query["id"], out int bandId))
+        return Results.NoContent();
+
+    string clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "0.0.0.0";
+    clientIp = clientIp.Replace("::ffff:", "");
+    if (clientIp is "127.0.0.1" or "::1" or "0.0.0.0")
+    {
+        var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(xff)) clientIp = xff.Split(',')[0].Trim();
+    }
+
+    var html = await BandLoreService.GetLoreHtmlAsync(bandId, clientIp);
+    if (html == null) return Results.NoContent();
+    return Results.Json(new { html });
 });
 
 app.MapGet("/api/geo-diag", async (HttpContext context) =>
@@ -526,14 +674,13 @@ app.MapPost("/chat-url-client", async (HttpContext context) =>
         {
             Console.WriteLine($"[CHAT-URL-CLIENT] WARN client-supplied serverAddr={req.serverAddr} missing port — ignoring");
         }
-        else if (bestServer == null)
+        else
         {
+            if (bestServer != null && bestServer != req.serverAddr)
+                Console.WriteLine($"[CHAT-URL-CLIENT] client-supplied serverAddr={req.serverAddr} overrides inferred {bestServer} via guid={bestGuid}");
+            else if (bestServer == null)
+                Console.WriteLine($"[CHAT-URL-CLIENT] using client-supplied serverAddr={req.serverAddr} (no guid resolution)");
             bestServer = req.serverAddr;
-            Console.WriteLine($"[CHAT-URL-CLIENT] using client-supplied serverAddr={bestServer} (no guid resolution)");
-        }
-        else if (bestServer != req.serverAddr)
-        {
-            Console.WriteLine($"[CHAT-URL-CLIENT] WARN serverAddr mismatch ignored: client says {req.serverAddr}, keeping inferred {bestServer} via guid={bestGuid}");
         }
     }
 
@@ -664,7 +811,10 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
     string serverKey = !string.IsNullOrEmpty(serverPortStr) ? $"{callerIP}:{serverPortStr}" : callerIP;
     var channelIdStr = context.Request.Query["channelId"].FirstOrDefault();
     if (!int.TryParse(channelIdStr, out int channelId)) channelId = -1;
-    int rpcPort = FleetRpcPorts.GetPort(callerIP);
+    int rpcPort = FleetRpcPorts.GetPort(callerIP, serverPortStr ?? "");
+
+    if (!string.IsNullOrEmpty(guid) && guid != "-")
+        FleetGuidCache.UpsertGuid(guid, ip, serverKey, blocked: false);
 
     var capturedGuid = guid;
     var capturedNation = nationCode;
@@ -676,11 +826,22 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
         string msg = WelcomeMessages.Get(capturedNation);
         bool rich = false;
         string llmStatus = "0";
+        int inTok = 0, outTok = 0, cachedTok = 0;
         List<int> roomChannelIds = new();
+        List<int> lobbyChannelIds = new();
+        List<string> roomGuids = new();
         bool isGroupNoteworthy = false;
         bool hasWebUser = false;
+        bool essayProduced = false;
+        string essayLang = "";
         string? groupContextText = null;
         System.Collections.Generic.Dictionary<string, string>? groupNameColors = null;
+        string wsKey = !string.IsNullOrEmpty(serverPortStr) ? $"{callerIP}:{serverPortStr}" : "";
+        var rpcOpts = new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+        Func<Task<string?>>? wsGC = wsKey.Length > 0 && _fleetWsRegistry.TryGetValue(wsKey, out var earlyFleetWs)
+            && earlyFleetWs.State == System.Net.WebSockets.WebSocketState.Open
+            ? () => FleetWsRpcCallAsync(wsKey, earlyFleetWs, "jamulusserver/getClients", new { }, rpcOpts)
+            : null;
         try
         {
             if (WelcomeCache.TryGet(capturedChannelKey, out _))
@@ -696,68 +857,114 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
                 return;
             }
             {
-                var gatherResult = await WelcomeContext.GatherAsync(capturedGuid, serverKey, rpcPort, capturedNation, channelId, ip);
+                var gatherResult = await WelcomeContext.GatherAsync(capturedGuid, serverKey, rpcPort, capturedNation, channelId, ip, wsGC);
                 var contextText = gatherResult.Context;
                 var nameColors = gatherResult.NameColors;
                 roomChannelIds = gatherResult.RoomChannelIds;
+                lobbyChannelIds = gatherResult.LobbyChannelIds ?? new();
+                roomGuids = gatherResult.RoomGuids ?? new List<string>();
                 isGroupNoteworthy = gatherResult.IsGroupNoteworthy;
                 hasWebUser = gatherResult.HasWebUser;
+                if (isGroupNoteworthy && gatherResult.ArrivingName.Length > 0)
+                    GroupJoinerAccumulator.Add(serverKey, gatherResult.ArrivingName, capturedNation, gatherResult.ArrivingInstrument, gatherResult.ArrivingDistKm);
                 groupContextText = System.Text.RegularExpressions.Regex.Replace(contextText,
                     @"Language to use for message: \S+",
                     $"Language to use for message: {gatherResult.RoomLanguage}");
                 groupNameColors = nameColors;
                 signals = WelcomeContext.TakeSignals(capturedGuid);
                 rich = WelcomeContext.IsRich(contextText);
-                if (rich)
+
+                // Limited-time joiner-centered "See your destiny" essay for TH/HK servers.
+                // Fires whether or not others are present — the essay leans on the joiner's
+                // shared history with whoever is already in the room.
+                if (DormantEssayFeature.IsActive
+                    && DormantEssayFeature.IsEligibleCountry(gatherResult.ServerCountryCode)
+                    && DormantEssayFeature.TryReserve())
                 {
-                    var (llm, llmErr) = await WelcomeMessageGenerator.GetAsync(contextText, capturedNation, nameColors);
-                    if (llm != null) { msg = llm; llmStatus = "1"; }
+                    essayLang = WelcomeContext.EssayLanguage(capturedNation, gatherResult.ServerCountryCode);
+                    var (em, es, ei, eo, ec) = await WelcomeMessageGenerator.GetEssayAsync(
+                        contextText, essayLang, capturedNation, nameColors, gatherResult.NameEmojis, gatherResult.EventNames);
+                    inTok = ei; outTok = eo; cachedTok = ec;
+                    if (em != null && em.Length >= 40)
+                    {
+                        msg = em; rich = true; essayProduced = true; llmStatus = "essay";
+                        signals = signals is "" or "none" ? "essay-dormant" : signals + "|essay-dormant";
+                        Console.WriteLine($"[DORMANT-ESSAY] produced #{DormantEssayFeature.Produced}/29 lang={essayLang} country={gatherResult.ServerCountryCode} server={serverKey} caller={callerIP}");
+                    }
+                    else
+                    {
+                        DormantEssayFeature.Release();
+                        Console.WriteLine($"[DORMANT-ESSAY] release — status={(em == null ? es : "short")} server={serverKey} caller={callerIP}");
+                    }
+                }
+
+                if (!essayProduced && rich)
+                {
+                    var (llm, llmErr, i, o, c) = await WelcomeMessageGenerator.GetAsync(contextText, capturedNation, nameColors, gatherResult.NameEmojis, gatherResult.EventNames,
+                        usePro: WelcomeContext.IsLoreGuest(serverKey, gatherResult.ArrivingName, capturedGuid));
+                    if (llm != null && o > 0 && o < 15)
+                    {
+                        // Dud: rich context but trivially short output — static fallback beats it
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] llm-short out={o} — static fallback caller={callerIP} channelId={channelId}");
+                        llmStatus = "short";
+                    }
+                    else if (llm != null) { msg = llm; llmStatus = "1"; }
                     else llmStatus = llmErr.Length > 0 ? llmErr : "error";
+                    inTok = i; outTok = o; cachedTok = c;
                 }
                 WelcomeCache.Set(cacheKey, msg);
             }
-            var (svcName, _) = WelcomeContext.LookupServer(serverKey);
-            string headerLabel = svcName.Length > 0 ? svcName : serverKey;
-            msg = $"<br><big>{WelcomeMessages.YouveJoined(capturedNation)} {headerLabel}</big>{msg}";
-            // Fleet JSON-RPC: plain TCP, newline-delimited JSON, two messages per session.
-            // 1. apiAuth with /secret.txt  2. sendClientChatMessage  — read response after each send.
-            // Port 9999 default; see data/fleet-rpc-ports.txt for overrides. Secret same on all fleet servers.
-            string secret = (await System.IO.File.ReadAllTextAsync("/secret.txt")).Trim();
-            var rpcOpts = new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-            using var tcp = new System.Net.Sockets.TcpClient();
-            using var tcpCts = new System.Threading.CancellationTokenSource(5000);
-            await tcp.ConnectAsync(callerIP, rpcPort, tcpCts.Token);
-            await using var stream = tcp.GetStream();
-            await using var writer = new System.IO.StreamWriter(stream, leaveOpen: true) { AutoFlush = true };
-            using var reader = new System.IO.StreamReader(stream, leaveOpen: true);
-            await writer.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { id = 1, jsonrpc = "2.0", method = "jamulus/apiAuth", @params = new { secret } }, rpcOpts).AsMemory(), tcpCts.Token);
-            await reader.ReadLineAsync(tcpCts.Token);
-            await writer.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { id = 2, jsonrpc = "2.0", method = "jamulusserver/getClients", @params = new { } }, rpcOpts).AsMemory(), tcpCts.Token);
-            string? clientsJson = await reader.ReadLineAsync(tcpCts.Token);
-            bool stillPresent = false;
-            if (clientsJson != null)
+            if (essayProduced)
             {
-                using var doc = System.Text.Json.JsonDocument.Parse(clientsJson);
-                if (doc.RootElement.TryGetProperty("result", out var res) &&
-                    res.TryGetProperty("clients", out var clients) &&
-                    clients.ValueKind == System.Text.Json.JsonValueKind.Array)
+                // "See your destiny" banner in the essay's language — TH/HK only.
+                msg = $"<br><big>{WelcomeMessageGenerator.DestinyHeader(essayLang)}</big><br>{msg}";
+            }
+            else
+            {
+                var (svcName, _) = WelcomeContext.LookupServer(serverKey);
+                string headerLabel = svcName.Length > 0 ? svcName : serverKey;
+                msg = $"<br><big>{WelcomeMessages.YouveJoined(capturedNation)} {headerLabel}</big><br>{msg}";
+            }
+            if (wsKey.Length > 0 && _fleetWsRegistry.TryGetValue(wsKey, out var fleetWs)
+                && fleetWs.State == System.Net.WebSockets.WebSocketState.Open)
+            {
+                try
                 {
-                    foreach (var c in clients.EnumerateArray())
+                    bool stillPresent = false;
+                    string? clientsResp = await FleetWsRpcCallAsync(wsKey, fleetWs, "jamulusserver/getClients", new { }, rpcOpts);
+                    if (clientsResp != null)
                     {
-                        if (c.TryGetProperty("id", out var cid) && cid.GetInt32() == channelId)
-                        { stillPresent = true; break; }
+                        using var doc = System.Text.Json.JsonDocument.Parse(clientsResp);
+                        if (doc.RootElement.TryGetProperty("result", out var res)
+                            && res.TryGetProperty("clients", out var clients)
+                            && clients.ValueKind == System.Text.Json.JsonValueKind.Array)
+                            foreach (var c in clients.EnumerateArray())
+                                if (c.TryGetProperty("id", out var cid) && cid.GetInt32() == channelId)
+                                { stillPresent = true; break; }
                     }
+                    if (clientsResp == null)
+                    {
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws-rpc-failed — sending anyway caller={callerIP} channelId={channelId}");
+                    }
+                    else if (!stillPresent)
+                    {
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] skipped — departed before send caller={callerIP} channelId={channelId}");
+                        return;
+                    }
+                    var sendResp = await FleetWsRpcCallAsync(wsKey, fleetWs, "jamulusserver/sendClientChatMessage", new { channelId, message = msg }, rpcOpts);
+                    WelcomeCache.Set(capturedChannelKey, "", 1);
+                    if (sendResp == null)
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws-send-failed caller={callerIP} channelId={channelId} nation={capturedNation}");
+                    else
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws caller={callerIP} channelId={channelId} nation={capturedNation}");
                 }
+                catch (Exception wsEx)
+                { Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws-error caller={callerIP} channelId={channelId}: {wsEx.Message}"); }
             }
-            if (!stillPresent)
+            else
             {
-                Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] skipped — departed before send caller={callerIP} channelId={channelId}");
-                return;
+                Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] no-ws caller={callerIP} channelId={channelId} rpcport={rpcPort} — skipped (no WebSocket)");
             }
-            await writer.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { id = 3, jsonrpc = "2.0", method = "jamulusserver/sendClientChatMessage", @params = new { channelId, message = msg } }, rpcOpts).AsMemory(), tcpCts.Token);
-            string? result = await reader.ReadLineAsync(tcpCts.Token);
-            WelcomeCache.Set(capturedChannelKey, "", 1);
-            Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] caller={callerIP} channelId={channelId} rpcport={rpcPort} nation={capturedNation} response={result}");
         }
         catch (Exception ex)
         {
@@ -766,16 +973,36 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
         finally
         {
             sw.Stop();
-            WelcomeEventLog.Append(serverKey, capturedNation, rich, llmStatus, signals, sw.ElapsedMilliseconds, msg);
+            WelcomeEventLog.Append(serverKey, capturedNation, rich, llmStatus, signals, sw.ElapsedMilliseconds, msg, inTok, outTok, cachedTok);
         }
 
-        string groupCacheKey = $"group:{capturedGuid}:{serverKey}";
+        string groupCacheKey = $"group:{serverKey}";
         if (isGroupNoteworthy && roomChannelIds.Count > 0 && groupContextText != null
             && !WelcomeCache.TryGet(groupCacheKey, out _))
         {
-            WelcomeCache.Set(groupCacheKey, "", 10);
-            Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] caller={callerIP} noteworthy=1 roomIds={roomChannelIds.Count} — sending group message");
-            await Task.Delay(5000);
+            WelcomeCache.Set(groupCacheKey, "", 5);
+            Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] t={JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt()} caller={callerIP} noteworthy=1 roomIds={roomChannelIds.Count} — sending group message");
+            await Task.Delay(60000);
+            var batchJoiners = GroupJoinerAccumulator.Drain(serverKey);
+            if (batchJoiners.Count > 1 && groupContextText != null)
+            {
+                var arrivals = string.Join("\n", batchJoiners.Select(j =>
+                    $"- {j.Name}{(j.Instrument.Length > 0 ? $" ({j.Instrument})" : "")}, {j.Nation}{(j.DistKm > 0 ? $", ~{j.DistKm}km away" : "")}"));
+                groupContextText += $"\n\nRECENT ARRIVALS (all joined in the last 60 seconds):\n{arrivals}";
+            }
+            // One and done: if the share/listen link already went out to this server in a private
+            // welcome (or a prior group) inside the 20-min quiet window, strip every stream/link
+            // instruction from this room broadcast so nobody sees it twice. Otherwise this group
+            // opens the window itself.
+            if (WelcomeCache.TryGet($"ear-link:{serverKey}", out _))
+            {
+                groupContextText = System.Text.RegularExpressions.Regex.Replace(groupContextText,
+                    @"(?im)^.*(?:Share/record|Include this line|streaming live right now|Stream starts in|/stream|Stream slot|Lobby client connected).*$\n?", "");
+                groupContextText += "\n[NO-URLS: the share/listen link already went out privately — omit streaming links and /stream. Just announce the arrival(s).]";
+            }
+            else
+                WelcomeCache.Set($"ear-link:{serverKey}", "", 20);
+            var groupSw = System.Diagnostics.Stopwatch.StartNew();
             string? groupMsg = null;
             try { groupMsg = await WelcomeMessageGenerator.GetGroupAsync(groupContextText, groupNameColors, hasWebUser); }
             catch { }
@@ -785,33 +1012,61 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
                 string speaker = svcName2.Length > 0 ? svcName2 : serverKey;
                 string encodedSpeaker = System.Web.HttpUtility.HtmlEncode(speaker);
                 string groupBody = groupMsg.Replace("<p>", "").Replace("</p>", "").Trim();
-                string groupFull = $"<br><b><font color=\"#4FC3F7\">{encodedSpeaker}:</font></b> {groupBody}";
-                var allIds = roomChannelIds.Concat(new[] { channelId }).Distinct().ToList();
-                try
+                string dormantNote = "";
+                string dormantCacheKey = $"dormant-note:{serverKey}";
+                if (FleetDormantServers.Contains(serverKey) && !WelcomeCache.TryGet(dormantCacheKey, out _))
                 {
-                    string secret2 = (await System.IO.File.ReadAllTextAsync("/secret.txt")).Trim();
-                    var rpcOpts2 = new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-                    using var tcp2 = new System.Net.Sockets.TcpClient();
-                    using var tcpCts2 = new System.Threading.CancellationTokenSource(5000);
-                    await tcp2.ConnectAsync(callerIP, rpcPort, tcpCts2.Token);
-                    await using var stream2 = tcp2.GetStream();
-                    await using var writer2 = new System.IO.StreamWriter(stream2, leaveOpen: true) { AutoFlush = true };
-                    using var reader2 = new System.IO.StreamReader(stream2, leaveOpen: true);
-                    await writer2.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { id = 1, jsonrpc = "2.0", method = "jamulus/apiAuth", @params = new { secret = secret2 } }, rpcOpts2).AsMemory(), tcpCts2.Token);
-                    await reader2.ReadLineAsync(tcpCts2.Token);
-                    int msgId = 2;
-                    foreach (var rcId in allIds)
-                    {
-                        await writer2.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(new { id = msgId++, jsonrpc = "2.0", method = "jamulusserver/sendClientChatMessage", @params = new { channelId = rcId, message = groupFull } }, rpcOpts2).AsMemory(), tcpCts2.Token);
-                        await reader2.ReadLineAsync(tcpCts2.Token);
-                    }
-                    Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] caller={callerIP} speaker={speaker} recipients={allIds.Count} msg={groupMsg}");
+                    dormantNote = " This server appears during peak hours.";
+                    WelcomeCache.Set(dormantCacheKey, "", 20);
                 }
-                catch (Exception ex) { Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] error={ex.Message}"); }
+                string groupFull = $"<br><b><font color=\"#4FC3F7\">{encodedSpeaker}:</font></b> {groupBody}{dormantNote}";
+                var allIds = roomChannelIds.Concat(new[] { channelId }).Concat(lobbyChannelIds).Distinct().ToList();
+                if (wsKey.Length > 0 && _fleetWsRegistry.TryGetValue(wsKey, out var groupWs)
+                    && groupWs.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    try
+                    {
+                        bool groupStillPresent = false;
+                        string? gcResp = await FleetWsRpcCallAsync(wsKey, groupWs, "jamulusserver/getClients", new { }, rpcOpts);
+                        if (gcResp != null)
+                        {
+                            using var gDoc = System.Text.Json.JsonDocument.Parse(gcResp);
+                            if (gDoc.RootElement.TryGetProperty("result", out var gRes)
+                                && gRes.TryGetProperty("clients", out var gClients)
+                                && gClients.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                foreach (var gc in gClients.EnumerateArray())
+                                    if (gc.TryGetProperty("id", out var gcid) && gcid.GetInt32() == channelId)
+                                    { groupStillPresent = true; break; }
+                        }
+                        if (!groupStillPresent)
+                        {
+                            Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] skipped — departed before group send caller={callerIP} channelId={channelId}");
+                            WelcomeEventLog.Append($"group:{serverKey}", capturedNation, true, "skipped", "group", groupSw.ElapsedMilliseconds, "(skipped: departed before send)");
+                        }
+                        else
+                        {
+                            foreach (var rcId in allIds)
+                                await FleetWsRpcCallAsync(wsKey, groupWs, "jamulusserver/sendClientChatMessage", new { channelId = rcId, message = groupFull }, rpcOpts);
+                            Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] ws t={JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt()} caller={callerIP} speaker={speaker} recipients={allIds.Count} msg={groupMsg}");
+                            WelcomeEventLog.Append($"group:{serverKey}", capturedNation, true, "1", $"recipients:{allIds.Count}", groupSw.ElapsedMilliseconds, groupFull);
+                        }
+                    }
+                    catch (Exception wsEx)
+                    {
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] ws-error caller={callerIP}: {wsEx.Message}");
+                        WelcomeEventLog.Append($"group:{serverKey}", capturedNation, true, "error", "group", groupSw.ElapsedMilliseconds, $"(ws-error: {wsEx.Message})");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] t={JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt()} no-ws caller={callerIP} — skipped");
+                    WelcomeEventLog.Append($"group:{serverKey}", capturedNation, true, "no-ws", "group", groupSw.ElapsedMilliseconds, "(no websocket)");
+                }
             }
             else if (groupMsg == null)
             {
-                Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] caller={callerIP} groupMsg=null (LLM returned nothing)");
+                Console.WriteLine($"[PLAYER-IDENTIFIED-GROUP] t={JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt()} caller={callerIP} groupMsg=null (LLM returned nothing)");
+                WelcomeEventLog.Append($"group:{serverKey}", capturedNation, false, "0", "group", groupSw.ElapsedMilliseconds, "(LLM returned nothing)");
             }
         }
     });
@@ -846,14 +1101,68 @@ public static class FleetIpAllowlist
     }
 }
 
-// Fleet server RPC port map — data/fleet-rpc-ports.txt, format: ip=port, # = comment.
+// Dormant fleet servers — data/fleet-dormant-ips.txt, written by dormant-monitor.py.
+// One ip:port per line. 1-minute TTL matches the monitor's write cadence.
+public static class FleetDormantServers
+{
+    private static (HashSet<string> Keys, DateTime Expiry) _cache = (new(), DateTime.MinValue);
+    private static readonly object _lock = new object();
+
+    public static bool Contains(string serverKey)
+    {
+        lock (_lock)
+        {
+            if (DateTime.UtcNow >= _cache.Expiry)
+            {
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                if (File.Exists("data/fleet-dormant-ips.txt"))
+                    foreach (var line in File.ReadAllLines("data/fleet-dormant-ips.txt"))
+                    { var t = line.Trim(); if (t.Length > 0 && !t.StartsWith('#')) keys.Add(t); }
+                _cache = (keys, DateTime.UtcNow.AddMinutes(1));
+            }
+            return _cache.Keys.Contains(serverKey);
+        }
+    }
+}
+
+// Limited-time "See your destiny" joiner-centered essay welcome for dormant Thailand (Thai)
+// and Hong Kong (Chinese) servers. Self-expiring by two independent backstops, whichever comes
+// first: a hardcoded conclusion instant, and a hard RAM cap of 29 essays produced (resets on
+// reboot). After either fires, the feature is off forever — joiners get the normal welcome.
+public static class DormantEssayFeature
+{
+    // Revived 2026-08-10 for a 7-day encore (originally concluded 2026-08-05). Automatic, no config needed.
+    private static readonly DateTime Expiry = new(2026, 8, 17, 23, 59, 59, DateTimeKind.Utc);
+    private const int MaxEssays = 29;
+    private static int _produced;   // essays successfully generated since process start
+
+    public static int Produced => Volatile.Read(ref _produced);
+    public static bool IsActive => DateTime.UtcNow < Expiry && Volatile.Read(ref _produced) < MaxEssays;
+    // 2026-08-10 encore: Thailand only (HK dropped for this revival).
+    public static bool IsEligibleCountry(string countryCode) =>
+        countryCode == "TH";
+
+    // Atomically claim one of the 29 slots. Returns false if the window has closed or the cap
+    // is reached. Release() must be called if generation then fails, to give the slot back.
+    public static bool TryReserve()
+    {
+        if (DateTime.UtcNow >= Expiry) return false;
+        if (Interlocked.Increment(ref _produced) <= MaxEssays) return true;
+        Interlocked.Decrement(ref _produced);
+        return false;
+    }
+
+    public static void Release() => Interlocked.Decrement(ref _produced);
+}
+
+// Fleet server RPC port map — reads from data/fleet-rpc-ports.txt (ip=port format).
 // Default 9999. 5-minute TTL.
 public static class FleetRpcPorts
 {
     private static (Dictionary<string, int> Map, DateTime Expiry) _cache = (new(), DateTime.MinValue);
     private static readonly object _lock = new object();
 
-    public static int GetPort(string serverIp)
+    public static int GetPort(string serverIp, string serverPort = "")
     {
         string bare = serverIp.Replace("::ffff:", "").Trim();
         lock (_lock)
@@ -872,6 +1181,8 @@ public static class FleetRpcPorts
                     }
                 _cache = (map, DateTime.UtcNow.AddMinutes(5));
             }
+            string portKey = serverPort.Length > 0 ? $"{bare}:{serverPort}" : "";
+            if (portKey.Length > 0 && _cache.Map.TryGetValue(portKey, out int rpcPortByKey)) return rpcPortByKey;
             return _cache.Map.TryGetValue(bare, out int rpcPort) ? rpcPort : 9999;
         }
     }
@@ -908,6 +1219,13 @@ public static class WelcomeMessages
         ["RO"] = "ro",
         ["HU"] = "hu",
         ["DK"] = "da",
+        ["SK"] = "sk", ["CZ"] = "cs",
+        ["HR"] = "hr", ["SI"] = "sl", ["RS"] = "sr", ["BG"] = "bg",
+        ["LT"] = "lt", ["LV"] = "lv", ["EE"] = "et", ["IS"] = "is",
+        ["IL"] = "he", ["VN"] = "vi", ["ID"] = "id", ["MY"] = "ms", ["BN"] = "ms", ["BD"] = "bn",
+        ["SA"] = "ar", ["EG"] = "ar", ["AE"] = "ar", ["MA"] = "ar", ["DZ"] = "ar", ["IQ"] = "ar",
+        ["LI"] = "de", ["MC"] = "fr", ["SM"] = "it", ["VA"] = "it",
+        ["AO"] = "pt", ["MZ"] = "pt", ["BY"] = "ru", ["KZ"] = "ru",
     };
 
     private static readonly Dictionary<string, string> _messages = new()
@@ -936,6 +1254,22 @@ public static class WelcomeMessages
         ["ro"] = "<a href='https://jamulus.live'>https://jamulus.live</a> arată mai mult.",
         ["hu"] = "<a href='https://jamulus.live'>https://jamulus.live</a> többet mutat.",
         ["da"] = "<a href='https://jamulus.live'>https://jamulus.live</a> viser mere.",
+        ["sk"] = "<a href='https://jamulus.live'>https://jamulus.live</a> ukazuje viac.",
+        ["cs"] = "<a href='https://jamulus.live'>https://jamulus.live</a> ukazuje více.",
+        ["hr"] = "<a href='https://jamulus.live'>https://jamulus.live</a> prikazuje više.",
+        ["sl"] = "<a href='https://jamulus.live'>https://jamulus.live</a> prikazuje več.",
+        ["sr"] = "<a href='https://jamulus.live'>https://jamulus.live</a> prikazuje više.",
+        ["bg"] = "<a href='https://jamulus.live'>https://jamulus.live</a> показва повече.",
+        ["lt"] = "<a href='https://jamulus.live'>https://jamulus.live</a> rodo daugiau.",
+        ["lv"] = "<a href='https://jamulus.live'>https://jamulus.live</a> rāda vairāk.",
+        ["et"] = "<a href='https://jamulus.live'>https://jamulus.live</a> näitab rohkem.",
+        ["is"] = "<a href='https://jamulus.live'>https://jamulus.live</a> sýnir meira.",
+        ["he"] = "<a href='https://jamulus.live'>https://jamulus.live</a> מציג עוד.",
+        ["ar"] = "<a href='https://jamulus.live'>https://jamulus.live</a> يعرض المزيد.",
+        ["vi"] = "<a href='https://jamulus.live'>https://jamulus.live</a> hiển thị thêm.",
+        ["id"] = "<a href='https://jamulus.live'>https://jamulus.live</a> menampilkan lebih banyak.",
+        ["ms"] = "<a href='https://jamulus.live'>https://jamulus.live</a> menunjukkan lebih banyak.",
+        ["bn"] = "<a href='https://jamulus.live'>https://jamulus.live</a> আরও দেখায়।",
     };
 
     private static readonly Dictionary<string, string> _youveJoined = new()
@@ -964,6 +1298,22 @@ public static class WelcomeMessages
         ["ro"] = "Te-ai alăturat la",
         ["hu"] = "Csatlakoztál:",
         ["da"] = "Du er tilsluttet",
+        ["sk"] = "Pripojili ste sa k",
+        ["cs"] = "Připojili jste se k",
+        ["hr"] = "Pridružili ste se",
+        ["sl"] = "Pridružili ste se",
+        ["sr"] = "Pridružili ste se",
+        ["bg"] = "Присъединихте се към",
+        ["lt"] = "Prisijungėte prie",
+        ["lv"] = "Jūs pievienojāties",
+        ["et"] = "Liitusite serveriga",
+        ["is"] = "Þú hefur gengið í",
+        ["he"] = "הצטרפת אל",
+        ["ar"] = "لقد انضممت إلى",
+        ["vi"] = "Bạn đã tham gia",
+        ["id"] = "Anda telah bergabung dengan",
+        ["ms"] = "Anda telah menyertai",
+        ["bn"] = "আপনি যোগ দিয়েছেন",
     };
 
     public static string YouveJoined(string nation)
@@ -977,6 +1327,17 @@ public static class WelcomeMessages
         string lang = _nationToLang.TryGetValue(nation ?? "", out var l) ? l : "en";
         return _messages.TryGetValue(lang, out var v) ? v : _messages["en"];
     }
+}
+
+public static class GroupJoinerAccumulator
+{
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<(string Name, string Nation, string Instrument, int DistKm)>> _bags = new();
+
+    public static void Add(string serverKey, string name, string nation, string instrument, int distKm)
+        => _bags.GetOrAdd(serverKey, _ => new()).Add((name, nation, instrument, distKm));
+
+    public static List<(string Name, string Nation, string Instrument, int DistKm)> Drain(string serverKey)
+        => _bags.TryRemove(serverKey, out var bag) ? bag.ToList() : new();
 }
 
 public static class WelcomeCache
