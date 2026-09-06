@@ -253,8 +253,23 @@ body.dark-mode a {
 /* ========================================= */
 /* NEARBY ONLY LOGIC                         */
 /* ========================================= */
-#client-grid.nearby-only-active .distant-server:not(.my-active-server) {
+#client-grid.nearby-only-active .distant-server:not(.my-active-server):not(.nearest-fallback) {
     display: none !important;
+}
+/* Friend override: a distant server keeps its card when someone you track is on
+   it. .friend-arrived is stamped by subRefresh() in Client.cshtml, so clicking a
+   name promotes its server instantly. Kept as a SEPARATE rule on purpose: a
+   browser without :has() drops this rule alone and the hide rule above still
+   works. The .server-card / :not(.ghost-card) qualifiers raise specificity to
+   (1,5,0) so this outranks the (1,4,0) hide rule above. */
+#client-grid.nearby-only-active .server-card.distant-server:not(.ghost-card):has(.friend-arrived) {
+    display: block !important;
+}
+/* Linger: untracking a name shouldn't yank its distant server out from under
+   your cursor. The card keeps its place until the page is reloaded. Separate
+   rule so it survives in browsers that drop the :has() rule above. */
+#client-grid.nearby-only-active .server-card.distant-server:not(.ghost-card).friend-lingering {
+    display: block !important;
 }
 /* ========================================= */
 /* ACTIVE ONLY LOGIC                         */

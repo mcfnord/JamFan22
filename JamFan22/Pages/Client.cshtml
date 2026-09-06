@@ -716,7 +716,9 @@ body {
 
     function renderServerHeader(server) {
         let html = `<center>`;
-        html += `<a href='https://jamulus.live/jamgroup-map.html?server=${server.serverIpAddress}:${server.serverPort}' target='_blank' style='position:absolute; right:5px; top:5px; z-index:10; text-decoration:none; font-size:1.5em; cursor:pointer; opacity:0; transition:opacity 0.2s;' onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0'">👀</a>`;
+        const _eyesHref = `https://jamulus.live/jamgroup-map.html?server=${server.serverIpAddress}:${server.serverPort}`;
+        const _loreAttr = server.hasLore ? ` data-band-id="${server.bandId}"` : '';
+        html += `<a class="server-eyes" href="${_eyesHref}" target="_blank"${_loreAttr} style="position:absolute;right:5px;top:5px;z-index:10;text-decoration:none;font-size:1.5em;cursor:pointer;opacity:0;transition:opacity 0.2s;" onmouseover="if(!this.dataset.loreReady)this.style.opacity='1'" onmouseout="if(!this.dataset.loreReady)this.style.opacity='0'">👀</a>`;
         
         if (server.name) html += `${server.name}<br>`;
         if (server.city) html += `<b>${server.city}</b><br>`;
@@ -2031,6 +2033,11 @@ if (action.type === 'replace_server') {
         });
     }
 
+    // Server ids whose promoted card should stay put after you untrack its last
+    // name. In-memory on purpose: a page reload is the "full refresh" that clears
+    // it. Keyed by server id (s-ip-port) because cards are rebuilt on every diff.
+    const _lingeringServers = new Set();
+
     document.addEventListener("click", function(event) {
         var target = event.target.closest('span.musician');
         if (!target || !target.id) return;
@@ -2064,7 +2071,16 @@ if (action.type === 'replace_server') {
         }
 
         if (fPureRemoval) {
+            var untrackedCard = target.closest('.server-card');
             refreshHighlights();
+            // Untracking the last tracked name on a distant card would otherwise
+            // make it vanish mid-click. Let it linger instead.
+            if (untrackedCard && untrackedCard.id
+                && untrackedCard.classList.contains('distant-server')
+                && !untrackedCard.querySelector('.friend-arrived')) {
+                _lingeringServers.add(untrackedCard.id);
+            }
+            applyNearestFallback();
             return;
         }
 
@@ -2488,6 +2504,80 @@ function purgeTrailingGhosts() {
     setTimeout(() => spacer.remove(), 800);
 }
 
+// Nearby Only floor: ensure at least MIN_NEARBY_MUSICIANS names survive the
+// distance filter. Starting from the servers that are genuinely nearby (plus the
+// one you're connected to), we walk outward by distance and exempt the closest
+// distant servers until at least 3 musicians are on screen — 3 servers with one
+// player each, or 2 on one plus 1 on the next, whatever adds up first. Empty
+// servers are skipped (they add no names), except that one card is always
+// exempted so the grid never renders blank. The single closest candidate by
+// geography is also always exempted regardless of the floor — otherwise a
+// friend-tracked distant server can satisfy the musician count on its own and
+// Nearby Only ends up showing zero geographically-chosen servers. Recomputed
+// fresh each call so the exemptions follow the data as it changes.
+const MIN_NEARBY_MUSICIANS = 3;
+
+function applyNearestFallback() {
+    const grid = document.getElementById('client-grid');
+    if (!grid) return;
+    // Always clear stale exemptions so this recomputes from scratch.
+    grid.querySelectorAll('.server-card.nearest-fallback')
+        .forEach(c => c.classList.remove('nearest-fallback'));
+    if (!grid.classList.contains('nearby-only-active')) return;
+
+    // Cards are rebuilt on every diff, so the sticky id set — not the class — is
+    // the source of truth. Re-stamp it each pass.
+    for (const c of grid.querySelectorAll('.server-card')) {
+        c.classList.toggle('friend-lingering', _lingeringServers.has(c.id));
+    }
+
+    const activeOnly = grid.classList.contains('active-only-active');
+    const cards = Array.from(grid.querySelectorAll('.server-card:not(.ghost-card)'));
+    const isMine = c => c.classList.contains('my-active-server');
+    const isDistant = c => c.classList.contains('distant-server');
+    // The friend override in site.css promotes a DISTANT card holding a tracked
+    // name, and outranks the Active Only rule too — so it shows even when quiet.
+    // A nearby quiet card is not promoted (the override requires .distant-server).
+    const friendPromoted = c => isDistant(c)
+        && (!!c.querySelector('.friend-arrived') || c.classList.contains('friend-lingering'));
+    // A card Active Only hides can't be rescued by exempting it here, so it
+    // neither counts toward the floor nor qualifies as a candidate.
+    const hiddenByActiveOnly = c => activeOnly && c.classList.contains('quiet-server')
+        && !isMine(c) && !friendPromoted(c);
+    const alreadyShown = c => !hiddenByActiveOnly(c)
+        && (isMine(c) || friendPromoted(c) || !isDistant(c));
+    const nameCount = c => c.querySelectorAll('.musician-container').length;
+
+    let visibleCards = 0, visibleNames = 0;
+    for (const c of cards) {
+        if (!alreadyShown(c)) continue;
+        visibleCards++;
+        visibleNames += nameCount(c);
+    }
+
+    const candidates = cards
+        .filter(c => !alreadyShown(c) && !hiddenByActiveOnly(c))
+        .sort((a, b) => (parseFloat(a.dataset.distance) || Infinity)
+                      - (parseFloat(b.dataset.distance) || Infinity));
+
+    const closest = candidates[0];
+    if (closest) {
+        closest.classList.add('nearest-fallback');
+        visibleCards++;
+        visibleNames += nameCount(closest);
+    }
+
+    for (const c of candidates) {
+        if (c === closest) continue;
+        if (visibleNames >= MIN_NEARBY_MUSICIANS) break;
+        const n = nameCount(c);
+        if (n === 0 && visibleCards > 0) continue; // adds no names — skip
+        c.classList.add('nearest-fallback');
+        visibleCards++;
+        visibleNames += n;
+    }
+}
+
 async function fetchAndRender() {
     if (isAnimating) return;
     isAnimating = true; // <-- MOVE THE LOCK HERE (Before the await)
@@ -2614,7 +2704,9 @@ async function fetchAndRender() {
         runDOMDiagnostics(data);
         preventLineWrap();
         updateServersList(data);
+        applyNearestFallback(); // Guarantee at least 3 names survive the Nearby Only distance filter
         purgeTrailingGhosts(); // Ensure any leftover ghosts at the end of the grid are removed after updates
+        scheduleLoreFetches();
 
         if (gridChanged) {
             await optimizeGrid(document.getElementById('client-grid'));
@@ -2627,8 +2719,55 @@ async function fetchAndRender() {
     }
 }
 
+    // ── Band lore ──────────────────────────────────────────────────────────────
+    const _loreCache   = new Map();   // bandId → html
+    const _loreQueued  = new Set();   // bandIds already scheduled
+    let   _loreNextIdx = 0;
+
+    function scheduleLoreFetches() {
+        const cards = Array.from(document.querySelectorAll('#client-grid .server-card:not(.ghost-card)'));
+        cards.forEach(card => {
+            const eyes = card.querySelector('.server-eyes[data-band-id]');
+            if (!eyes) return;
+            const bandId = eyes.dataset.bandId;
+            if (_loreCache.has(bandId)) { activateLoreEyes(eyes, _loreCache.get(bandId)); return; }
+            if (_loreQueued.has(bandId)) return;
+            _loreQueued.add(bandId);
+            const delay = Math.min(20000 * Math.pow(2, _loreNextIdx++), 120000);
+            setTimeout(() => fetchBandLore(bandId), delay);
+        });
+    }
+
+    async function fetchBandLore(bandId) {
+        try {
+            const resp = await fetch(`/api/band-lore?id=${bandId}`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (!data || !data.html) return;
+            _loreCache.set(bandId, data.html);
+            document.querySelectorAll(`.server-eyes[data-band-id="${bandId}"]`).forEach(eyes => {
+                activateLoreEyes(eyes, data.html);
+            });
+        } catch(e) {}
+    }
+
+    function activateLoreEyes(eyes, html) {
+        if (eyes.dataset.loreReady) return;
+        eyes.dataset.loreReady = '1';
+        eyes.style.transition = 'opacity 1.5s';
+        eyes.style.opacity = '1';
+        eyes.onclick = (e) => { e.preventDefault(); openLorePopup(html, eyes.href); };
+    }
+
+    function openLorePopup(html, jamUrl) {
+        document.getElementById('band-lore-body').innerHTML = html;
+        document.getElementById('band-lore-link').href = jamUrl;
+        document.getElementById('band-lore-popup').style.display = 'flex';
+    }
+
     fetchAndRender();
     setInterval(fetchAndRender, 15000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) fetchAndRender(); });  // background tabs freeze the timer above
 
     document.getElementById('nearby-content').addEventListener('scroll', () => { lastNearbyInteraction = Date.now(); }, { passive: true });
 
@@ -2739,6 +2878,7 @@ async function fetchAndRender() {
                 localStorage.setItem("nearbyOnlyUntil", this.checked ? String(Date.now() + 30*24*60*60*1000) : "0");
                 if (clientGrid) clientGrid.classList.toggle("nearby-only-active", this.checked);
                 if (currentData.length > 0) updateServersList(currentData);
+                applyNearestFallback();
                 setTimeout(checkForEssay, 0);
             });
         }
@@ -2914,7 +3054,11 @@ async function fetchAndRender() {
         }
     }
 
+    let _essayFetchInFlight = false;
+
     async function fetchAndShowEssay(isRefresh) {
+        if (_essayFetchInFlight) return;
+        _essayFetchInFlight = true;
         try {
             const resp = await fetch('/api/nearby-essay');
             if (!resp.ok || resp.status === 204) return;
@@ -2947,10 +3091,19 @@ async function fetchAndRender() {
                 if (d) { d.style.opacity = '0'; setTimeout(() => { d.style.display = 'none'; d.innerHTML = ''; }, 1500); }
             }, 4 * 3600 * 1000);
         } catch(e) { console.error('Essay fetch failed:', e); }
+        finally { _essayFetchInFlight = false; }
     }
 
+    let _essayReady = false;
+
     function checkForEssay() {
-        if (_essayTimer || _essayShown) return;
+        if (_essayShown) return;
+        if (_essayReady) {
+            if (_essayTimer) { clearTimeout(_essayTimer); _essayTimer = null; }
+            fetchAndShowEssay(false);
+            return;
+        }
+        if (_essayTimer) return;
         _essayTimer = setTimeout(() => { _essayTimer = null; fetchAndShowEssay(false); }, _essayDelayMs);
     }
 
@@ -2960,6 +3113,7 @@ async function fetchAndRender() {
             if (response.ok) {
                 const delay = parseInt(response.headers.get('X-Essay-Delay') || '60', 10);
                 _essayDelayMs = delay * 1000;
+                _essayReady = response.headers.get('X-Essay-Ready') === '1';
                 const html = await response.text();
                 document.getElementById('nearby-musicians-container').innerHTML = html;
                 setTimeout(checkForEssay, 0);
@@ -3123,4 +3277,17 @@ const Tracker = {
 
 document.addEventListener("DOMContentLoaded", () => Tracker.init());
 </script>
+
+<div id="band-lore-popup"
+     onclick="if(event.target===this)this.style.display='none'"
+     style="display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;">
+  <div style="background:#1a1a2e;color:#ddd;max-width:400px;width:88%;padding:1.3em 1.5em;border-radius:8px;position:relative;font-size:0.88em;line-height:1.6;">
+    <span onclick="document.getElementById('band-lore-popup').style.display='none'"
+          style="position:absolute;top:8px;right:12px;cursor:pointer;opacity:0.5;font-size:1.1em;">✕</span>
+    <div id="band-lore-body"></div>
+    <div style="margin-top:1em;font-size:0.8em;text-align:right;">
+      <a id="band-lore-link" href="#" target="_blank" style="color:#888;">Open server map ↗</a>
+    </div>
+  </div>
+</div>
 
