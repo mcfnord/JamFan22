@@ -20,7 +20,7 @@ __pycache__/
 *.log
 predicted.csv
 secretGeoApifykey.txt
-keyJan26.pfx
+*.pfx
 
 # Prompt files — version-controlled for rollback
 !JamFan22/data/essay-system-prompt.txt
@@ -43,3 +43,8 @@ JamFan22/tooltips.json
 JamFan22/wwwroot/jammer-map.json
 JamFan22/wwwroot/paircount.csv
 JamFan22/wwwroot/tooltips.json
+JamFan22/wwwroot/rpc-readbuf-*.html
+
+# Editor/patch backup copies left beside sources
+*.bak*
+*.retired-*
