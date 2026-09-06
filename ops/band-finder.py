@@ -63,6 +63,7 @@ def detect_band_name(display_names, cities):
 
 CENSUS    = "/root/JamFan22/JamFan22/data/census.csv"
 CENSUSGEO = "/root/JamFan22/JamFan22/data/censusgeo.csv"
+URLS      = "/root/JamFan22/JamFan22/data/urls.csv"
 EPOCH     = datetime(2023, 1, 1, tzinfo=timezone.utc)
 DAYS      = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
 
@@ -98,6 +99,22 @@ def load_names():
     except FileNotFoundError:
         pass
     return names, cities
+
+def load_urls(window_minutes=60):
+    """Build (server, bucket_id) → set of decoded URLs from urls.csv."""
+    url_buckets = defaultdict(set)
+    try:
+        with open(URLS) as f:
+            for row in csv.reader(f):
+                if len(row) < 3:
+                    continue
+                minute, server, url = row[0].strip(), row[1].strip(), row[2].strip()
+                if not minute.isdigit() or not server or not url:
+                    continue
+                url_buckets[(server, int(minute) // window_minutes)].add(unquote_plus(url))
+    except FileNotFoundError:
+        pass
+    return url_buckets
 
 def load_census(window_minutes):
     """
@@ -233,11 +250,13 @@ def find_bands(events, names, min_sessions, top_n):
 
         # Timing: day-of-week + hour-of-day for each full session
         session_times = []
+        session_srv_tmins = []
         server_counts = Counter()
         for idx in full_idxs:
             srv, t_mins, _ = events[idx]
             dt = minutes_to_dt(t_mins)
             session_times.append(dt)
+            session_srv_tmins.append((srv, t_mins))
             server_counts[srv] += 1
 
         top_srv, top_cnt = server_counts.most_common(1)[0]
@@ -249,6 +268,7 @@ def find_bands(events, names, min_sessions, top_n):
             "overlap_ratio": overlap_ratio,
             "score": full_sessions * overlap_ratio,
             "session_times": session_times,
+            "session_srv_tmins": session_srv_tmins,
             "server_counts": server_counts,
             "primary_server": pserver,
         })
@@ -363,6 +383,14 @@ def timing_summary(session_times):
     lines.append(f"  Date range:  {earliest} → {latest}")
     return "\n".join(lines)
 
+def collect_band_urls(band, url_buckets, window_minutes=60, max_urls=15):
+    """Collect unique URLs observed during this band's full-assembly sessions."""
+    seen = set()
+    for srv, t_mins in band.get("session_srv_tmins", []):
+        bucket_id = t_mins // window_minutes
+        seen.update(url_buckets.get((srv, bucket_id), ()))
+    return sorted(seen)[:max_urls]
+
 STRONG_CANARY_THRESH = 0.74
 PAIR_CANARY_THRESH   = 0.75
 
@@ -423,12 +451,22 @@ def write_bands_json(bands, names, cities, path):
         band_name = band.get("band_name") or detect_band_name(display_names, member_cities)
 
         all_high = all(m["solo_trigger_rate"] >= 0.90 for m in members)
+
+        session_dates = sorted(set(t.date() for t in times))
+        first_session_date = session_dates[0].isoformat()
+        span_weeks = round((session_dates[-1] - session_dates[0]).days / 7, 1)
+        core_stability = round(band["overlap_ratio"], 3)
+
         entry = {
             "id": i,
             "last_seen": last_seen_dt.strftime("%Y-%m-%d"),
             "full_sessions": band["full_sessions"],
             "overlap_ratio": round(band["overlap_ratio"], 3),
             "always_together": all_high,
+            "first_session_date": first_session_date,
+            "session_count": len(session_dates),
+            "span_weeks": span_weeks,
+            "core_stability": core_stability,
             "members": members,
         }
         if band_name:
@@ -438,6 +476,9 @@ def write_bands_json(bands, names, cities, path):
         ps = band.get("primary_server")
         if ps:
             entry["primary_server"] = ps
+        url_samples = band.get("url_samples", [])
+        if url_samples:
+            entry["url_samples"] = url_samples
         output.append(entry)
 
     data = {"generated_utc": datetime.now(timezone.utc).isoformat(), "bands": output}
@@ -498,7 +539,9 @@ def main():
     events, guid_servers, guid_buckets, guid_server_buckets = load_census(args.window_minutes)
     bands = find_bands(events, names, args.min_sessions, args.top)
 
+    url_buckets = load_urls(args.window_minutes)
     for band in bands:
+        band["url_samples"] = collect_band_urls(band, url_buckets, args.window_minutes)
         band["prediction"] = predict_assembly(
             band, events, guid_buckets, names,
             primary_server=band.get("primary_server"),

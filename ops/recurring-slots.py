@@ -5,9 +5,12 @@ recurring-slots.py — detect recurring session slots in census.csv and write se
 Trigger: a (server, weekday, hour_utc) slot is confirmed when 4+ GUIDs each appear
 in 3+ consecutive calendar weeks at that slot.
 
-Adjacent confirmed hours on the same server are merged into one event (e.g.
-Wednesday 03:00–06:00 UTC). Blocks longer than MAX_BLOCK_HOURS are skipped —
-they indicate an always-on server, not a scheduled session.
+Adjacent confirmed hours on the same server are merged into one event. Slots are
+detected in UTC (the census timestamps are UTC), but the human-facing day and time
+in each event's name/schedule are converted to the SERVER's local timezone before
+being written — so a slot at Wednesday 03:00 UTC on a California server is labeled
+"Tuesday" (its actual local evening), not "Wednesday". Blocks longer than
+MAX_BLOCK_HOURS are skipped — they indicate an always-on server, not a session.
 
 Drop: a confirmed auto event is removed when the most recently completed occurrence
 of that block's start weekday/hour had fewer than MIN_REGULARS of the block's
@@ -19,17 +22,20 @@ Hand-authored events (no "auto" field) are never modified.
 
 import json, os, time
 from collections import defaultdict
+from urllib.parse import unquote_plus
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from urllib.request import urlopen
 from urllib.error import URLError
 
 DATA_DIR         = '/root/JamFan22/JamFan22/data'
 CENSUS_PATH      = os.path.join(DATA_DIR, 'census.csv')
 LORE_PATH        = os.path.join(DATA_DIR, 'server-lore.json')
+CENSUSGEO_PATH   = os.path.join(DATA_DIR, 'censusgeo.csv')
 EPOCH            = datetime(2023, 1, 1, tzinfo=timezone.utc)
 WEEKS_LOOKBACK   = 8
-MIN_REGULARS     = 4   # GUIDs required to confirm/keep a slot
-MIN_WEEKS        = 3   # consecutive weeks required to confirm
+MIN_REGULARS     = 6   # GUIDs required to confirm/keep a slot
+MIN_WEEKS        = 4   # consecutive weeks required to confirm
 MAX_BLOCK_HOURS  = 8   # blocks longer than this are always-on noise, skip them
 
 WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -200,51 +206,143 @@ def is_stale(block, now):
 
 
 def block_auto_key(block):
-    """Unique identifier for an auto event — stored in the JSON to enable idempotent re-runs."""
-    return f"{block['start_wd']}:{block['start_hr']}:{block['end_wd']}:{block['end_hr']}"
+    """Stable identifier for an auto event — encodes only the start slot so block
+    growth or shrinkage doesn't invalidate existing events."""
+    return f"{block['start_wd']}:{block['start_hr']}"
 
 
-def lookup_latlon(ip):
-    """Return (lat, lon) for an IP via ip-api.com, or (None, None) on failure."""
+def lookup_geo(ip):
+    """Return (lat, lon, tz) for an IP via ip-api.com, or (None, None, None).
+    tz is the IANA timezone name (e.g. 'America/Los_Angeles') used to localize
+    each server's session day/time."""
     try:
-        url = f'http://ip-api.com/json/{ip}?fields=lat,lon,status'
+        url = f'http://ip-api.com/json/{ip}?fields=lat,lon,timezone,status'
         with urlopen(url, timeout=5) as r:
             data = json.loads(r.read())
         if data.get('status') == 'success':
-            return data['lat'], data['lon']
+            return data['lat'], data['lon'], data.get('timezone')
     except (URLError, KeyError, ValueError):
         pass
-    return None, None
+    return None, None, None
 
 
-def enrich_latlon(lore):
-    """Add lat/lon to any lore entry that doesn't already have both."""
+def enrich_geo(lore):
+    """Fill lat/lon/tz on any lore entry missing coordinates OR a timezone.
+    Existing entries predate the tz field, so they get a one-time backfill."""
     enriched = 0
     for server_key, entry in lore.items():
-        if entry.get('lat') is not None and entry.get('lon') is not None:
+        has_latlon = entry.get('lat') is not None and entry.get('lon') is not None
+        has_tz     = bool(entry.get('tz'))
+        if has_latlon and has_tz:
             continue
         ip = server_key.split(':')[0]
-        lat, lon = lookup_latlon(ip)
+        lat, lon, tz = lookup_geo(ip)
         if lat is not None:
             entry['lat'] = lat
             entry['lon'] = lon
+            if tz:
+                entry['tz'] = tz
             enriched += 1
             time.sleep(0.1)   # stay well under 45 req/min free-tier limit
     if enriched:
         print(f'  Geo-enriched {enriched} server entries')
 
 
-def make_event(block):
-    start_day = WEEKDAY_NAMES[block['start_wd']]
-    end_day   = WEEKDAY_NAMES[block['end_wd']]
-    s_hr, e_hr = block['start_hr'], block['end_hr']
+def load_names():
+    """Return {guid: display_name} from censusgeo.csv.
+    Schema: hash,name,instrument,city,nation — last entry per GUID wins (append order = most recent).
+    Lobby bots (raw name starts with '++') and junk names are excluded.
+    """
+    junk_decoded = {'', '-', 'no name', 'no mic', 'no name no m'}
+    names = {}
+    try:
+        with open(CENSUSGEO_PATH, newline='') as f:
+            for line in f:
+                parts = line.split(',')
+                if len(parts) < 2:
+                    continue
+                guid = parts[0].strip()
+                raw  = parts[1].strip()
+                if not guid or not raw:
+                    continue
+                name = unquote_plus(raw).strip()
+                if not name or name.lower() in junk_decoded or len(name) < 2:
+                    continue
+                if name.lower().startswith('lobby'):  # lobby bot (e.g. ++lobby+[0]++)
+                    continue
+                names[guid] = name
+    except FileNotFoundError:
+        pass
+    return names
 
-    if block['end_wd'] == block['start_wd']:
-        name     = f"{start_day} {s_hr:02d}:00 UTC session"
-        schedule = f"{start_day}s {s_hr:02d}:00–{e_hr:02d}:00 UTC"
+
+def block_leaders(block, names):
+    """Return up to 3 display names for the block's regulars, ranked by attendance weeks."""
+    guid_weeks = {
+        guid: sum(1 for guids in block['week_data'].values() if guid in guids)
+        for guid in block['regulars']
+    }
+    seen = []
+    for guid in sorted(block['regulars'], key=lambda g: -guid_weeks.get(g, 0)):
+        name = names.get(guid)
+        if not name or name in seen:
+            continue
+        seen.append(name)
+        if len(seen) >= 3:
+            break
+    return seen
+
+
+def resolve_tz(entry):
+    """Timezone for a lore entry, preferring the IANA name stored by enrich_geo.
+    Falls back to a longitude-derived fixed offset (good enough to get the local
+    weekday right), then UTC. Server location comes from ip-api, cached in the entry."""
+    tzname = (entry or {}).get('tz')
+    if tzname:
+        try:
+            return ZoneInfo(tzname)
+        except Exception:
+            pass
+    lon = (entry or {}).get('lon')
+    if lon is not None:
+        return timezone(timedelta(hours=max(-12, min(14, round(lon / 15)))))
+    return timezone.utc
+
+
+def local_block_times(block, tz, now):
+    """Convert a block's UTC (weekday, hour) start and its exclusive end into the
+    server's local time, anchored to the most recent past occurrence so the label
+    reflects the current DST season. Returns (start_local, end_local)."""
+    days_back = (now.weekday() - block['start_wd']) % 7
+    start_utc = (now - timedelta(days=days_back)).replace(
+        hour=block['start_hr'], minute=0, second=0, microsecond=0)
+    end_utc = start_utc + timedelta(hours=block['n_hours'])
+    return start_utc.astimezone(tz), end_utc.astimezone(tz)
+
+
+def make_event(block, leaders=None, entry=None, now=None):
+    """Build an auto event. Detection is UTC (auto_key/weekday/hour stay UTC so the
+    match key is stable), but the reader-facing name and schedule are localized to
+    the server's own timezone — the day a person there would actually call it."""
+    now = now or datetime.now(timezone.utc)
+    tz  = resolve_tz(entry)
+    start_local, end_local = local_block_times(block, tz, now)
+    start_day = start_local.strftime('%A')
+    end_day   = end_local.strftime('%A')
+    s_hr, e_hr = start_local.hour, end_local.hour
+
+    tzlabel = start_local.tzname() or ''
+    if not tzlabel or tzlabel.startswith('UTC') or tzlabel[0] in '+-':
+        tzlabel = 'local time'
+
+    if start_day == end_day:
+        schedule = f"{start_day}s {s_hr:02d}:00–{e_hr:02d}:00 {tzlabel}"
     else:
-        name     = f"{start_day} {s_hr:02d}:00 UTC session"
-        schedule = f"{start_day}s {s_hr:02d}:00 – {end_day} {e_hr:02d}:00 UTC"
+        schedule = f"{start_day}s {s_hr:02d}:00 – {end_day} {e_hr:02d}:00 {tzlabel}"
+
+    name = f"{start_day} sessions"
+    if leaders:
+        name += f" · {', '.join(leaders[:3])}"
 
     return {
         'name':        name,
@@ -253,8 +351,8 @@ def make_event(block):
         'listen_url':  None,
         'auto':        True,
         'auto_key':    block_auto_key(block),
-        'weekday':     block['start_wd'],   # Python weekday: Mon=0…Sun=6
-        'hour':        block['start_hr'],
+        'weekday':     block['start_wd'],   # UTC weekday (Mon=0…Sun=6) — stable match key
+        'hour':        block['start_hr'],   # UTC hour — pairs with auto_key
     }
 
 
@@ -282,29 +380,31 @@ def main():
     print(f'  {len(blocks)} merged blocks (≤{MAX_BLOCK_HOURS}h)')
 
     lore = load_lore()
+    names = load_names()
     added = dropped = unchanged = 0
-
-    # Servers that already have hand-authored events — don't add auto events there
-    hand_authored_servers = {
-        k for k, v in lore.items()
-        if any(not ev.get('auto') for ev in v.get('events', []))
-    }
 
     # Build a set of all current block keys
     active_keys = {(b['server'], block_auto_key(b)) for b in blocks}
+
+    # Geo-enrich BEFORE building events so make_event can localize each server's
+    # session day/time to its own timezone. Pre-create entries for newly-seen
+    # servers so they get lat/lon/tz too.
+    for block in blocks:
+        lore.setdefault(block['server'], {})
+    print('Enriching server lat/lon/tz...')
+    enrich_geo(lore)
 
     # Add or keep each block
     for block in blocks:
         server  = block['server']
         key     = block_auto_key(block)
 
-        if server in hand_authored_servers:
-            continue  # hand-authored event exists; don't mix in auto events
-
         entry   = lore.setdefault(server, {})
         events  = entry.setdefault('events', [])
         existing = next((ev for ev in events
-                         if ev.get('auto') and ev.get('auto_key') == key), None)
+                         if ev.get('auto_key') == key), None)
+
+        leaders = block_leaders(block, names)
 
         if is_stale(block, now):
             if existing:
@@ -319,28 +419,30 @@ def main():
             if existing.get('weekday') is None:
                 existing['weekday'] = block['start_wd']
                 existing['hour']    = block['start_hr']
+            # Refresh leader names AND the localized day/time on auto events each run
+            if existing.get('auto') == True:
+                fresh = make_event(block, leaders, entry, now)
+                existing['name']     = fresh['name']
+                existing['schedule'] = fresh['schedule']
             unchanged += 1
         else:
-            events.append(make_event(block))
+            events.append(make_event(block, leaders, entry, now))
             added += 1
             wd_name = WEEKDAY_NAMES[block['start_wd']]
             print(f'  ADD   {server}  {wd_name} {block["start_hr"]:02d}:00–'
                   f'{block["end_hr"]:02d}:00 UTC  '
                   f'({len(block["regulars"])} regulars, {block["n_hours"]}h)')
 
-    # Remove auto events whose block no longer exists in confirmed
+    # Remove events (auto or hand-authored) whose auto_key no longer matches a confirmed block
     for server_key, entry in list(lore.items()):
         for ev in list(entry.get('events', [])):
-            if not ev.get('auto'):
-                continue
             ak = ev.get('auto_key', '')
+            if not ak:
+                continue  # no auto_key = permanently hand-curated, never auto-dropped
             if (server_key, ak) not in active_keys:
                 entry['events'].remove(ev)
                 dropped += 1
                 print(f'  DROP  {server_key}  auto_key={ak}  (no longer confirmed)')
-
-    print('Enriching server lat/lon...')
-    enrich_latlon(lore)
 
     save_lore(lore)
     print(f'\nResult: +{added} added, -{dropped} dropped, {unchanged} unchanged')

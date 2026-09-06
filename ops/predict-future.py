@@ -84,7 +84,11 @@ def generate_tooltips(df, server_map, context_info, target_guids, max_minutes, o
                 if ratio1 < DOMINANCE_THRESHOLD and ratio2 >= NOISE_THRESHOLD:
                     s_name2 = server_map.get(ip2, ip2)
                     if len(s_name2) > 25: s_name2 = s_name2[:22] + ".."
-                    fav_servers.append(s_name2)
+                    # Dedupe by resolved name: two distinct IPs can share one
+                    # server name (e.g. a re-hosted/dynamic-IP server), which
+                    # would otherwise print the same line twice.
+                    if s_name2 != s_name1:
+                        fav_servers.append(s_name2)
 
         # --- PART B: SMART COMPANION LIST ---
         my_keys = my_history['session_key'].unique()
@@ -187,7 +191,7 @@ def find_imminent_hotspots(file_path='data/census.csv',
     try:
         print("\nScanning for latest timestamp...")
         max_minutes = 0
-        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip', 'audible'], chunksize=100000, usecols=['mins']):
+        for chunk in pd.read_csv(file_path, header=None, names=['mins'], usecols=[0], chunksize=100000):
             chunk['mins'] = pd.to_numeric(chunk['mins'], errors='coerce')
             max_minutes = max(max_minutes, chunk['mins'].max())
 
@@ -201,7 +205,7 @@ def find_imminent_hotspots(file_path='data/census.csv',
         print(f"Loading data from last {ANALYSIS_WINDOW_DAYS} days...")
         
         chunks = []
-        for chunk in pd.read_csv(file_path, names=['mins', 'guid', 'ip', 'audible'], chunksize=100000):
+        for chunk in pd.read_csv(file_path, header=None, names=['mins', 'guid', 'ip'], usecols=[0, 1, 2], chunksize=100000):
             chunk['mins'] = pd.to_numeric(chunk['mins'], errors='coerce')
             chunk.dropna(subset=['mins'], inplace=True)
             relevant = chunk[chunk['mins'] >= min_minutes]

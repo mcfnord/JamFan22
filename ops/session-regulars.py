@@ -10,7 +10,7 @@ Rules:
     AND (b) been present at the MOST RECENT session
   - If they missed last week, they're not mentioned this week.
 """
-import json, csv, sys
+import json, csv, sys, urllib.parse
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -67,7 +67,10 @@ print("Scanning census.csv …", flush=True)
 with open("data/census.csv") as f:
     for line in f:
         parts = line.strip().split(',')
-        if len(parts) != 3:
+        # census.csv rows carry an optional 4th column (audible) on servers with
+        # level data — i.e. every fleet server this script tracks. Anchor to >= 3,
+        # never == 3, or ~73% of tracked rows are silently dropped.
+        if len(parts) < 3:
             continue
         server = parts[2]
         if server not in tracked:
@@ -86,8 +89,10 @@ with open("data/census.csv") as f:
 names = {}
 with open("data/censusgeo.csv") as f:
     for row in csv.reader(f):
-        if len(row) >= 2 and row[1].strip() and row[1].strip() != "No Name":
-            names[row[0]] = row[1].strip()
+        if len(row) >= 2:
+            decoded = urllib.parse.unquote_plus(row[1]).strip()
+            if decoded and "no name" not in decoded.lower():
+                names[row[0]] = decoded
 
 result = {}
 
@@ -112,7 +117,10 @@ for server, t in tracked.items():
         key=lambda x: -x[1]
     )
 
-    regular_names = [names[g] for g, _ in qualified if g in names]
+    # Lobby bots attend every session, so they always pass the loyalty
+    # threshold — never list them as regulars
+    regular_names = [names[g] for g, _ in qualified
+                     if g in names and "lobby" not in names[g].lower()]
 
     server_lore = lore.get(server, {})
     events = server_lore.get("events", [])

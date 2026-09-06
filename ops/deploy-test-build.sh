@@ -58,6 +58,12 @@ FILES_TO_COPY=(
     "data/gemini-key.txt"
     "data/welcome-config.txt"
     "data/welcome-system-prompt.txt"
+    "data/welcome-shared-rules.txt"
+    "data/server-lore.json"
+    "data/session-regulars.json"
+    "data/bands.json"
+    "data/band-lore-prompt.txt"
+    "data/essay-system-prompt.txt"
 
     # --- Wwwroot State/Text Files ---
     "wwwroot/paircount.csv"
