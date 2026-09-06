@@ -12,7 +12,15 @@ public record GatherResult(
     List<int> RoomChannelIds,
     bool IsGroupNoteworthy,
     bool HasWebUser = false,
-    string RoomLanguage = "English");
+    string RoomLanguage = "English",
+    Dictionary<string, string>? NameEmojis = null,
+    List<string>? EventNames = null,
+    List<string>? RoomGuids = null,
+    string ArrivingName = "",
+    string ArrivingInstrument = "",
+    int ArrivingDistKm = 0,
+    List<int>? LobbyChannelIds = null,
+    string ServerCountryCode = "");
 
 public static class WelcomeContext
 {
@@ -22,6 +30,14 @@ public static class WelcomeContext
     private static HashSet<string> _webUserIps = new();
     private static DateTime _webUserIpsRefreshedAt = DateTime.MinValue;
     private static readonly SemaphoreSlim _webUserIpsLock = new(1, 1);
+
+    // Tracks last arrival time per server for URL stability gate
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _lastArrivalAt = new();
+
+    // Rapid-rejoin memory: census ticks accrue ~1/min, so a genuine first-timer who
+    // rejoins within minutes-to-hours still shows zero server history. Keyed guid:serverKey.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _recentWelcomes = new();
+    private static readonly TimeSpan _rejoinWindow = TimeSpan.FromHours(12);
 
     private static async Task<HashSet<string>> GetWebUserIpsAsync()
     {
@@ -87,7 +103,8 @@ public static class WelcomeContext
         [property: JsonPropertyName("themes")] List<string>? Themes,
         [property: JsonPropertyName("events")] List<LoreEvent>? Events,
         [property: JsonPropertyName("lat")] double? Lat = null,
-        [property: JsonPropertyName("lon")] double? Lon = null);
+        [property: JsonPropertyName("lon")] double? Lon = null,
+        [property: JsonPropertyName("notes")] string? Notes = null);
 
     private record SessionEntry(
         [property: JsonPropertyName("session_name")] string? SessionName,
@@ -125,13 +142,20 @@ public static class WelcomeContext
         ["SE"]="Swedish",["NO"]="Norwegian",["DK"]="Danish",["FI"]="Finnish",["IS"]="Icelandic",
         ["GR"]="Greek",["TR"]="Turkish",["IL"]="Hebrew",["SA"]="Arabic",["EG"]="Arabic",["AE"]="Arabic",["MA"]="Arabic",["DZ"]="Arabic",["IQ"]="Arabic",
         ["JP"]="Japanese",["KR"]="Korean",["CN"]="Chinese",["TW"]="Chinese",["HK"]="Chinese",
-        ["TH"]="Thai",["VN"]="Vietnamese",["ID"]="Indonesian",["MS"]="Malay",["MY"]="Malay",
-        ["PH"]="Filipino",["HI"]="Hindi",["BN"]="Bengali",["TA"]="Tamil",
+        ["TH"]="Thai",["VN"]="Vietnamese",["ID"]="Indonesian",["MY"]="Malay",["BN"]="Malay",
+        ["PH"]="Filipino",["BD"]="Bengali",
         ["US"]="English",["GB"]="English",["AU"]="English",["CA"]="English",
         ["NZ"]="English",["IE"]="English",["ZA"]="English",["IN"]="English",
     };
     private static string LanguageFor(string nationCode) =>
         _countryLanguage.TryGetValue(nationCode, out var lang) ? lang : "English";
+
+    // Dormant-essay language rule: use the language of the joiner's flag choice when we
+    // recognize it; otherwise fall back to the language of the country the server lives in.
+    public static string EssayLanguage(string joinerNationCode, string serverCountryCode) =>
+        _countryLanguage.TryGetValue(joinerNationCode, out var jl) ? jl
+        : _countryLanguage.TryGetValue(serverCountryCode, out var sl) ? sl
+        : "English";
 
     private static readonly Dictionary<string, string> _countryNameToLanguage = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -158,11 +182,26 @@ public static class WelcomeContext
     private static string LanguageForCountryName(string? cn) =>
         cn != null && _countryNameToLanguage.TryGetValue(cn, out var lang) ? lang : "English";
 
+    private static readonly string[] _dowNames =
+        { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+
+    /// <summary>Guard suffix for lore text naming a weekday other than the server-local today —
+    /// stops the LLM implying a recurring day's gathering is happening tonight.</summary>
+    private static string WeekdayMismatchGuard(string text, string todayDowName)
+    {
+        foreach (var d in _dowNames)
+            if (!d.Equals(todayDowName, StringComparison.OrdinalIgnoreCase) &&
+                text.Contains(d, StringComparison.OrdinalIgnoreCase))
+                return $" (recurring {d} identity — today is {todayDowName}, NOT {d}; never imply the {d} gathering is happening tonight)";
+        return "";
+    }
+
     // Reads key=value pairs from data/welcome-config.txt; missing keys get defaults.
-    private static (int crewMinMins, int forecastMinMins, int forecastSightingHours, int forecastMaxEntries)
+    private static (int crewMinMins, int forecastMinMins, int forecastSightingHours, int forecastMaxEntries, HashSet<string> crewExcludeGuids)
         ReadConfig()
     {
         int crewMin = 30, forecastMin = 60, sightHours = 2, maxEntries = 4;
+        var excludeGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             foreach (var raw in File.ReadLines("data/welcome-config.txt"))
@@ -178,11 +217,12 @@ public static class WelcomeContext
                     case "forecast_min_mins":         int.TryParse(v, out forecastMin); break;
                     case "forecast_sighting_hours":   int.TryParse(v, out sightHours);  break;
                     case "forecast_max_entries":      int.TryParse(v, out maxEntries);  break;
+                    case "crew_exclude_guid":         if (v.Length > 0) excludeGuids.Add(v); break;
                 }
             }
         }
         catch { }
-        return (crewMin, forecastMin, sightHours, maxEntries);
+        return (crewMin, forecastMin, sightHours, maxEntries, excludeGuids);
     }
 
     // Returns the last censusgeo.csv entry for a GUID: (name, instrument, city).
@@ -446,11 +486,12 @@ public static class WelcomeContext
     // Co-jammers currently active on a different server (shown when players ARE in the room).
     private static List<(string Name, string Guid, string ServerKey, string ServerName, int MinsTogether)> FindUsualCrewElsewhere(
         string arrivingGuid, List<string> currentServerKeys, Dictionary<string, string> liveStatus,
-        int minMins = 30)
+        int minMins = 30, HashSet<string>? excludeGuids = null)
     {
         var results = new List<(string Name, string Guid, string ServerKey, string ServerName, int MinsTogether)>();
         foreach (var (guid, mins) in TopCoJammerPairs(arrivingGuid, minMins))
         {
+            if (excludeGuids != null && excludeGuids.Contains(guid)) continue;
             if (!liveStatus.TryGetValue(guid, out var sightingServer)) continue;
             if (currentServerKeys.Contains(sightingServer)) continue;
             string name = EncounterTracker.m_guidNamePairs.TryGetValue(guid, out var n)
@@ -472,13 +513,15 @@ public static class WelcomeContext
     private static List<CoJammerForecast> GatherCoJammerForecast(
         string arrivingGuid, List<string> currentServerKeys,
         Dictionary<string, string> liveStatus, Dictionary<string, int> predictedAtServer,
-        int forecastMinMins, int forecastSightingHours, int forecastMaxEntries)
+        int forecastMinMins, int forecastSightingHours, int forecastMaxEntries,
+        HashSet<string>? excludeGuids = null)
     {
         var sightingCutoff = DateTime.Now.AddHours(-forecastSightingHours);
         var results = new List<CoJammerForecast>();
 
         foreach (var (guid, mins) in TopCoJammerPairs(arrivingGuid, minMins: forecastMinMins))
         {
+            if (excludeGuids != null && excludeGuids.Contains(guid)) continue;
             string? liveServer = liveStatus.TryGetValue(guid, out var s) ? s : null;
             int? predictedHere = predictedAtServer.TryGetValue(guid, out var p) ? p : null;
 
@@ -548,6 +591,28 @@ public static class WelcomeContext
         ["drums"] = "drummer",                ["bass"] = "bass player",
         ["wind"] = "wind player",             ["voice"] = "vocalist",
     };
+    internal static readonly Dictionary<string, string> InstrumentEmoji = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Drums"] = "🥁",           ["Djembe"] = "🥁",          ["Bodhran"] = "🥁",
+        ["Bongo"] = "🪘",           ["Congas"] = "🪘",           ["Scratching"] = "🎧",
+        ["Electric Guitar"] = "🎸", ["Acoustic Guitar"] = "🪕",  ["Guitar"] = "🎸",
+        ["Guitar Vocal"] = "🎸",    ["Ukulele"] = "🪕",          ["Bass Ukulele"] = "🪕",
+        ["Mountain Dulcimer"] = "🪕", ["Banjo"] = "🪕",          ["Mandolin"] = "🪕",
+        ["Bass Guitar"] = "🎸",     ["Double Bass"] = "🎻",
+        ["Keyboard"] = "🎹",        ["Grand Piano"] = "🎹",      ["Synthesizer"] = "🎹",
+        ["Accordion"] = "🪗",       ["Keyboard Vocal"] = "🎹",   ["Vibraphone"] = "🎹",
+        ["Vocal"] = "🎤",           ["Microphone"] = "🎙️",       ["Vocal Bass"] = "🎤",
+        ["Vocal Baritone"] = "🎤",  ["Vocal Lead"] = "🎤",       ["Rapping"] = "🎤",
+        ["Vocal Soprano"] = "🎤",   ["Vocal Alto"] = "🎤",       ["Vocal Tenor"] = "🎤",
+        ["Harmonica"] = "🎵",       ["Harp"] = "🎵",
+        ["Trumpet"] = "🎺",         ["Trombone"] = "🎺",         ["French Horn"] = "🎺",
+        ["Tuba"] = "🎺",
+        ["Saxophone"] = "🎷",
+        ["Clarinet"] = "🎵",        ["Flute"] = "🎵",            ["Bassoon"] = "🎵",
+        ["Oboe"] = "🎵",            ["Recorder"] = "🎵",
+        ["Violin"] = "🎻",          ["Viola"] = "🎻",             ["Cello"] = "🎻",
+        ["Streamer"] = "📻",        ["Listener"] = "👂",
+    };
 
     private static int GetNetworkInstrumentCount(string instrument)
     {
@@ -581,6 +646,179 @@ public static class WelcomeContext
     public static bool IsRich(string contextText) =>
         contextText.Length > 0 && !contextText.Contains("Nothing notable");
 
+    // Pro-tier gate (operator, 2026-08-30): Pro writing only for the most known, most returning
+    // guests. "Known" means this server's own lore already names them — whole-word, case-insensitive
+    // match against server-lore.json notes/themes/tagline or session-regulars.json regulars for this
+    // server key. One source of truth: maintaining the lore (lore-evidence.py, ~90 days) maintains
+    // the Pro allowlist. Never substring: "Z" must not match "Zach".
+    // Every knob is in welcome-config.txt (hot, no restart):
+    //   pro_gate=lore,regulars,list   which sources count (default lore,regulars); `off` disables Pro
+    //   pro_names=Alice,Bob           explicit names for the `list` source, any server, exact match
+    //   pro_min_fleet_minutes=120     RETURN FLOOR every source must pass (operator 2026-08-30: "No Pro
+    //                                 essays for strangers. Only for people who return to our servers
+    //                                 again and again"): census minutes on fleet servers, rolling window.
+    public static bool IsLoreGuest(string serverKey, string arrivingName, string arrivingGuid = "")
+    {
+        if (string.IsNullOrWhiteSpace(serverKey) || string.IsNullOrWhiteSpace(arrivingName)) return false;
+        var name = arrivingName.Trim();
+        if (name.Length < 2) return false;
+        try
+        {
+            var gate = (WelcomeMessageGenerator.ReadConfigValue("pro_gate") ?? "lore,regulars")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(g => g.ToLowerInvariant()).ToHashSet();
+            if (gate.Contains("off")) return false;
+            int minFleet = int.TryParse(WelcomeMessageGenerator.ReadConfigValue("pro_min_fleet_minutes"), out var mf) ? mf : 120;
+            if (minFleet > 0 && FleetMinutes(arrivingGuid) < minFleet) return false;   // fail closed: unknown guid = stranger
+            if (gate.Contains("list"))
+            {
+                var listed = (WelcomeMessageGenerator.ReadConfigValue("pro_names") ?? "")
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (listed.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))) return true;
+            }
+            var parts = new List<string>();
+            if (gate.Contains("lore"))
+            {
+                var lore = LoadServerLore(serverKey);
+                if (lore != null)
+                {
+                    if (lore.Notes != null) parts.Add(lore.Notes);
+                    if (lore.Tagline != null) parts.Add(lore.Tagline);
+                    if (lore.Themes != null) parts.AddRange(lore.Themes);
+                }
+            }
+            if (gate.Contains("regulars") && LoadSessionRegulars().TryGetValue(serverKey, out var sess) && sess.Regulars != null)
+                parts.AddRange(sess.Regulars);
+            if (parts.Count == 0) return false;
+            var rx = new System.Text.RegularExpressions.Regex(
+                @"(?<![\p{L}\p{N}])" + System.Text.RegularExpressions.Regex.Escape(name) + @"(?![\p{L}\p{N}])",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return parts.Any(p => rx.IsMatch(p));
+        }
+        catch { return false; }
+    }
+
+    // Census minutes this GUID has spent on OUR servers (fleet-server-ips.txt + fleet-dormant-ips.txt),
+    // rolling census window. The "returns again and again" measure behind the Pro floor. 0 for an unknown guid.
+    public static int FleetMinutes(string guid)
+    {
+        if (string.IsNullOrWhiteSpace(guid)) return 0;
+        try
+        {
+            var fleetIps = new HashSet<string>();
+            foreach (var f in new[] { "data/fleet-server-ips.txt", "data/fleet-dormant-ips.txt" })
+            {
+                if (!File.Exists(f)) continue;
+                foreach (var raw in File.ReadLines(f))
+                {
+                    var line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith('#')) continue;
+                    fleetIps.Add(line.Split(':')[0].Trim());
+                }
+            }
+            CensusIndex.EnsureBuilt();
+            int total = 0;
+            foreach (var (key, mins, _) in CensusIndex.GetGuidServers(guid))
+            {
+                var colon = key.LastIndexOf(':');
+                var ip = colon > 0 ? key[..colon] : key;
+                if (fleetIps.Contains(ip)) total += mins;
+            }
+            return total;
+        }
+        catch { return 0; }
+    }
+
+    // Song-artist clues (operator, 2026-08-30: "I don't see any song-artist context/clues"). url-guids.csv
+    // records every chart URL posted in a room and WHO WAS PRESENT (not who posted). For the arriving
+    // GUID: ultimate-guitar slugs become "Artist – Song", chordtabs.in.th ids resolve through
+    // data/chart-titles.txt (id|Artist – Song), chords69cl room links become the chart-room name.
+    // Ranked by distinct DATES, because a song that comes back across sessions is the real signal.
+    private static readonly object _chartsLock = new();
+    private static DateTime _chartsMtime = DateTime.MinValue;
+    private static Dictionary<string, List<(string date, string label)>> _chartsByGuid = new();
+    private static string TitleCase(string slug) =>
+        string.Join(" ", slug.Split('-', StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => w.Length > 0 ? char.ToUpperInvariant(w[0]) + w[1..] : w));
+    private static void EnsureChartsLoaded()
+    {
+        const string path = "data/url-guids.csv";
+        if (!File.Exists(path)) return;
+        var mtime = File.GetLastWriteTimeUtc(path);
+        lock (_chartsLock)
+        {
+            if (mtime == _chartsMtime) return;
+            var titles = new Dictionary<string, string>();
+            try
+            {
+                if (File.Exists("data/chart-titles.txt"))
+                    foreach (var raw in File.ReadLines("data/chart-titles.txt"))
+                    {
+                        var bar = raw.IndexOf('|');
+                        if (bar > 0) titles[raw[..bar].Trim()] = raw[(bar + 1)..].Trim();
+                    }
+            }
+            catch { }
+            var map = new Dictionary<string, List<(string, string)>>();
+            var epoch = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            foreach (var raw in File.ReadLines(path))
+            {
+                var p = raw.Split(',');
+                if (p.Length < 5 || !int.TryParse(p[0], out var min)) continue;
+                var url = Uri.UnescapeDataString(p[2]);
+                string? label = null;
+                var ug = System.Text.RegularExpressions.Regex.Match(url, @"ultimate-guitar\.com/tab/([^/]+)/([^/?#]+)");
+                if (ug.Success)
+                {
+                    var song = System.Text.RegularExpressions.Regex.Replace(ug.Groups[2].Value, @"-(chords|tab|tabs|official|ukulele|bass|drums|power|pro)?-?\d+$", "");
+                    song = System.Text.RegularExpressions.Regex.Replace(song, @"-(chords|official|tab|tabs)$", "");
+                    label = $"{TitleCase(ug.Groups[1].Value)} – {TitleCase(song)}";
+                }
+                else
+                {
+                    var ct = System.Text.RegularExpressions.Regex.Match(url, @"chordtabs\.in\.th/(\d+)");
+                    if (ct.Success) label = titles.TryGetValue(ct.Groups[1].Value, out var t) ? t : null;
+                    else
+                    {
+                        var room = System.Text.RegularExpressions.Regex.Match(url, @"chords69cl\.vercel\.app/[^?]*\?room=([^&]+)");
+                        if (room.Success) label = $"chart room '{Uri.UnescapeDataString(room.Groups[1].Value)}'";
+                    }
+                }
+                if (label == null) continue;
+                var date = epoch.AddMinutes(min).ToString("yyyy-MM-dd");
+                foreach (var g in p[4].Split('|', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (!map.TryGetValue(g, out var list)) map[g] = list = new();
+                    list.Add((date, label));
+                }
+            }
+            _chartsByGuid = map; _chartsMtime = mtime;
+        }
+    }
+    public static string? SharedChartsNote(string arrivingGuid, int max = 6)
+    {
+        try
+        {
+            EnsureChartsLoaded();
+            List<(string date, string label)>? rows;
+            lock (_chartsLock) { if (!_chartsByGuid.TryGetValue(arrivingGuid, out rows)) return null; }
+            // Operator 2026-08-30: "Must be at least TWO sessions before it's a signal about someone."
+            // charts_min_dates= in welcome-config.txt (hot); a song seen on fewer distinct dates is not a clue,
+            // and if nothing qualifies the line is omitted entirely.
+            int minDates = int.TryParse(WelcomeMessageGenerator.ReadConfigValue("charts_min_dates"), out var md) && md > 0 ? md : 2;
+            var ranked = rows.GroupBy(r => r.label)
+                .Select(g => (label: g.Key, days: g.Select(r => r.date).Distinct().Count(), last: g.Max(r => r.date)))
+                .Where(x => x.days >= minDates)
+                .OrderByDescending(x => x.days).ThenByDescending(x => x.last).Take(max).ToList();
+            if (ranked.Count == 0) return null;
+            var dates = rows.Select(r => r.date).Distinct().OrderBy(d => d).ToList();
+            var items = string.Join("; ", ranked.Select(x => $"{x.label} (on {x.days} dates)"));
+            return $"Charts that recur while the arriving player is in the room (seen on at least {minDates} different dates each; last {ranked.Max(x => x.last)}): {items}. " +
+                   "These are song/artist clues about what this player jams to — weave one or two in naturally when it fits; never list them all, and do not claim they personally posted them.";
+        }
+        catch { return null; }
+    }
+
     private record StreamState(bool IsActive, bool IsFree, string ActiveServer);
 
     private static StreamState ReadStreamState()
@@ -598,14 +836,37 @@ public static class WelcomeContext
         catch { return new(false, true, ""); }
     }
 
+    private const string DormantIpCachePath = "/root/dormant-ip-cache.json";
+
+    // Returns "instanceId:port" if the given "ip:port" matches a known dormant instance.
+    private static string? ResolveInstanceKey(string serverKey)
+    {
+        var lastColon = serverKey.LastIndexOf(':');
+        if (lastColon < 0) return null;
+        var ip   = serverKey[..lastColon];
+        var port = serverKey[(lastColon + 1)..];
+        try
+        {
+            using var cache = JsonDocument.Parse(File.ReadAllText(DormantIpCachePath));
+            foreach (var prop in cache.RootElement.EnumerateObject())
+                if (prop.Value.GetString() == ip)
+                    return $"{prop.Name}:{port}";
+        }
+        catch { }
+        return null;
+    }
+
     private static LoreEntry? LoadServerLore(string serverKey)
     {
         try
         {
             var json = File.ReadAllText("data/server-lore.json");
-            var doc = JsonDocument.Parse(json);
+            var doc  = JsonDocument.Parse(json);
             if (doc.RootElement.TryGetProperty(serverKey, out var el))
                 return JsonSerializer.Deserialize<LoreEntry>(el.GetRawText(), _opts);
+            var instanceKey = ResolveInstanceKey(serverKey);
+            if (instanceKey != null && doc.RootElement.TryGetProperty(instanceKey, out var el2))
+                return JsonSerializer.Deserialize<LoreEntry>(el2.GetRawText(), _opts);
         }
         catch { }
         return null;
@@ -632,11 +893,14 @@ public static class WelcomeContext
         return t <= utcNow ? t.AddDays(7) : t;
     }
 
-    private static string FormatSessionRegulars(List<string>? regulars) =>
-        regulars == null || regulars.Count == 0 ? "" :
-        regulars.Count == 1 ? $" — with {regulars[0]}" :
-        regulars.Count == 2 ? $" — with {regulars[0]} and {regulars[1]}" :
-        $" — with {string.Join(", ", regulars)}";
+    private static string FormatSessionRegulars(List<string>? rawRegulars)
+    {
+        var regulars = rawRegulars?.Where(r => !IsLobbyBot(r)).ToList();
+        return regulars == null || regulars.Count == 0 ? "" :
+            regulars.Count == 1 ? $" — with {regulars[0]}" :
+            regulars.Count == 2 ? $" — with {regulars[0]} and {regulars[1]}" :
+            $" — with {string.Join(", ", regulars)}";
+    }
 
     private static bool IsStudioDFirstHour(DateTime utcNow)
     {
@@ -674,26 +938,47 @@ public static class WelcomeContext
         return false;
     }
 
-    public static async Task<GatherResult> GatherAsync(string arrivingGuid, string serverKey, int rpcPort, string nationCode, int arrivingChannelId = -1, string? playerIp = null)
+    private static bool IsRockDirectoryServer(string serverKey)
     {
-        var (crewMinMins, forecastMinMins, forecastSightHours, forecastMaxEntries) = ReadConfig();
+        try
+        {
+            if (JamulusCacheManager.LastReportedList.TryGetValue("Genre Rock", out var json))
+            {
+                var servers = JsonSerializer.Deserialize<List<JamFan22.Models.JamulusServers>>(json);
+                if (servers != null)
+                    foreach (var s in servers)
+                        if ($"{s.ip}:{s.port}" == serverKey) return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public static async Task<GatherResult> GatherAsync(string arrivingGuid, string serverKey, int rpcPort, string nationCode, int arrivingChannelId = -1, string? playerIp = null, Func<Task<string?>>? wsGetClients = null)
+    {
+        var (crewMinMins, forecastMinMins, forecastSightHours, forecastMaxEntries, crewExcludeGuids) = ReadConfig();
         string serverIp = serverKey.Contains(':') ? serverKey.Split(':')[0] : serverKey;
         var streamState = ReadStreamState();
         bool isStudioD = serverKey == "24.199.127.71:22224";
         var serverLore = LoadServerLore(serverKey);
-        bool streamActiveHere = streamState.IsActive && streamState.ActiveServer.StartsWith(serverIp + ":");
+        bool streamActiveHere = streamState.IsActive && streamState.ActiveServer == serverKey;
 
         // Primary: LastReportedList (instant, works for any server)
         var playersFromList = GetPlayersFromLastReportedList(serverKey);
 
-        // Supplement: fleet RPC gives fresher data for fleet servers (2s timeout, non-blocking)
-        Task<List<RpcClientEntry>>? rpcTask = rpcPort > 0
-            ? GetClientsAsync(serverIp, rpcPort)
-            : null;
+        // Supplement: WS channel preferred (no --jsonrpcport needed); fall back to raw TCP
+        Task<List<RpcClientEntry>>? rpcTask = wsGetClients != null
+            ? GetClientsViaWsAsync(wsGetClients)
+            : (rpcPort > 0 ? GetClientsAsync(serverIp, rpcPort) : null);
 
         var (serverName, serverCity) = LookupServer(serverKey);
         var serverKeys = serverKey.Contains(':') ? new List<string> { serverKey } : new List<string>();
         int nowMinutes = JamulusCacheManager.MinutesSince2023AsInt();
+
+        // Band fleet invite — detection + throttle only, no message yet (TODO.md: Band Fleet Invites)
+        var bandForGuid = JamFan22.BandIndex.FindBandForGuid(arrivingGuid);
+        if (bandForGuid != null && JamFan22.BandInviteTracker.TryMarkEligible(bandForGuid.Value.BandId))
+            Console.WriteLine($"[BAND-INVITE-ELIGIBLE] band_id={bandForGuid.Value.BandId} band_name={bandForGuid.Value.BandName ?? "-"} guid={arrivingGuid}");
 
         var historyTask = Task.Run(() => GatherServerHistory(arrivingGuid, serverKeys, nowMinutes));
         var homeServerTask = Task.Run(() => {
@@ -720,7 +1005,7 @@ public static class WelcomeContext
         }
 
         // Retry once if arriver is absent or has blank metadata (CHANNEL_INFO race, ~20-200ms window)
-        if (rpcPort > 0 && arrivingChannelId >= 0)
+        if ((wsGetClients != null || rpcPort > 0) && arrivingChannelId >= 0)
         {
             var arriver = players.FirstOrDefault(p => p.ChannelId == arrivingChannelId);
             if (arriver == null || string.IsNullOrEmpty(arriver.Name))
@@ -729,7 +1014,9 @@ public static class WelcomeContext
                 await Task.Delay(500);
                 try
                 {
-                    var retryPlayers = await GetClientsAsync(serverIp, rpcPort);
+                    var retryPlayers = wsGetClients != null
+                        ? await GetClientsViaWsAsync(wsGetClients)
+                        : await GetClientsAsync(serverIp, rpcPort);
                     if (retryPlayers.Count > 0) players = retryPlayers;
                 }
                 catch (Exception ex) { Console.WriteLine($"[WELCOME-CTX] retry getClients failed: {ex.Message}"); }
@@ -797,9 +1084,9 @@ public static class WelcomeContext
         }
 
         var liveStatus = ReadLiveStatus();
-        var usualCrewElsewhere = FindUsualCrewElsewhere(arrivingGuid, serverKeys, liveStatus, crewMinMins);
+        var usualCrewElsewhere = FindUsualCrewElsewhere(arrivingGuid, serverKeys, liveStatus, crewMinMins, crewExcludeGuids);
         var coJammerForecast = GatherCoJammerForecast(arrivingGuid, serverKeys, liveStatus, predictions.ByGuid,
-            forecastMinMins, forecastSightHours, forecastMaxEntries);
+            forecastMinMins, forecastSightHours, forecastMaxEntries, crewExcludeGuids);
 
         var others = players
             .Where(p => !string.IsNullOrEmpty(p.Name) && !IsLobbyBot(p.Name)
@@ -817,20 +1104,25 @@ public static class WelcomeContext
         bool hasWebUser = arrivingIsWebUser
             || others.Any(p => !string.IsNullOrEmpty(p.Address) && webIps.Contains(p.Address.Split(':')[0]));
 
-        // Language vote: arriving player + each room member + server (1 vote each), English on tie
+        // Language vote: arriving player + each room member + server (1 vote each).
+        // On a tie, pick randomly among the tied languages — unless the server's own
+        // language is one of them, in which case the tie goes to the server.
         var langVotes = new Dictionary<string, int>(StringComparer.Ordinal);
         void AddVote(string lang) { langVotes[lang] = langVotes.GetValueOrDefault(lang) + 1; }
         AddVote(LanguageFor(nationCode));
         foreach (var p in others)
             AddVote(p.Country.Length <= 3 ? LanguageFor(p.Country) : LanguageForCountryName(p.Country));
         var serverCountryName = serverIpApiJson?["countryName"]?.ToString();
-        if (serverCountryName != null) AddVote(LanguageForCountryName(serverCountryName));
+        string? serverLanguage = serverCountryName != null ? LanguageForCountryName(serverCountryName) : null;
+        if (serverLanguage != null) AddVote(serverLanguage);
         string chosenLanguage = "English";
         if (langVotes.Count > 0)
         {
             int maxVotes = langVotes.Values.Max();
             var tied = langVotes.Where(kv => kv.Value == maxVotes).Select(kv => kv.Key).ToList();
-            chosenLanguage = tied[Random.Shared.Next(tied.Count)];
+            chosenLanguage = (serverLanguage != null && tied.Contains(serverLanguage))
+                ? serverLanguage
+                : tied[Random.Shared.Next(tied.Count)];
         }
 
         var coGeoGuids = new HashSet<string>(StringComparer.Ordinal);
@@ -860,6 +1152,26 @@ public static class WelcomeContext
             var firstWord = pn.Split(' ')[0];
             if (firstWord.Length > 1 && firstWord != pn && !nameColors.ContainsKey(firstWord))
                 nameColors[firstWord] = "#7EC8E3";
+        }
+
+        var nameEmojis = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in others)
+        {
+            var pn = p.Name?.Trim() ?? "";
+            if (pn.Length > 0 && !IsNoName(pn) && InstrumentEmoji.TryGetValue(p.Instrument ?? "", out var em))
+                nameEmojis[pn] = em;
+        }
+        foreach (var c in usualCrewElsewhere)
+        {
+            var n = c.Name.Trim();
+            if (n.Length > 0 && coBios.TryGetValue(c.Guid, out var bio) && InstrumentEmoji.TryGetValue(bio.Instrument, out var em))
+                nameEmojis[n] = em;
+        }
+        foreach (var c in coJammerForecast)
+        {
+            var n = c.Name.Trim();
+            if (n.Length > 0 && !nameEmojis.ContainsKey(n) && coBios.TryGetValue(c.Guid, out var bio) && InstrumentEmoji.TryGetValue(bio.Instrument, out var em))
+                nameEmojis[n] = em;
         }
 
         // Group weekday streak: min individual streak among regulars with ≥5 consecutive weeks
@@ -893,7 +1205,10 @@ public static class WelcomeContext
         int typicalNetworkClients = CensusIndex.GetTypicalNetworkSizeAtHour(DateTime.UtcNow.Hour, nowMinutes);
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Current UTC: {DateTime.UtcNow:dddd HH:mm}");
+        string serverLocalStr = serverTz != null
+            ? $" / Server local: {TimeZoneInfo.ConvertTimeFromUtc(utcNowDt, serverTz):dddd HH:mm}"
+            : "";
+        sb.AppendLine($"Current UTC: {DateTime.UtcNow:dddd HH:mm}{serverLocalStr}");
         if (currentNetworkClients > 0 && typicalNetworkClients > 0)
         {
             double ratio = (double)currentNetworkClients / typicalNetworkClients;
@@ -947,6 +1262,8 @@ public static class WelcomeContext
         }
 
         bool isDefaultName = arrivingName == "(unknown)";
+        if (!isDefaultName && !IsNoName(arrivingName) && !nameColors.ContainsKey(arrivingName))
+            nameColors[arrivingName] = "";
 
         string arrivingExp = "";
         int lifetimeMins = !isDefaultName ? CensusIndex.GetGuidLifetime(arrivingGuid) : 0;
@@ -966,93 +1283,56 @@ public static class WelcomeContext
             arrivingExp = days >= 2 ? $" — {days} days on Jamulus{vetTag}" : $" — {hours}h on Jamulus{vetTag}";
         }
 
+        bool isFirstFleetVisit = !isDefaultName && !CensusIndex.GetGuidServers(arrivingGuid)
+            .Any(s => FleetIpAllowlist.Contains(s.ServerKey.Contains(':') ? s.ServerKey.Split(':')[0] : s.ServerKey));
+
         int instrumentNetworkCount = arrivingInstrument.Length > 0 ? GetNetworkInstrumentCount(arrivingInstrument) : 0;
         bool isRareInstrument = instrumentNetworkCount > 0 && instrumentNetworkCount < 15;
 
-        int visitStreak = !isDefaultName ? CensusIndex.GetGuidStreak(arrivingGuid, nowMinutes) : 0;
 
-        int networkAbsenceDays = 0;
-        if (!isDefaultName)
-        {
-            int lastSeenMinute = CensusIndex.GetGuidLastSeenMinute(arrivingGuid);
-            if (lastSeenMinute > 0)
-                networkAbsenceDays = Math.Max(0, (nowMinutes - lastSeenMinute) / 1440);
-        }
 
-        bool isArrivingListener    = !isDefaultName && CensusIndex.IsListener(arrivingGuid);
-        bool isArrivingActivePlayer = !isDefaultName && CensusIndex.IsActivePlayer(arrivingGuid);
-
-        // Room friends — placed first so model leads with who is present in the room
-        // Skip for default-named players: time-together data is unreliable for "No Name"
-        var significantRoom = isDefaultName ? new List<(string Name, int Mins)>() : others
-            .Select(p => {
-                var pg = EncounterTracker.GetHash(p.Name, p.Country, p.Instrument);
-                var pk = EncounterTracker.CanonicalTwoHashes(arrivingGuid, pg);
-                int mins = 0;
-                if (EncounterTracker.m_timeTogether != null &&
-                    EncounterTracker.m_timeTogether.TryGetValue(pk, out var ts))
-                    mins = (int)ts.TotalMinutes;
-                return (Name: p.Name?.Trim() ?? "", Mins: mins);
-            })
-            .Where(x => x.Name.Length > 0 && x.Mins >= 60 && !IsNoName(x.Name))
-            .OrderByDescending(x => x.Mins)
-            .ToList();
-        if (significantRoom.Count > 0)
-        {
-            var roomDesc = string.Join(", ", significantRoom.Select(x =>
-                $"{x.Name} ({(x.Mins >= 60 ? $"{x.Mins / 60}h" : $"{x.Mins}min")} together)"));
-            sb.AppendLine($"IN THE ROOM: {roomDesc}");
-            sb.AppendLine();
-        }
-
-        if (networkAbsenceDays >= 14 && !isDefaultName)
-        {
-            string absencePhrase = networkAbsenceDays >= 60 ? $"{networkAbsenceDays / 30} months"
-                                 : networkAbsenceDays >= 14 ? $"{networkAbsenceDays / 7} weeks"
-                                 : $"{networkAbsenceDays} days";
-            string reunionNote = significantRoom.Count > 0
-                ? $"away {absencePhrase}. Known crew in room: {string.Join(", ", significantRoom.Select(x => x.Name))}."
-                : $"away {absencePhrase}.";
-            sb.AppendLine($"RETURNING AFTER ABSENCE: {reunionNote}");
-            sb.AppendLine();
-        }
-
-        // Crew elsewhere — after room presence
-        if (usualCrewElsewhere.Count > 0 && !isDefaultName)
-        {
-            var names = usualCrewElsewhere.Select(c => {
-                string minsStr = c.MinsTogether >= 60 ? $"{c.MinsTogether / 60}h together" : $"{c.MinsTogether} min together";
-                bool sameCity = arrivingCity.Length > 0 && coBios.TryGetValue(c.Guid, out var cbio)
-                    && cbio.City.Equals(arrivingCity, StringComparison.OrdinalIgnoreCase);
-                string cityNote = sameCity ? $", also from {arrivingCity}" : "";
-                return $"{c.Name} ({minsStr}{cityNote})";
-            });
-            sb.AppendLine($"Also online right now: {string.Join(", ", names)}");
-            sb.AppendLine();
-        }
 
         if (serverName.Length > 0 || serverCity.Length > 0)
             sb.AppendLine($"Server: {serverName}" + (serverCity.Length > 0 ? $" ({serverCity})" : ""));
         if (serverLore != null)
         {
             if (serverLore.Tagline?.Length > 0)
-                sb.AppendLine($"Server identity: {serverLore.Tagline}");
+                sb.AppendLine($"Server identity: {serverLore.Tagline}{WeekdayMismatchGuard(serverLore.Tagline, serverLocalDowName)}");
             if (serverLore.Themes?.Count > 0)
-                sb.AppendLine($"Server themes: {string.Join(", ", serverLore.Themes)}");
+            {
+                var themesStr = string.Join(", ", serverLore.Themes);
+                sb.AppendLine($"Server themes: {themesStr}{WeekdayMismatchGuard(themesStr, serverLocalDowName)}");
+            }
+            if (serverLore.Notes?.Length > 0)
+                sb.AppendLine($"Server note: {serverLore.Notes}{WeekdayMismatchGuard(serverLore.Notes, serverLocalDowName)}");
             if (serverLore.Events?.Count > 0)
             {
+                var evNow = DateTime.UtcNow;
                 foreach (var ev in serverLore.Events)
                 {
+                    string timing = "";
+                    if (ev.Weekday != null && ev.Hour != null)
+                    {
+                        var evDow = (DayOfWeek)((ev.Weekday.Value + 1) % 7);
+                        var next  = NextSessionOccurrence(evDow, ev.Hour.Value, evNow);
+                        double hrs = (next - evNow).TotalHours;
+                        if (hrs <= 1)       timing = "happening now — ";
+                        else if (hrs <= 6)  timing = $"in {(int)hrs}h — ";
+                        else if (hrs <= 20) timing = "tonight — ";
+                        else if (ev.Auto == true) continue; // auto events > 20h away: skip
+                    }
                     var parts = new List<string>();
-                    if (ev.Schedule?.Length > 0) parts.Add(ev.Schedule);
+                    if (ev.Schedule?.Length > 0)    parts.Add(ev.Schedule);
                     if (ev.Description?.Length > 0) parts.Add(ev.Description);
-                    if (ev.ListenUrl?.Length > 0) parts.Add($"listen: {ev.ListenUrl}");
-                    sb.AppendLine($"Event — {ev.Name}: {string.Join("; ", parts)}");
+                    if (ev.ListenUrl?.Length > 0)   parts.Add($"listen: {ev.ListenUrl}");
+                    sb.AppendLine($"Event — {ev.Name}: {timing}{string.Join("; ", parts)}");
                 }
             }
         }
         if (IsJazzDirectoryServer(serverKey))
             sb.AppendLine("Server genre: Jazz (inferred — players here may not actually be playing jazz, so keep any reference low-key)");
+        if (IsRockDirectoryServer(serverKey))
+            sb.AppendLine("Server genre: Rock (inferred — players here may not actually be playing rock, so keep any reference low-key)");
         // Session hype — inject for the arriving server and same-host fleet servers
         var sessionRegulars = LoadSessionRegulars();
         var utcNow = DateTime.UtcNow;
@@ -1067,7 +1347,8 @@ public static class WelcomeContext
             if ((next - utcNow).TotalHours is < 0 or > 16) continue;
 
             string regPhrase = FormatSessionRegulars(sess.Regulars);
-            string sessDay = next.DayOfWeek == utcNow.DayOfWeek ? "tonight" : next.ToString("dddd");
+            // Use "tonight" if within 6h — catches cross-UTC-midnight sessions that are still "tonight" locally
+            string sessDay = (next - utcNow).TotalHours < 6 ? "tonight" : next.ToString("dddd");
             if (isOwn)
                 sb.AppendLine($"Upcoming session {sessDay}: {sess.SessionName}{regPhrase}");
             else
@@ -1095,10 +1376,28 @@ public static class WelcomeContext
                     double hours = (next - utcNow).TotalHours;
                     if (hours < 0 || hours > 2) continue;
                     string label = ev.Name;
-                    sb.AppendLine($"Nearby session in {(int)hours}h: {label} — {ev.Schedule}");
+                    var (nearbyLoreName, _) = LookupServer(loreKey);
+                    sb.AppendLine($"Nearby session in {(int)hours}h on {nearbyLoreName}: {label} — {ev.Schedule}");
+                    Console.WriteLine($"[NEARBY-EVENT] fleet={serverKey} lore={loreKey} event=\"{label}\" hours={hours:F1}");
                 }
             }
         }
+
+        // URL stability gate: fire URLs only when crowd has settled (5-min lull since last arrival,
+        // at least 1 other already present), then enter a 20-min quiet period.
+        string urlGateKey = $"url-gate:{serverKey}";
+        bool urlsAllowed = false;
+        if (!WelcomeCache.TryGet(urlGateKey, out _))
+        {
+            if (_lastArrivalAt.TryGetValue(serverKey, out DateTime lastArrival)
+                && (utcNow - lastArrival).TotalMinutes >= 5
+                && others.Count >= 1)
+            {
+                urlsAllowed = true;
+                WelcomeCache.Set(urlGateKey, "", 20);
+            }
+        }
+        _lastArrivalAt[serverKey] = utcNow;
 
         // Global tip: Marsha K's Jazz Jam first-hour promotion to any fleet server worldwide
         if (!isStudioD && IsStudioDFirstHour(utcNow))
@@ -1106,27 +1405,48 @@ public static class WelcomeContext
             string occ = others.Count == 0 ? "empty right now" :
                          others.Count == 1 ? "just 1 other player here" :
                          $"{others.Count} players here";
-            sb.AppendLine($"Global hot tip: Marsha K's Jazz Jam just started on Studio D — live right now, runs at least another hour. This server is {occ}. Invite the player to join (it's Studio D on Jamulus) but note that many just listen in at https://StudioD.live — it's pretty far for most. Tip them to catch it while it's hot.");
+            if (urlsAllowed)
+                sb.AppendLine($"Global hot tip: Marsha K's Jazz Jam just started on Studio D — live right now, runs at least another hour. This server is {occ}. Invite the player to join (it's Studio D on Jamulus) but note that many just listen in at https://ear.jamulus.live — it's pretty far for most. Tip them to catch it while it's hot.");
+            else
+                sb.AppendLine($"Global hot tip: Marsha K's Jazz Jam just started on Studio D — live right now, runs at least another hour. This server is {occ}. Mention the Jam but do not include any listen URL.");
         }
 
         int? minsUntilLobbyStream = JamFan22.StreamGate.MinutesUntilNextScheduledStream(serverKey);
         string streamUrl = serverLore?.Events?.FirstOrDefault(e => e.ListenUrl?.Length > 0)?.ListenUrl
                            ?? "https://ear.jamulus.live";
+        // When the stream is live/leased here, the link is delivery, not promotion — always
+        // include it in this private welcome (every arrival deserves their own copy). linkIncluded
+        // lets the group path dedup (ear-link token below) and suppresses the [NO-URLS] block.
+        bool linkIncluded = false;
         if (streamActiveHere)
-            sb.AppendLine($"This server is streaming live right now at {streamUrl}. Include this line in your message: \"Non-Jamulus fans can listen at {streamUrl}!\"");
+        {
+            sb.AppendLine($"This server is streaming live right now at {streamUrl}. Include this line in your message: \"Share/record at {streamUrl}!\"");
+            linkIncluded = true;
+        }
         else if (lobbyPresent)
-            sb.AppendLine($"Lobby client connected — include this line verbatim: \"Friends can listen at {streamUrl}. Works in most browsers.\"");
-        else if (minsUntilLobbyStream.HasValue)
+        {
+            sb.AppendLine($"Lobby client connected — include this line verbatim: \"Share/record at {streamUrl}. Works in most browsers.\"");
+            linkIncluded = true;
+        }
+        else if (minsUntilLobbyStream.HasValue && urlsAllowed)
             sb.AppendLine($"Stream starts in {minsUntilLobbyStream.Value} minutes at {streamUrl} — mention this, not /stream.");
-        else if (streamState.IsFree && JamFan22.StreamGate.IsEligibleServer(serverIp) && others.Count >= 2)
+        else if (minsUntilLobbyStream.HasValue)
+            sb.AppendLine($"Stream starts in {minsUntilLobbyStream.Value} minutes — do not include the URL (recently mentioned).");
+        else if (streamState.IsFree && JamFan22.StreamGate.IsEligibleServer(serverIp) && others.Count >= 2 && urlsAllowed)
         {
             if (playerGeoNote != null)
                 sb.AppendLine("Stream slot: free (faraway player) — frame /stream as: if they'd rather just listen in, type /stream and they'll get a listen link. Don't frame it as sharing with friends.");
             else
                 sb.AppendLine("Stream slot: free — tell the arriving player they can type /stream to let their non-Jamulus friends listen in.");
         }
+        // Tell the group room-announcement path the share link already went out to this server,
+        // so it won't repeat it inside the 20-min quiet window. One and done.
+        if (linkIncluded)
+            WelcomeCache.Set($"ear-link:{serverKey}", "", 20);
         if (lobbyAudience > 0)
             sb.AppendLine($"Listening audience: {lobbyAudience} {(lobbyAudience == 1 ? "person is" : "people are")} tuned in to this server's live stream right now");
+        if (!urlsAllowed && !linkIncluded)
+            sb.AppendLine("[NO-URLS: crowd still forming or URLs recently sent — omit streaming links and /stream from this message: https://ear.jamulus.live, /stream. The https://jamulus.live orientation link is still allowed.]");
         string arrivingCityNote = arrivingCity.Length > 0 ? $" (city: {arrivingCity})" : "";
         string nameLabel = arrivingName != "(unknown)" ? $": {arrivingName}" : "";
         sb.AppendLine($"Arriving musician{nameLabel}" +
@@ -1135,53 +1455,30 @@ public static class WelcomeContext
                       arrivingCityNote + arrivingExp);
         if (playerGeoNote != null)
             sb.AppendLine($"Arriving player's location: {playerGeoNote}.");
-        if (isArrivingListener)
-            sb.AppendLine("Audibility: historically silent — plays very quietly or listens rather than playing. Don't assume they're here to jam; welcome them as a listener.");
-        else if (isArrivingActivePlayer)
-            sb.AppendLine("Audibility: regularly audible — confirmed active player.");
+        { var charts = SharedChartsNote(arrivingGuid); if (charts != null) sb.AppendLine(charts); }
+
         sb.AppendLine($"Language to use for message: {LanguageFor(nationCode)}");
         if (arrivingIsWebUser)
             sb.AppendLine("Known web user: yes — this player has explored the network's public tools. Skip the https://jamulus.live link (they already know it). Skip any generic orientation. Speak with specificity about this server and who's here.");
+        else if (isFirstFleetVisit)
+            sb.AppendLine("First visit to this network: yes — include <a href='https://jamulus.live'>https://jamulus.live</a> regardless of room signals.");
         sb.AppendLine();
 
         // Server history for arriving player — suppressed for default-named players (unreliable GUID)
+        bool rejoinNoted = false;
         if (!isDefaultName)
         {
+            string rejoinKey = $"{arrivingGuid}:{serverKey}";
+            bool recentlyWelcomed = _recentWelcomes.TryGetValue(rejoinKey, out var lastWelcomedUtc)
+                && (DateTime.UtcNow - lastWelcomedUtc) < _rejoinWindow;
+            _recentWelcomes[rejoinKey] = DateTime.UtcNow;
+            if (_recentWelcomes.Count > 2000)
+                foreach (var kv in _recentWelcomes)
+                    if ((DateTime.UtcNow - kv.Value) > _rejoinWindow)
+                        _recentWelcomes.TryRemove(kv.Key, out _);
+
             if (history.TotalMinutes > 0)
             {
-                string topNote = history.IsTopVisitor ? " — all-time top player on this server" : "";
-                if (history.WeekdayStreak >= 2)
-                {
-                    string streakPhrase;
-                    if (history.WeekdayStreak == 2)
-                        streakPhrase = $"second {serverLocalDowName} here";
-                    else if (history.WeekdayStreak <= 4)
-                    {
-                        string[] spelled = { "", "first", "second", "third", "fourth" };
-                        streakPhrase = $"{spelled[history.WeekdayStreak]} {serverLocalDowName} here";
-                    }
-                    else
-                    {
-                        string ord = OrdinalSuffix(history.WeekdayStreak);
-                        streakPhrase = $"{history.WeekdayStreak}{ord} {serverLocalDowName} in a row";
-                    }
-                    sb.AppendLine($"Arriving player's history: {streakPhrase}{topNote}.");
-                }
-                else
-                {
-                    string lastVisit = history.LastVisitDaysAgo == 0 ? "earlier today" :
-                                       history.LastVisitDaysAgo == 1 ? "yesterday" :
-                                       history.LastVisitDaysAgo <= 14 ? $"{history.LastVisitDaysAgo} days ago" :
-                                       $"{history.LastVisitDaysAgo / 7} weeks ago";
-                    string totalStr = history.TotalMinutes >= 60 ? $"{history.TotalMinutes / 60}h total on this server, " : "";
-                    string todayStr = history.MinutesToday > 0 ? $", {history.MinutesToday} min here today"
-                        : history.MinutesThisWeek > 0 ? $", {history.MinutesThisWeek} min here this week" : "";
-                    sb.AppendLine($"Arriving player's history: {totalStr}last visit: {lastVisit}{todayStr}{topNote}");
-                }
-                if (groupWeekdayStreak >= 2)
-                {
-                    sb.AppendLine($"Group note: {groupWeekdayCount} of the players here (including the arriving player) have each attended at least {groupWeekdayStreak} {serverLocalDowName}s in a row on this server.");
-                }
                 if (crossStreakMembers.Count >= 2)
                 {
                     string names = string.Join(", ", crossStreakMembers);
@@ -1192,9 +1489,20 @@ public static class WelcomeContext
                     sb.AppendLine($"Cross-server pattern: {crossStreakMembers[0]} and the arriving player have jammed together on Jamulus every {serverLocalDowName} for multiple weeks (across different servers).");
                 }
             }
+            else if (recentlyWelcomed)
+            {
+                rejoinNoted = true;
+                sb.AppendLine("Arriving player rejoined — they were welcomed here within the past few hours. Do NOT say it's their first time; a brief welcome-back tone is fine.");
+                if (crossStreakMembers.Count >= 1)
+                {
+                    string names = string.Join(", ", crossStreakMembers);
+                    sb.AppendLine($"Cross-server pattern: {names} and the arriving player have jammed together on Jamulus every {serverLocalDowName} for multiple weeks.");
+                }
+            }
             else
             {
-                sb.AppendLine("Arriving player has never visited this server before — first time here.");
+                if (ResolveInstanceKey(serverKey) == null)
+                    sb.AppendLine("Arriving player has never visited this server before — first time here.");
                 if (crossStreakMembers.Count >= 1)
                 {
                     string names = string.Join(", ", crossStreakMembers);
@@ -1211,38 +1519,16 @@ public static class WelcomeContext
             if (!IsBluesRockServer(homeName))
             {
                 string homeLabel = homeName.Length > 0 ? homeName : homeServer.ServerKey;
-                sb.AppendLine($"Player's home server: {homeLabel} ({homeServer.Total / 60}h there vs. {history.TotalMinutes} min here).");
+                sb.AppendLine($"Player's home server (Jamulus server name, not a location): \"{homeLabel}\" ({homeServer.Total / 60}h there vs. {history.TotalMinutes} min here).");
             }
         }
         if (isRareInstrument)
             sb.AppendLine($"Instrument note: {arrivingInstrument} is rare on Jamulus — only {instrumentNetworkCount} distinct players with this instrument have ever been seen.");
-        if (visitStreak >= 5)
-            sb.AppendLine($"Visit streak: {visitStreak} days in a row on Jamulus.");
 
-        // Multi-server hopper
-        var hopperCutoff = DateTime.Now.AddHours(-2);
-        var hopperCount = EncounterTracker.m_connectionLatestSighting
-            .ToList()
-            .Where(kv => kv.Key.Length > 32 && kv.Key.StartsWith(arrivingGuid) && kv.Value >= hopperCutoff)
-            .Select(kv => kv.Key.Substring(32))
-            .Distinct()
-            .Count();
-        bool isHopper = !isDefaultName && hopperCount >= 2;
-        if (isHopper)
-            sb.AppendLine($"Active tonight: already visited {hopperCount} servers in the last 2h.");
 
-        // Today's other visitors
-        if (history.TodayOtherGuids.Count > 0)
-        {
-            var names = history.TodayOtherGuids
-                .Take(5)
-                .Select(g => EncounterTracker.m_guidNamePairs.TryGetValue(g, out var n) ? HttpUtility.HtmlDecode(n).Trim() : null)
-                .Where(n => n != null && n.Length > 0 && !IsNoName(n))
-                .ToList();
-            if (names.Count > 0)
-                sb.AppendLine($"Others seen on this server today: {string.Join(", ", names)}" +
-                              (history.TodayOtherGuids.Count > 5 ? $" and {history.TodayOtherGuids.Count - 5} more" : ""));
-        }
+
+
+
 
         // Recently departed players
         {
@@ -1261,16 +1547,11 @@ public static class WelcomeContext
                                 minsAgo >= 20 ? "about a half hour ago" :
                                 minsAgo >= 8  ? "about 10 minutes ago" :
                                                 "just now";
-                string pairKey = EncounterTracker.CanonicalTwoHashes(arrivingGuid, dep.Guid);
-                int minsTogether = 0;
-                if (EncounterTracker.m_timeTogether != null &&
-                    EncounterTracker.m_timeTogether.TryGetValue(pairKey, out var ts2))
-                    minsTogether = (int)ts2.TotalMinutes;
-                string histNote = minsTogether >= 30 ? $" — you two have {minsTogether / 60}h+ together" : "";
                 string instrCity = (p.Instrument.Length > 0 ? p.Instrument : "") +
                                    (p.City.Length > 0 ? (p.Instrument.Length > 0 ? $", {p.City}" : p.City) : "");
                 string profileStr = p.Name + (instrCity.Length > 0 ? $" ({instrCity})" : "");
-                sb.AppendLine($"Just left: {profileStr} — left {agoStr}{histNote}.");
+                sb.AppendLine($"Just left: {profileStr} — left {agoStr}.");
+                if (!IsNoName(p.Name) && !nameColors.ContainsKey(p.Name)) nameColors[p.Name] = "";
             }
 
             // Larger recent crowd (15 min to 2h ago)
@@ -1286,6 +1567,7 @@ public static class WelcomeContext
                     string ic = (p2.Instrument.Length > 0 ? p2.Instrument : "") +
                                 (p2.City.Length > 0 ? (p2.Instrument.Length > 0 ? $", {p2.City}" : p2.City) : "");
                     groupNames.Add(p2.Name + (ic.Length > 0 ? $" ({ic})" : ""));
+                    if (!nameColors.ContainsKey(p2.Name)) nameColors[p2.Name] = "";
                 }
                 string extra = recentGroup.Count > 5 ? $" and {recentGroup.Count - 5} more" : "";
                 if (groupNames.Count >= 2)
@@ -1303,109 +1585,40 @@ public static class WelcomeContext
         }
         if (predictions.Others.Count > 0)
         {
-            var upcoming = predictions.Others
+            var upcomingOthers = predictions.Others
                 .Where(o => o.MinutesFromNow > 0)
                 .OrderBy(o => o.MinutesFromNow)
                 .Take(3)
-                .Select(o => $"{o.Name} in ~{o.MinutesFromNow} min");
-            var upcomingList = string.Join(", ", upcoming);
+                .ToList();
+            foreach (var o in upcomingOthers)
+                if (!IsNoName(o.Name) && !nameColors.ContainsKey(o.Name)) nameColors[o.Name] = "";
+            var upcomingList = string.Join(", ", upcomingOthers.Select(o => $"{o.Name} in ~{o.MinutesFromNow} min"));
             if (upcomingList.Length > 0)
                 sb.AppendLine($"Players predicted to arrive soon: {upcomingList}");
         }
 
-        // Co-jammers predicted elsewhere (other servers) — only mention if arriving player knows them
-        if (!isDefaultName && predictions.ElsewhereByGuid.Count > 0)
-        {
-            foreach (var (coGuid, (offset, predServer)) in predictions.ElsewhereByGuid.OrderBy(kv => kv.Value.Offset))
-            {
-                string pairKey = EncounterTracker.CanonicalTwoHashes(arrivingGuid, coGuid);
-                int minsTog = 0;
-                if (EncounterTracker.m_timeTogether != null &&
-                    EncounterTracker.m_timeTogether.TryGetValue(pairKey, out var tog))
-                    minsTog = (int)tog.TotalMinutes;
-                if (minsTog < 30) continue;
-                var (coName, _, _) = GetCensusgeoEntry(coGuid);
-                if (IsNoName(coName)) continue;
-                sb.AppendLine($"Co-jammer predicted elsewhere: {coName} expected on {predServer} in ~{offset} min (you two have {minsTog / 60}h+ together).");
-            }
-        }
+
 
         sb.AppendLine();
 
-        bool anyReunion = false;
-        bool anyOldFriendInRoom = false;
         bool sameCityInRoom = false;
         bool hasBandNote = false;
         if (others.Count == 0)
         {
             sb.AppendLine("Server is currently empty — arriving musician will be alone.");
-            if (usualCrewElsewhere.Count > 0 && !isDefaultName)
-                sb.AppendLine("Crew note: their usual co-jammers are active on other servers right now — they're here alone while the crew is elsewhere. Feel free to note this with light humor.");
-            if (coJammerForecast.Count > 0 && !isDefaultName)
-            {
-                sb.AppendLine("Co-jammer forecast (top regulars with strong signals):");
-                foreach (var c in coJammerForecast)
-                {
-                    string minsStr = c.MinsTogether >= 60 ? $"{c.MinsTogether / 60}h together" : $"{c.MinsTogether} min together";
-                    string serverDesc = c.LiveServerName?.Length > 0 ? $" on {c.LiveServerName}" : " on another server";
-                    string live = c.LiveServer != null ? $"currently live{serverDesc}" : "";
-                    string pred = c.PredictedHere != null
-                        ? (c.PredictedHere < -30 ? $"predicted here ~{-c.PredictedHere} min ago" :
-                           c.PredictedHere <= 0  ? "predicted here right about now" :
-                                                   $"predicted to arrive here in ~{c.PredictedHere} min")
-                        : "";
-                    string recent = c.LastSeenMinsAgo != null ? $"was active ~{c.LastSeenMinsAgo} min ago" : "";
-                    string reunion = c.LastTogetherDaysAgo != null
-                        ? (c.LastTogetherDaysAgo == 0 ? "last jammed today" :
-                           c.LastTogetherDaysAgo == 1 ? "last jammed yesterday" :
-                           c.LastTogetherDaysAgo <= 14 ? $"last jammed {c.LastTogetherDaysAgo} days ago" :
-                           $"last jammed {c.LastTogetherDaysAgo / 7} weeks ago")
-                        : "";
-                    string signals = string.Join("; ", new[] { live, pred, recent, reunion }.Where(s => s.Length > 0));
-                    bool sameCityF = arrivingCity.Length > 0 && coBios.TryGetValue(c.Guid, out var fbio)
-                        && fbio.City.Equals(arrivingCity, StringComparison.OrdinalIgnoreCase);
-                    string cityNoteF = sameCityF ? $", also from {arrivingCity}" : "";
-                    sb.AppendLine($"  - {c.Name} ({minsStr}{cityNoteF}): {signals}");
-                }
-            }
+
         }
         else
         {
             sb.AppendLine($"Other players on server ({others.Count}):");
+            // How much time the arriving player has logged with each person here (runtime + census).
+            var coJamMins = TopCoJammerPairs(arrivingGuid, 1)
+                .ToDictionary(x => x.guid, x => x.mins, StringComparer.Ordinal);
             var roomMinsHere = new List<int>();
-            int newcomerCount = 0;
             foreach (var p in others)
             {
                 var pGuid = EncounterTracker.GetHash(p.Name, p.Country, p.Instrument);
-                var pairKey = EncounterTracker.CanonicalTwoHashes(arrivingGuid, pGuid);
-
-                int minsTogether = 0;
-                int togetherDaysAgo = -1;
-                string lastTogether = "";
-                if (EncounterTracker.m_timeTogether != null &&
-                    EncounterTracker.m_timeTogether.TryGetValue(pairKey, out var ts))
-                    minsTogether = (int)ts.TotalMinutes;
-                if (EncounterTracker.m_timeTogetherUpdated != null &&
-                    EncounterTracker.m_timeTogetherUpdated.TryGetValue(pairKey, out var lastDate))
-                {
-                    togetherDaysAgo = (int)(DateTime.Now - lastDate).TotalDays;
-                    lastTogether = togetherDaysAgo == 0 ? ", last: today" :
-                                   togetherDaysAgo == 1 ? ", last: yesterday" :
-                                   togetherDaysAgo <= 14 ? $", last: {togetherDaysAgo} days ago" :
-                                   $", last: {togetherDaysAgo / 7} weeks ago";
-                }
-
-                bool isReunion = minsTogether >= 60 && togetherDaysAgo > 60;
-                if (isReunion && !isDefaultName) anyReunion = true;
-                if (minsTogether >= 60 && !isDefaultName) anyOldFriendInRoom = true;
-                string reunionPrefix = isReunion ? "REUNION — " : "";
-                string history2 = minsTogether >= 60 ? $"{reunionPrefix}{minsTogether} min together (old friend){lastTogether}" :
-                                  minsTogether >= 10 ? $"{minsTogether} min together{lastTogether}" :
-                                  "never shared a server before";
-
-                string pExp = "";
-                if (EncounterTracker.m_userConnectDuration.TryGetValue(pGuid, out var pDur))
-                    pExp = $", {(int)pDur.TotalMinutes} min lifetime";
+                int sharedMins = coJamMins.TryGetValue(pGuid, out var sm) ? sm : 0;
 
                 string country = p.Country.Length > 0 ? $", {p.Country}" : "";
                 int minsHere = -1;
@@ -1417,14 +1630,34 @@ public static class WelcomeContext
                 }
                 string sessionNote = minsHere >= 1 ? $", here {minsHere} min" : "";
                 if (minsHere >= 0) roomMinsHere.Add(minsHere);
-                if (CensusIndex.GetGuidLifetime(pGuid) < 60) newcomerCount++;
                 string cityNoteP = coBios.TryGetValue(pGuid, out var pbio) && pbio.City.Length > 0
                     ? $", {pbio.City}" : "";
                 if (!sameCityInRoom && arrivingCity.Length > 0 && pbio.City.Length > 0
                     && pbio.City.Equals(arrivingCity, StringComparison.OrdinalIgnoreCase))
                     sameCityInRoom = true;
                 string listenerTag = CensusIndex.IsListener(pGuid) ? " [listener]" : "";
-                sb.AppendLine($"  - {DisplayName(p.Name)} ({p.Instrument}{country}{pExp}{sessionNote}{cityNoteP}){listenerTag}: {history2}");
+                // 10–500h = a real musical bond; 1–10h = have jammed before; 20–60min = crossed paths.
+                // >500h is likely a bot pair — don't feature it as a friendship.
+                string togetherNote = sharedMins is >= 600 and < 30000 ? ", a familiar musical partner of the arriving player (many hours together)"
+                    : sharedMins is >= 60 and < 600 ? ", has jammed with the arriving player before"
+                    : sharedMins is >= 20 and < 60 ? ", has crossed paths with the arriving player before" : "";
+                sb.AppendLine($"  - {DisplayName(p.Name)} ({p.Instrument}{country}{sessionNote}{cityNoteP}){listenerTag}{togetherNote}");
+            }
+            // Spine for the joiner-centered essay: who here the arriving player actually knows,
+            // strongest bond first. Excludes likely-bot pairs (>500h).
+            var sharedHere = others
+                .Select(p => (name: DisplayName(p.Name),
+                              mins: coJamMins.TryGetValue(EncounterTracker.GetHash(p.Name, p.Country, p.Instrument), out var m) ? m : 0))
+                .Where(x => x.mins is >= 20 and < 30000)
+                .OrderByDescending(x => x.mins)
+                .ToList();
+            if (sharedHere.Count > 0)
+            {
+                var parts = sharedHere.Select(x =>
+                    x.mins >= 600 ? $"{x.name} (many hours together — a familiar partner)"
+                  : x.mins >= 60  ? $"{x.name} (have jammed together before)"
+                  :                 $"{x.name} (have crossed paths before)");
+                sb.AppendLine($"People here the arriving player knows, strongest bond first: {string.Join("; ", parts)}");
             }
             if (roomMinsHere.Count >= 2)
             {
@@ -1435,8 +1668,6 @@ public static class WelcomeContext
                                                         $"~{medianMins / 60}h in";
                 sb.AppendLine($"Jam: {groupSession}");
             }
-            if (newcomerCount >= 2)
-                sb.AppendLine($"Room newcomers: {newcomerCount} players with under 1h on Jamulus");
 
             // Instrument complement: note if arriving player fills a missing category
             if (arrivingInstrument.Length > 0 && _instrumentCategory.TryGetValue(arrivingInstrument, out var arrivingCat))
@@ -1517,144 +1748,57 @@ public static class WelcomeContext
             sb.AppendLine($"Room geography: {string.Join("; ", gparts)}");
         }
 
-        // Song signals — single pass, three buckets: shared / room-only / arriving-history
-        var sharedSongs = new List<string>();
-        var roomSongs = new List<string>();
-        var arrivingHistorySongs = new List<string>();
-        string? mostRecentArrivingSong = null;
-        int mostRecentArrivingMins = 0;
-        string? arrivingDominantArtist = null;
-        string? roomDominantArtist = null;
-        if (File.Exists("data/url-guids.csv"))
-        {
-            var roomGuids = others.Count > 0
-                ? new HashSet<string>(others.Select(p => EncounterTracker.GetHash(p.Name, p.Country, p.Instrument)))
-                : new HashSet<string>();
-            int cutoff = nowMinutes - (90 * 24 * 60);
-            var sharedCounts = new Dictionary<string, int>();
-            var roomCounts = new Dictionary<string, int>();
-            var historyCounts = new Dictionary<string, int>();
-            foreach (var line in File.ReadLines("data/url-guids.csv"))
-            {
-                var cols = line.Split(',', 5);
-                if (cols.Length < 5) continue;
-                if (!int.TryParse(cols[0], out int mins) || mins < cutoff) continue;
-                string t = System.Web.HttpUtility.UrlDecode(cols[3]);
-                if (string.IsNullOrWhiteSpace(t)) continue;
-                var lineGuids = cols[4].Split('|');
-                bool hasArriving = lineGuids.Contains(arrivingGuid);
-                bool hasRoom = roomGuids.Count > 0 && lineGuids.Any(g => roomGuids.Contains(g));
-                if (hasArriving && hasRoom) sharedCounts[t] = sharedCounts.GetValueOrDefault(t, 0) + 1;
-                else if (hasRoom) roomCounts[t] = roomCounts.GetValueOrDefault(t, 0) + 1;
-                else if (hasArriving)
-                {
-                    historyCounts[t] = historyCounts.GetValueOrDefault(t, 0) + 1;
-                    if (mins > mostRecentArrivingMins) { mostRecentArrivingMins = mins; mostRecentArrivingSong = t; }
-                }
-            }
-            sharedSongs = sharedCounts.OrderByDescending(kv => kv.Value).Take(5).Select(kv => kv.Key).ToList();
-            roomSongs = roomCounts.OrderByDescending(kv => kv.Value).Take(5).Select(kv => kv.Key).ToList();
-            arrivingHistorySongs = historyCounts.OrderByDescending(kv => kv.Value).Take(5).Select(kv => kv.Key).ToList();
 
-            static string? TopArtist(Dictionary<string, int> counts)
-            {
-                var artistTotals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var kv in counts)
-                {
-                    int sep = kv.Key.IndexOf(" — ", StringComparison.Ordinal);
-                    if (sep < 0) continue;
-                    var artist = kv.Key[(sep + 3)..].Trim();
-                    if (!string.IsNullOrEmpty(artist))
-                        artistTotals[artist] = artistTotals.GetValueOrDefault(artist, 0) + kv.Value;
-                }
-                if (artistTotals.Count == 0) return null;
-                var top = artistTotals.MaxBy(kv => kv.Value);
-                return top.Value >= 2 ? top.Key : null;
-            }
-            arrivingDominantArtist = TopArtist(historyCounts);
-            roomDominantArtist = TopArtist(roomCounts);
-        }
-        bool hasSharedSongs = sharedSongs.Count > 0;
-        bool hasRoomSongs = roomSongs.Count > 0;
-        bool hasArrivingHistory = arrivingHistorySongs.Count > 0;
-        if (hasSharedSongs)
-            sb.AppendLine($"Shared songs with people here: {string.Join(", ", sharedSongs)}");
-        if (hasRoomSongs)
-            sb.AppendLine($"Songs people here often play: {string.Join(", ", roomSongs)}");
-        if (roomDominantArtist != null)
-            sb.AppendLine($"Room's dominant artist: {roomDominantArtist}");
-        if (hasArrivingHistory)
-            sb.AppendLine($"Songs {arrivingName} has played in other sessions: {string.Join(", ", arrivingHistorySongs)}");
-        if (arrivingDominantArtist != null)
-            sb.AppendLine($"{arrivingName}'s most-played artist (last 90 days): {arrivingDominantArtist}");
-        if (mostRecentArrivingSong != null && mostRecentArrivingMins > 0)
-        {
-            int daysAgo = (nowMinutes - mostRecentArrivingMins) / (24 * 60);
-            string when = daysAgo == 0 ? "today" : daysAgo == 1 ? "yesterday" : $"{daysAgo} days ago";
-            sb.AppendLine($"Most recently played by {arrivingName}: {mostRecentArrivingSong} ({when})");
-        }
 
         var essayParas = DailyEssayService.GetRelevantEssayContext(
-            arrivingName != "(unknown)" ? arrivingName : "",
-            serverName,
-            others.Select(p => p.Name),
-            arrivingCountry, arrivingInstrument);
+            arrivingName != "(unknown)" ? arrivingName : "");
         bool hasEssayMention = essayParas.Count > 0;
         if (hasEssayMention)
             foreach (var (ep, reason) in essayParas)
-                sb.AppendLine($"From today's network essay ({reason}): \"{ep}\"");
+                sb.AppendLine($"From the recent network essay — covers the past 24 hours, events may be from yesterday ({reason}): \"{ep}\"");
+
+        // Band canary: if a known canary is already on this server, hint that their crew may follow
+        bool hasBandCanary = false;
+        if (others.Count > 0)
+        {
+            var otherGuids = new HashSet<string>(others.Select(p => EncounterTracker.GetHash(p.Name, p.Country, p.Instrument)));
+            var otherNames = new HashSet<string>(others.Select(p => p.Name).Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);
+            var canary = JamFan22.BandIndex.GetBandSoon(otherGuids, otherNames, serverKey);
+            if (canary != null && canary.Missing.Count > 0)
+            {
+                hasBandCanary = true;
+                int ratePct = (int)Math.Round(canary.CanaryTriggerRate * 100);
+                sb.AppendLine($"Band canary: {canary.CanaryNames} is here. Crew often expected: {string.Join(", ", canary.Missing)}. Assembly rate: {ratePct}%.");
+            }
+        }
 
         // Determine richness — is there anything worth saying beyond a bare welcome?
-        bool hasHistory = history.TotalMinutes > 0;
         bool hasPrediction = predictions.IsPredicted || predictions.Others.Count > 0;
         bool hasOthers = others.Count > 0;
-        bool hasTodayVisitors = history.TodayOtherGuids.Count > 0;
-        bool hasForecast = coJammerForecast.Count > 0;
-        bool hasCrewElsewhere = usualCrewElsewhere.Count > 0;
-
-        bool hasSongContext = hasSharedSongs || hasRoomSongs || hasArrivingHistory
-            || arrivingDominantArtist != null || roomDominantArtist != null || mostRecentArrivingSong != null;
-        bool hasStreak = visitStreak >= 5;
-        bool hasAbsence = networkAbsenceDays >= 14;
-        if (!hasHistory && !hasPrediction && !hasOthers && !hasTodayVisitors && !hasForecast && !hasCrewElsewhere
-            && !isNetworkNewcomer && !isHomeServer && !hasDistinctHomeServer && !isRareInstrument && !isHopper
-            && !hasSongContext && !hasStreak && !hasBandNote && !hasEssayMention && !hasAbsence)
+        bool hasCrossStreak = crossStreakMembers.Count > 0;
+        if (!hasPrediction && !hasOthers && !hasCrossStreak
+            && !isHomeServer && !hasDistinctHomeServer && !isRareInstrument
+            && !hasBandNote && !hasEssayMention && !hasBandCanary)
             sb.AppendLine("Nothing notable — use a short one-line welcome only.");
 
-        bool isGroupNoteworthy = anyOldFriendInRoom || anyReunion
-            || (hasBandNote && others.Count >= 2)
+        bool isGroupNoteworthy = (hasBandNote && others.Count >= 2)
             || sameCityInRoom
-            || (isNetworkNewcomer && others.Count > 0)
-            || isVeryExperienced
-            || hasSongContext
             || hasEssayMention
-            || (playerDistKm.HasValue && playerDistKm.Value >= 5000)
-            || (history.IsTopVisitor && others.Count > 0);
+            || (playerDistKm.HasValue && playerDistKm.Value >= 5000);
         var roomChannelIds = others.Select(p => p.ChannelId).ToList();
+        var lobbyChannelIds = players
+            .Where(p => !string.IsNullOrEmpty(p.Name) && IsLobbyBot(p.Name))
+            .Select(p => p.ChannelId).ToList();
 
         // Compact signals summary for event log (appended externally after message is known)
         var sigs = new System.Text.StringBuilder();
         if (isStudioD) sigs.Append("studioD" + (streamActiveHere ? ":live" : minsUntilLobbyStream.HasValue ? $":in{minsUntilLobbyStream}m" : streamState.IsFree ? ":free" : ":elsewhere"));
-        if (hasHistory) sigs.Append(history.WeekdayStreak >= 2
-            ? $"|{history.WeekdayStreakDow.ToString().ToLower()}:{history.WeekdayStreak}wks" + (groupWeekdayStreak >= 2 ? $",grp:{groupWeekdayStreak}" : "") + (history.IsTopVisitor ? ",top" : "")
-            : $"|history:{history.TotalMinutes / Math.Max(1, 60)}h" + (history.IsTopVisitor ? ",top" : ""));
-        if (hasCrewElsewhere) sigs.Append($"|crew:{usualCrewElsewhere.Count}");
         if (hasOthers) sigs.Append($"|room:{others.Count}");
-        if (hasForecast) sigs.Append($"|forecast:{coJammerForecast.Count}");
         if (hasPrediction) sigs.Append("|predicted");
         if (isNetworkNewcomer) sigs.Append("|newcomer");
         if (isHomeServer) sigs.Append("|home");
         if (hasDistinctHomeServer) sigs.Append("|home-elsewhere");
         if (isRareInstrument) sigs.Append($"|rare-instrument:{instrumentNetworkCount}");
-        if (anyReunion) sigs.Append("|reunion");
-        if (networkAbsenceDays >= 14) sigs.Append($"|absent:{networkAbsenceDays}d");
-        if (isHopper) sigs.Append($"|hopper:{hopperCount}");
-        if (hasSharedSongs) sigs.Append($"|songs:{sharedSongs.Count}");
-        if (hasRoomSongs) sigs.Append($"|room-songs:{roomSongs.Count}");
-        if (roomDominantArtist != null) sigs.Append($"|room-artist:{roomDominantArtist}");
-        if (hasArrivingHistory) sigs.Append($"|history-songs:{arrivingHistorySongs.Count}");
-        if (arrivingDominantArtist != null) sigs.Append($"|artist:{arrivingDominantArtist}");
-        if (mostRecentArrivingSong != null) sigs.Append("|recent-song");
         if (hasEssayMention) sigs.Append($"|essay:{essayParas.Count}");
         if (crossStreakMembers.Count > 0) sigs.Append($"|cross-streak:{crossStreakMembers.Count}");
         if (currentNetworkClients > 0 && typicalNetworkClients > 0)
@@ -1664,13 +1808,14 @@ public static class WelcomeContext
             else if (r <= 0.7) sigs.Append($"|quiet:{currentNetworkClients}v{typicalNetworkClients}");
         }
         if (lobbyAudience > 0) sigs.Append($"|audience:{lobbyAudience}");
-        if (hasStreak) sigs.Append($"|streak:{visitStreak}d");
         if (hasBandNote) sigs.Append("|band-note");
+        if (hasBandCanary) sigs.Append("|band-canary");
         if (sameCityInRoom) sigs.Append("|same-city");
         if (isVeryExperienced) sigs.Append("|veteran");
         if (playerGeoNote != null) sigs.Append($"|faraway:{(playerDistKm.HasValue ? $"{playerDistKm.Value / 100 * 100}km" : "tz")}");
         if (arrivingIsWebUser) sigs.Append("|web-user");
-        if (isArrivingListener) sigs.Append("|listener");
+        if (isFirstFleetVisit) sigs.Append("|1st-fleet");
+        if (rejoinNoted) sigs.Append("|rejoin");
         if (sigs.Length > 0 && sigs[0] == '|') sigs.Remove(0, 1);
         string signalsSummary = sigs.Length > 0 ? sigs.ToString() : "none";
 
@@ -1679,7 +1824,11 @@ public static class WelcomeContext
         // Stash signals summary so the caller can include it in the event log
         _lastSignals[arrivingGuid] = signalsSummary;
 
-        return new GatherResult(sb.ToString(), nameColors, roomChannelIds, isGroupNoteworthy, hasWebUser, chosenLanguage);
+        var eventNames = serverLore?.Events?.Select(e => e.Name).Where(n => !string.IsNullOrEmpty(n)).ToList() ?? new List<string>();
+        var roomGuidList = others.Select(p => EncounterTracker.GetHash(p.Name, p.Country, p.Instrument)).ToList();
+        return new GatherResult(sb.ToString(), nameColors, roomChannelIds, isGroupNoteworthy, hasWebUser, chosenLanguage, nameEmojis, eventNames, roomGuidList,
+            arrivingName == "(unknown)" ? "" : arrivingName, arrivingInstrument, playerDistKm ?? 0, lobbyChannelIds,
+            serverCountryCode);
     }
 
     // Temporary per-call signal stash (overwritten each call; only used for immediate event logging)
@@ -1709,6 +1858,19 @@ public static class WelcomeContext
             catch { }
         }
         return new();
+    }
+
+    private static async Task<List<RpcClientEntry>> GetClientsViaWsAsync(Func<Task<string?>> wsGetClients)
+    {
+        var response = await wsGetClients();
+        if (response == null) return new();
+        var envelope = JsonSerializer.Deserialize<RpcEnvelope<RpcGetClientsResult>>(response, _opts);
+        return (envelope?.Result?.Clients ?? new())
+            .Select(c => new RpcClientEntry(
+                c.ChannelId, c.Name ?? "", c.Address ?? "",
+                c.InstrumentCode >= 0 && c.InstrumentCode < _instrumentNames.Length ? _instrumentNames[c.InstrumentCode] : "-",
+                c.CountryName ?? ""))
+            .ToList();
     }
 
     private static async Task<List<RpcClientEntry>> GetClientsAsync(string serverIp, int rpcPort)
