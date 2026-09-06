@@ -4,7 +4,6 @@ namespace JamFan22.Models
 {
     public class JamulusServers
     {
-        public long numip { get; set; }
         public long port { get; set; }
         public string? country { get; set; }
         public long maxclients { get; set; }

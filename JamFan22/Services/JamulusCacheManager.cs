@@ -229,17 +229,39 @@ namespace JamFan22.Services
                     _altCacheAge.TryRemove(stale, out _);
                 }
 
-                // Update AltServerMeta from sweep results.
+                // Update AltServerMeta from sweep results, and seed the cache directly for
+                // blocked servers that already show clients. The directory sweep is far more
+                // reliable than the per-server probe, so this keeps populated servers visible
+                // when their per-server poll flakes, and refreshes _altCacheAge every minute so
+                // the eviction grace (PollOneServerByKeyAsync) only expires once the sweep
+                // itself stops seeing the server — i.e. eviction now tracks the reliable source.
+                bool seededAny = false;
                 foreach (var kvp in altSeen)
                 {
                     if (!keys.Contains(kvp.Key)) continue;
                     var s = kvp.Value.Srv;
                     if (s.name?.Length > 0 && s.name != s.ip)
                         AltServerMeta[kvp.Key] = (s.name, s.city ?? "", s.country ?? "", kvp.Value.Dir);
+                    if (s.clients == null || s.clients.Length == 0) continue;
+                    s.city ??= ""; s.country ??= ""; s.ipaddrs ??= "";
+                    if (s.name == null || s.name.Length == 0 || s.name == s.ip) s.name = kvp.Key;
+                    _altCacheAge[kvp.Key]    = DateTime.UtcNow;
+                    _altSourceCache[kvp.Key] = s;
+                    seededAny = true;
                 }
                 // Remove metadata for servers no longer blocked.
                 foreach (var stale in AltServerMeta.Keys.Except(keys).ToList())
                     AltServerMeta.Remove(stale);
+
+                // Publish sweep-seeded rosters so populated blocked servers appear immediately,
+                // without waiting for the round-robin per-server poll to reach them.
+                if (seededAny)
+                {
+                    var seedJson = JsonSerializer.Serialize(_altSourceCache.Values.ToList());
+                    await m_serializerMutex.WaitAsync(ct);
+                    try { LastReportedList[AltSourceKey] = seedJson; }
+                    finally { m_serializerMutex.Release(); }
+                }
 
                 // Immediately poll any servers that just appeared on the blocked list.
                 if (newlyBlocked.Count > 0)
@@ -544,7 +566,8 @@ namespace JamFan22.Services
                                 serverCsvBuilder.Append(server.ip + ":" + server.port + ","
                                     + System.Web.HttpUtility.UrlEncode(server.name) + ","
                                     + System.Web.HttpUtility.UrlEncode(server.city) + ","
-                                    + System.Web.HttpUtility.UrlEncode(server.country)
+                                    + System.Web.HttpUtility.UrlEncode(server.country) + ","
+                                    + MinutesSince2023AsInt()
                                     + Environment.NewLine);
 
                                 foreach (var guy in server.clients)
@@ -653,7 +676,8 @@ namespace JamFan22.Services
                             serverCsvBuilder.Append(addr + ","
                                 + System.Web.HttpUtility.UrlEncode(server.name) + ","
                                 + System.Web.HttpUtility.UrlEncode(server.city) + ","
-                                + System.Web.HttpUtility.UrlEncode(server.country)
+                                + System.Web.HttpUtility.UrlEncode(server.country) + ","
+                                + MinutesSince2023AsInt()
                                 + Environment.NewLine);
                             foreach (var guy in server.clients)
                             {

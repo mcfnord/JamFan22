@@ -35,6 +35,8 @@ namespace JamFan22.Pages
         public List<string> soonNames { get; set; } = new List<string>();
 
         public string soonHtml { get; set; }
+        public int    bandId   { get; set; }
+        public bool   hasLore  { get; set; }
 
         public string smartNations { get; set; }
         public string newServerHtml { get; set; }
@@ -467,6 +469,7 @@ namespace JamFan22.Pages
                         }
                     }
 
+                    if (bandSoon != null) { apiSvr.bandId = bandSoon.BandId; apiSvr.hasLore = bandSoon.HasLore; }
                     if (apiSvr.soonNames.Count > 0)
                     {
                         apiSvr.soonHtml = $"<div style=\"color:#FFA500; font-size:0.7em; font-weight:bold; text-shadow:0 0 2px #000,0 0 2px #000;\"><i>Soon: {string.Join("&nbsp;&middot;&nbsp;", apiSvr.soonNames)}</i></div>";

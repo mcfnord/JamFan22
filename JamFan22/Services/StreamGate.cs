@@ -12,7 +12,9 @@ namespace JamFan22
 {
     public static class StreamGate
     {
-        private const string RemoteHost    = "root@147.182.199.22";
+        // Lounge moved 2026-08-31: DO droplet -> Turin (Oracle Linux, aarch64). `opc@`, not
+        // `root@` — Turin has no root login, and an address-only edit fails at runtime.
+        private const string RemoteHost    = "opc@92.4.218.204";
         private const string RemoteEnvFile = "/opt/jamulus-lounge/.env";
         private const string RemoteCompose    = "/opt/jamulus-lounge/docker-compose.yml";
         private const string RemoteConfigFile = "/opt/jamulus-lounge/server/config.json";

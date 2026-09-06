@@ -61,6 +61,8 @@ namespace JamFan22
         // UTC time of last successful 1013 poll per fleet server.
         public static ConcurrentDictionary<string, DateTime> m_fleetClientLevelsAt = new();
 
+        static ConcurrentDictionary<string, DateTime> m_lastDeadLog = new();
+
         public static ConcurrentDictionary<string, (string Url, DateTime Stored)> m_discreetLinks = new();
         public static Dictionary<string, string> m_songTitle = new Dictionary<string, string>();
         public static Dictionary<string, string> m_songTitleAtAddr = new Dictionary<string, string>();
@@ -70,6 +72,8 @@ namespace JamFan22
         public static ConcurrentDictionary<string, string> m_activeRoomUrls = new();
         // Last title fetched from a chords69cl room; used to detect stale re-polls after expiry.
         static ConcurrentDictionary<string, string> m_lastRoomTitle = new();
+        // All titles seen for a room; a repeat means a looping playlist — stop polling.
+        static ConcurrentDictionary<string, HashSet<string>> m_roomTitleHistory = new();
 
         private static (string[] Lines, DateTime Expiry) _chatPatternsCache = (Array.Empty<string>(), DateTime.MinValue);
 
@@ -176,9 +180,13 @@ namespace JamFan22
                 {
                     m_activeRoomUrls[addrKey] = url;
                     m_lastRoomTitle[addrKey] = title;
+                    m_roomTitleHistory[addrKey] = new HashSet<string> { title };
                 }
                 else
+                {
                     m_activeRoomUrls.TryRemove(addrKey, out _);
+                    m_roomTitleHistory.TryRemove(addrKey, out _);
+                }
             }
         }
 
@@ -221,7 +229,7 @@ namespace JamFan22
         static readonly List<string> m_staticLounges = new List<string>
         {
             "https://lobby.jam.voixtel.net.br/",
-            "https://StudioD.live",
+            "https://ear.jamulus.live",
         };
 
         static Dictionary<string, string> m_lastLineMap = new Dictionary<string, string>();
@@ -274,14 +282,25 @@ namespace JamFan22
                             {
                                 Console.WriteLine($"[RoomPoll] {addrKey}: same song '{newTitle}' after expiry, stopping poll");
                                 m_activeRoomUrls.TryRemove(addrKey, out _);
+                                m_roomTitleHistory.TryRemove(addrKey, out _);
                             }
                             else
                             {
-                                m_songTitleAtAddr.TryGetValue(addrKey, out string oldTitle);
-                                if (oldTitle != newTitle)
-                                    Console.WriteLine($"[RoomPoll] {addrKey}: '{oldTitle}' → '{newTitle}'");
-                                m_lastRoomTitle[addrKey] = newTitle;
-                                ShortLivedTitleForServerAtAddr(newTitle, addrKey);
+                                var history = m_roomTitleHistory.GetOrAdd(addrKey, _ => new HashSet<string>());
+                                if (!history.Add(newTitle))
+                                {
+                                    Console.WriteLine($"[RoomPoll] {addrKey}: repeated title '{newTitle}' — looping playlist, stopping poll");
+                                    m_activeRoomUrls.TryRemove(addrKey, out _);
+                                    m_roomTitleHistory.TryRemove(addrKey, out _);
+                                }
+                                else
+                                {
+                                    m_songTitleAtAddr.TryGetValue(addrKey, out string oldTitle);
+                                    if (oldTitle != newTitle)
+                                        Console.WriteLine($"[RoomPoll] {addrKey}: '{oldTitle}' → '{newTitle}'");
+                                    m_lastRoomTitle[addrKey] = newTitle;
+                                    ShortLivedTitleForServerAtAddr(newTitle, addrKey);
+                                }
                             }
                         }
                     }
@@ -358,7 +377,11 @@ namespace JamFan22
             try { lines = await File.ReadAllLinesAsync("data/fleet-server-ips.txt"); }
             catch (Exception ex) { Console.WriteLine($"[LEVEL-POLL] Cannot read fleet file: {ex.Message}"); return; }
 
-            var tasks = new List<Task>();
+            // Dedup by ip:port before spawning — duplicate lines would otherwise run two
+            // tasks on the same shared UdpClient (s_serverSockets is keyed by ip:port), and
+            // one task disposing the socket on timeout crashes the other ("Cannot access a
+            // disposed object"). Prefer the entry carrying dir-host info for hole-punching.
+            var byServer = new Dictionary<string, (string ip, int port, string? dirHost, int dirPort)>();
             foreach (var raw in lines)
             {
                 var line = raw.Trim();
@@ -368,8 +391,14 @@ namespace JamFan22
                 string ip = parts[0];
                 string? dirHost = parts.Length >= 5 ? parts[3] : null;
                 int dirPort = parts.Length >= 5 && int.TryParse(parts[4], out int dp) ? dp : 0;
-                tasks.Add(PollServerLevelsAsync(ip, port, dirHost, dirPort));
+                string key = $"{ip}:{port}";
+                if (!byServer.TryGetValue(key, out var existing) || (existing.dirPort == 0 && dirPort > 0))
+                    byServer[key] = (ip, port, dirHost, dirPort);
             }
+
+            var tasks = new List<Task>();
+            foreach (var (ip, port, dirHost, dirPort) in byServer.Values)
+                tasks.Add(PollServerLevelsAsync(ip, port, dirHost, dirPort));
             await Task.WhenAll(tasks);
         }
 
@@ -459,6 +488,7 @@ namespace JamFan22
                 if (!m_fleetSilenceStatus.TryGetValue(ipport, out bool prev) || prev != quiet)
                     Console.WriteLine($"[LEVEL-POLL] {ipport}: quiet={quiet} clients={clients.Count}");
                 m_fleetSilenceStatus[ipport] = quiet;
+                m_lastDeadLog.TryRemove(ipport, out _);
                 m_fleetSlotLevels[ipport] = levelList.ToArray();
                 m_fleetClientLevels[ipport] = nameLevel;
                 m_fleetClientLevelsAt[ipport] = DateTime.UtcNow;
@@ -467,10 +497,11 @@ namespace JamFan22
                 if (hasDirInfo && !requiresPunch)
                     s_requiresPunch[ipport] = false;
             }
-            catch (OperationCanceledException) when (!requiresPunch && hasDirInfo)
+            catch (OperationCanceledException) when (hasDirInfo)
             {
-                // Direct attempt timed out — punch and retry in this same cycle.
-                Console.WriteLine($"[LEVEL-POLL] {ipport}: direct timeout, retrying with hole-punch");
+                // First attempt timed out (whether or not it was already punched) —
+                // punch again and retry once more in this same cycle before giving up.
+                Console.WriteLine($"[LEVEL-POLL] {ipport}: timeout, retrying with hole-punch");
                 try
                 {
                     var dirAddrs2 = await System.Net.Dns.GetHostAddressesAsync(dirHost!);
@@ -512,17 +543,32 @@ namespace JamFan22
                     if (!m_fleetSilenceStatus.TryGetValue(ipport, out bool p2) || p2 != quiet2)
                         Console.WriteLine($"[LEVEL-POLL] {ipport}: quiet={quiet2} clients={clients2.Count}");
                     m_fleetSilenceStatus[ipport] = quiet2;
+                    m_lastDeadLog.TryRemove(ipport, out _);
                     m_fleetSlotLevels[ipport] = ll2.ToArray();
                     m_fleetClientLevels[ipport] = nl2;
                     m_fleetClientLevelsAt[ipport] = DateTime.UtcNow;
 
-                    s_requiresPunch[ipport] = true; // confirmed OCI — punch every future poll
-                    Console.WriteLine($"[LEVEL-POLL] {ipport}: marked as requiring hole-punch");
+                    if (!requiresPunch)
+                    {
+                        s_requiresPunch[ipport] = true; // confirmed OCI — punch every future poll
+                        Console.WriteLine($"[LEVEL-POLL] {ipport}: marked as requiring hole-punch");
+                    }
                 }
                 catch (OperationCanceledException)
                 {
                     if (m_fleetSilenceStatus.TryRemove(ipport, out _))
                         Console.WriteLine($"[LEVEL-POLL] {ipport}: no response even with hole-punch (removed)");
+                    else if (!m_lastDeadLog.TryGetValue(ipport, out var t) || (DateTime.UtcNow - t).TotalMinutes >= 10)
+                    { m_lastDeadLog[ipport] = DateTime.UtcNow; Console.WriteLine($"[LEVEL-POLL] {ipport}: still no response (hole-punch)"); }
+                    m_fleetSlotLevels.TryRemove(ipport, out _); m_fleetClientLevels.TryRemove(ipport, out _); m_fleetClientLevelsAt.TryRemove(ipport, out _);
+                    if (s_serverSockets.TryRemove(ipport, out var bs)) try { bs.Dispose(); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    if (m_fleetSilenceStatus.TryRemove(ipport, out _))
+                        Console.WriteLine($"[LEVEL-POLL] {ipport}: retry error: {ex.Message} (removed)");
+                    else if (!m_lastDeadLog.TryGetValue(ipport, out var t) || (DateTime.UtcNow - t).TotalMinutes >= 10)
+                    { m_lastDeadLog[ipport] = DateTime.UtcNow; Console.WriteLine($"[LEVEL-POLL] {ipport}: still no response (retry: {ex.GetType().Name})"); }
                     m_fleetSlotLevels.TryRemove(ipport, out _); m_fleetClientLevels.TryRemove(ipport, out _); m_fleetClientLevelsAt.TryRemove(ipport, out _);
                     if (s_serverSockets.TryRemove(ipport, out var bs)) try { bs.Dispose(); } catch { }
                 }
@@ -530,7 +576,9 @@ namespace JamFan22
             catch (OperationCanceledException)
             {
                 if (m_fleetSilenceStatus.TryRemove(ipport, out _))
-                    Console.WriteLine($"[LEVEL-POLL] {ipport}: no response (removed)");
+                { m_lastDeadLog.TryRemove(ipport, out _); Console.WriteLine($"[LEVEL-POLL] {ipport}: no response (removed)"); }
+                else if (!m_lastDeadLog.TryGetValue(ipport, out var t) || (DateTime.UtcNow - t).TotalMinutes >= 10)
+                { m_lastDeadLog[ipport] = DateTime.UtcNow; Console.WriteLine($"[LEVEL-POLL] {ipport}: still no response"); }
                 m_fleetSlotLevels.TryRemove(ipport, out _);
                 m_fleetClientLevels.TryRemove(ipport, out _);
                 m_fleetClientLevelsAt.TryRemove(ipport, out _);
@@ -540,7 +588,9 @@ namespace JamFan22
             catch (Exception ex)
             {
                 if (m_fleetSilenceStatus.TryRemove(ipport, out _))
-                    Console.WriteLine($"[LEVEL-POLL] {ipport}: {ex.GetType().Name} (removed)");
+                { m_lastDeadLog.TryRemove(ipport, out _); Console.WriteLine($"[LEVEL-POLL] {ipport}: {ex.GetType().Name} (removed)"); }
+                else if (!m_lastDeadLog.TryGetValue(ipport, out var t) || (DateTime.UtcNow - t).TotalMinutes >= 10)
+                { m_lastDeadLog[ipport] = DateTime.UtcNow; Console.WriteLine($"[LEVEL-POLL] {ipport}: still no response ({ex.GetType().Name})"); }
                 m_fleetSlotLevels.TryRemove(ipport, out _);
                 m_fleetClientLevels.TryRemove(ipport, out _);
                 m_fleetClientLevelsAt.TryRemove(ipport, out _);
@@ -752,14 +802,16 @@ namespace JamFan22
                     return result;
                 }
 
-                using (HttpClient theclient = new HttpClient())
+                using var handler11 = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate | System.Net.DecompressionMethods.Brotli };
+                using (HttpClient theclient = new HttpClient(handler11))
                 {
+                    theclient.DefaultRequestVersion = System.Net.HttpVersion.Version11;
+                    theclient.DefaultVersionPolicy = System.Net.Http.HttpVersionPolicy.RequestVersionExact;
                     theclient.DefaultRequestHeaders.TryAddWithoutValidation(
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
                     theclient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
                     theclient.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.5");
-                    theclient.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate, br");
                     theclient.DefaultRequestHeaders.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
                     string s = await theclient.GetStringAsync(url);
                     string title = null;
