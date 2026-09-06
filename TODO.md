@@ -2,7 +2,7 @@
 
 ## UI / Client
 
-- **Nearby list: show nearest player(s) when nothing qualifies within 3000 km** (`nearby.cs`): the 3000 km threshold is calibrated for Europe's dense Jamulus scene. For users in Tacoma (or anywhere with a thin local scene), the list can be nearly empty, then the "≤2 distant records get promoted" rule lets in whoever happens to be in the distant bucket — which can be Bangkok (11,000 km away) rather than a European player (8,000 km). All of these are beyond the threshold; the promotion rule just picks whoever lands in `distantRecords` first, not the closest. Fix: instead of the ≤2 promotion rule, always guarantee at least one result by appending the globally-closest player(s) if the qualifying list is empty, with their distance shown in the location column (e.g. "9,200 km away"). This gives Tacoma users something meaningful rather than a near-empty list or an arbitrary distant pick.
+- **Server card directory nudges: language matching** (`Pages/Client.cshtml`, `nearby.cs`): nudges that point a player toward a server's directory (e.g. "Join at jamulus.io") should try to match the language of their Jamulus client installation. Inference order: (1) geolocation of the browser IP → map country to dominant language; (2) if a GUID is matched to that IP, the country code stored with the GUID (Jamulus client's self-reported country) may confirm or refine the choice. No guarantee of correctness — treat it as a best guess, defaulting to English when ambiguous.
 
 - **Visual regression detector** (`playwright`): headless browser script that loads the app, polls `page.evaluate` every ~1s to snapshot all `.server-card` bounding boxes, and reports frames where any card position jumps >20px or a card appears/disappears without an intermediate opacity transition. Useful for catching silence-gate snaps and Active Only filter layout shifts. Trigger: run after any change to card visibility logic in `Client.cshtml` or `site.css`.
 
@@ -12,11 +12,11 @@
 
 - **Active Only: show new arrivals briefly regardless of occupancy** (`Pages/Client.cshtml`): when Active Only is checked, a server with a new arrival (singleton or new duo) should still appear even if the server is otherwise silent. The visibility window should match however long the "just arrived" message is displayed — that duration is the natural TTL for a new-arrival card under Active Only. Once the arrival message expires, the server card follows the normal Active Only suppression logic.
 
+- **Custom client: video link false-positive** (`chatreporter.cpp` or equivalent): when visiting a server, the client reads the server's welcome message and mistakenly treats any video URL found there as a live stream. Static welcome messages can contain video links (e.g. a tutorial or promo) that are not live. Fix: only treat a video URL as live if it was received outside of the initial welcome/MOTD message — e.g., posted mid-session in chat, not present in the first message burst on connect.
+
 - **fetchAndRender at 15s** (`Pages/Client.cshtml:2641`): changed from 20s. Consider dropping to 10s once 15s has been in production without complaint. Diminishing returns below 10s since the server-side poll loop is ~5s.
 
 - **"Any Genre Asia" label** (`Pages/Client.cshtml:715`): `renderServerHeader` strips `"Genre "` but alt-source returns `"Any Genre Asia"` → shows `"Any Asia"`. Fix: `cat = cat.replace("Any Genre Asia", "Any 3/Asia").replace("Genre ", "").replace(" ", "&nbsp;");`
-
-- **Nearby Only fallback: expand 50% when zero results** (`Pages/Client.cshtml`, `wwwroot/css/site.css`): zero cards → silently expand 3000km→4500km, show single nearest. Add `checkNearbyFallback()`; call after render, `processDiff`, and checkbox `change`. Also patch `updateServersList` (line 2135).
 
 - **Nearby Only: global peek strip** (`Pages/Client.cshtml`, `wwwroot/css/site.css`): when Nearby Only is active, render a compact strip just above the Nearby Only checkbox showing the hidden (distant) servers as tiny colored pills — same color scheme and sequence as the full cards, showing only a people-count badge. On hover, the pill expands into a full-size ghost of the server card so the user can read it without leaving Nearby Only mode. The strip is invisible when Nearby Only is off. Implementation sketch: collect suppressed server elements in a separate array during `processDiff`; build pills with `background-color` copied from the card's category color; CSS `:hover` transition `width`/`height` to expand; position pills in a `flex-wrap` row inside a `#global-peek-strip` div inserted before the checkbox container.
 
@@ -28,14 +28,128 @@
 
 ## LLM Welcome
 
-- **Session gap + reunion recognition** (`WelcomeContext.cs`, `DailyEssayService.cs`): when a player returns after a significant absence (suggest ≥14 days since last fleet appearance in `fleet-guid-ip.csv`) AND known co-players from their history are currently on the same server, surface the reunion explicitly. Welcome: "You've been away for 6 weeks — Jonas and Felix are both here." Essay: narrative mention when a known regular returns after a gap; the gap duration itself is worth naming ("first time back in months" lands differently than "haven't seen you in two weeks"). Applies to both fleet welcome messages and the daily essay for web app users. Gap duration comes from `fleet-guid-ip.csv` last-seen timestamp per GUID.
+
+- **"First time here!" on dormant fleet rejoin** (`CensusIndex.GetGuidOnServer`): dormant fleet servers change IP on every restart; `GetGuidOnServer` is keyed by `ip:port`, so all prior visit history is silently lost on each IP change. Fix: use `WelcomeCache` (or a separate short-TTL cache) to remember `(guid, serverName)` pairs from recent welcomes — if a match is found, suppress "first time here!" and inject a short rejoin hint. Static fleet servers (stable IPs) are unaffected.
+
+- **"Back to your top server" after a 21-minute-old first visit** (`WelcomeContext.cs` history signals): observed 2026-07-10 — Dig Bick got "first time here!" on Agora at 00:25, then "back to your top server!" at 00:46 (`history:0h,top`). Technically his most-visited server after one visit, but the phrasing implies a long-standing habit. Consider requiring a minimum visit count / history depth before the `top` flag is set, or softer phrasing when history is thin. Watch for recurrence.
+
+- **Bimodal welcome LLM latency — ~22s cluster** (`WelcomeMessageGenerator.cs`): observed 2026-07-10 — generation times cluster at either ~2–4s or ~22s (e.g. 22051, 22229, 22232, 22413, 23368 ms on consecutive Agora welcomes; interleaved Paradiso/Studio D welcomes ran 2.4–2.9s). The tight ~22s grouping suggests a timeout+retry or fallback path rather than natural variance. A 22s greeting may land well after the player has settled in. Check whether a first-attempt timeout is configured near 20s; instrument retries if so. Watch for recurrence.
+
+- **India welcome-language mismatch** (`Program.cs:1130`, `WelcomeContext.cs:142,165`): three tables disagree — static header table says Hindi (`["IN"]="hi"`), LLM body-language table says English (`["IN"]="English"`), name-based table says Hindi (`["India"]="Hindi"`). An Indian player can get a Hindi "You've joined" header on an English body. One-line fix either direction; product call which language wins (lean English — Indian Jamulus scene skews English-speaking).
+
+- **Suppress welcomes during stress tests** (`WelcomeMessageGenerator.cs` or `/ip-allowed` path): when a flood of clients with names matching a stress-test pattern arrive simultaneously (e.g. `gjstress-\d+`), suppress LLM welcome calls for those arrivals. Detection: if the arriving name matches a configurable regex (in `welcome-config.txt` or hardcoded), skip the LLM call entirely and return no message. Avoids burning tokens on synthetic load and prevents spammy nearly-identical messages from landing in chat.
+
+- **Group-assembled stream reminder** (`WelcomeContext.cs`, `StreamGate.cs`): after a group has been stably assembled for ~6 minutes with the lobby/lease held, send a chat reminder pointing to `https://ear.jamulus.live`, gated to fire only when the lease has ≥30 min remaining. Today the URL is only ever surfaced reactively, riding on an arrival event (`WelcomeContext.cs:1205-1260` — `urlsAllowed` 20-min cooldown gate + branches on `streamActiveHere`/`lobbyPresent`/`minsUntilLobbyStream`); if no new player joins after the group settles in, nobody gets reminded regardless of lease time remaining. Needs design before implementing: (1) how to detect "group assembled" without an arrival to hang the check on — no timer/polling loop currently watches steady-state groups; (2) delivery channel — piggyback on the next welcome (cheap, but silent if nobody joins) vs. a direct fleet chat RPC (`sendClientChatMessage`, same path as `StreamGate.cs`'s `LoungeAnnouncement`) so it reaches an already-settled group; (3) precise meaning of "have the lobby" — already streaming (`streamActiveHere`, lease held + gojam connected) vs. merely eligible/free-to-request.
+
+- **One-time broadcast notice** (`WelcomeContext.cs`, `Program.cs`): reusable mechanism for weaving a single announcement into welcome messages — "Happy New Year", "Welcome to our new Thai server", etc. Ripped out after the audio-dropout campaign; restore when needed.
+
+  **Design (previously proven):**
+  - `data/broadcast-notice.txt` — two lines: line 1 is the message to weave in (e.g. `Happy New Year from the JamFan network!`), line 2 is an expiry datetime in UTC ISO 8601 (e.g. `2027-01-03T00:00:00Z`). Empty file or missing file = no active notice.
+  - `data/broadcast-notified.txt` — append-only list of GUIDs (one per line, 32-char MD5) that have already received this notice. Clear this file when starting a new campaign.
+  - `WelcomeContext.LoadBroadcastNotice()` — reads both files at startup; re-reads `broadcast-notice.txt` on each welcome call (hot-reloadable so you can activate mid-flight without restart). Skips if expired.
+  - `WelcomeContext.HasPendingBroadcast(guid)` — returns true if notice is active, not expired, and GUID not in notified set.
+  - Injection point (line ~1274 in original): `if (HasPendingBroadcast(arrivingGuid)) sb.AppendLine($"One-time notice to weave in naturally: \"{_broadcastMessage}\"");`
+  - `WelcomeContext.MarkBroadcastNotified(guid)` — appends to `broadcast-notified.txt`; called in `Program.cs` after the welcome is sent.
+  - `rich` override: `|| HasPendingBroadcast(capturedGuid)` so the LLM fires even for otherwise-thin contexts.
+  - To start a campaign: write `broadcast-notice.txt`, clear `broadcast-notified.txt`. To end early: delete or clear `broadcast-notice.txt`.
+
+
+- **Offline-predicted name color: replace `#aaa` gray with `<i>` italic** (`WelcomeMessageGenerator.cs`, `WelcomeContext.cs`): `#aaa` is invisible on dark-mode backgrounds. Offline/predicted player names (currently colored `#aaa` in `nameColors`) should instead be rendered as `<i>name</i>` with no color. In `ApplyNameColors`, when `color == "#aaa"` (or a sentinel like `""`) emit `<i>{name}</i>` instead of a `<font>` tag. Also remove the `#aaa` assignment from wherever it's set in `WelcomeContext.cs`. Must test on both light and dark OS mode before shipping.
+
+- **Session gap + reunion recognition** (`WelcomeContext.cs`, `DailyEssayService.cs`): when a player returns after a significant absence (suggest ≥14 days since last appearance in `census.csv`) AND known co-players from their history are currently on the same server, surface the reunion explicitly. Welcome: "You've been away for 6 weeks — Jonas and Felix are both here." Essay: narrative mention when a known regular returns after a gap; the gap duration itself is worth naming ("first time back in months" lands differently than "haven't seen you in two weeks"). Gap duration: last GUID row in census.csv vs. current time.
 
 - **Returning-player recognition** (`WelcomeContext.cs`, `data/server-lore.json`): `WelcomeContext.cs` already knows `returningPlayer`. For 2nd+ visits the LLM prompt should signal "this person is a familiar face — acknowledge their return and the community they're part of, not generic orientation." A `returning_themes` field in `server-lore.json` (separate from `themes`) lets each server customize this voice without a prompt change. Requires: text edit to `server-lore.json` + small C# addition to pass `returning_themes` when `returningPlayer == true`.
 
 
+## Group Song Palette — "You've shared some great music here"
+
+When a group assembles on a fleet server, check if they collectively have ≥6 distinct titled songs
+attributed to ≥2 distinct GUID sources in `url-guids.csv`. If so, slip a link into the group welcome
+message: "You've shared some great music here." followed by `/songs/<group-hash>`. No explanation of
+how we know — let the page speak.
+
+**Data foundation** (`data/url-guids.csv`): Already exists and working. Schema:
+`minutes, server_ip:port, encoded_url, encoded_title, pipe-separated-guids`. 86 rows so far (all Thai
+server), 33 distinct titled songs, 127 GUIDs. Titles resolve for chordtabs.in.th song URLs and
+chords69cl room URLs when Firebase title returns non-empty. `trim_url_guids.sh` keeps 90 days.
+
+**Room URL handling**: chords69cl URLs are not song-addressable (same URL → different songs each
+session). Show their resolved title as text-only in the palette. YouTube, chordtabs.in.th, UG, etc.
+are song-addressable — show as clickable links. The palette may be a mix of both.
+
+**Broad "you"**: Songs attributed to any GUID currently present count toward the threshold and appear
+on the palette — not just songs that individual posted. It's the collective history.
+
+**Group hash**: Stable hash (SHA256 or similar) of the sorted set of GUIDs that contributed ≥1 titled
+song. URL: `/songs/<group-hash>`. Same group → same URL across sessions as long as contributing
+membership is stable.
+
+**Current data findings (2026-06-25)**: 77 titled rows, 62 distinct songs, 127 GUIDs — all from
+the Thai server. Diagnostic against `url-guids.csv` found **44 qualifying groups** (≥6 songs, ≥2
+sources). Top groups have 38 songs from 4–8 GUID sources. All current songs are `[text]` (chords69cl
+room URLs — title resolves, but no song-specific link). chordtabs.in.th URLs will add `[link]` items
+as they accumulate. Titles in `url-guids.csv` are URL-encoded; use `HttpUtility.UrlDecode` when
+rendering.
+
+**Implementation steps**:
+- [ ] **Trigger query** (`WelcomeContext.cs`): load `url-guids.csv` once at startup (or cache with
+  short TTL), filter rows where any pipe-separated GUID matches the current player set, aggregate
+  distinct titled songs and contributing GUID sources, check threshold (≥6 songs, ≥2 sources).
+  **Implement as a handoff** — run `claude` on `jamulus.live` with `WelcomeContext.cs` in scope.
+- [ ] **Palette page** (`Pages/Songs.cshtml` or minimal API endpoint): on-demand render from
+  `url-guids.csv`. Linked items for song-addressable URLs (non-chords69cl), text-only titles for
+  room URLs. Mobile-friendly (Thai musicians on phones). Decode URL-encoded titles before display.
+- [ ] **Welcome injection**: one sentence + link added to group welcome when threshold met. No
+  explanation of how we know. Let the page speak.
+- [ ] **Thai fleet server** (prerequisite — see ops TODO): trim jazz studios to free budget, then
+  spin up AWS ap-southeast-1 (Singapore). Thai lobby monitoring gives dense passive URL harvest.
+  44 qualifying groups already waiting in `url-guids.csv` — easter egg fires on day one.
+
+## Season Essay — "The Full Season" (95-day retrospective)
+
+A long-form prose essay covering the full trailing 95 days of the Jamulus network. Combined angle: character portraits (concise, individual) with songs woven in as windows into who each player is — not a separate music section, but music as texture throughout. Generated in English and Thai.
+
+**Two jobs:**
+1. **Published artifact** — something regulars will actually want to read; players who appear in it will seek it out.
+2. **AI context** — distilled into `data/season-digest.json`, a structured machine-readable file consumed by `DailyEssayService` and welcome messages for continuity and specificity.
+
+**Two digests, two time windows:**
+- **`data/recent-digest.json`** (30-day rolling) — who is a current regular, recent servers, recent co-players. Primary source for welcome messages, which need fresh data.
+- **`data/season-digest.json`** (95-day) — long-term patterns, established relationships, who has been around for months. Primary source for daily essays and season essays.
+
+Both are derived from census.csv, censusgeo.csv, timeTogether.json, urls.csv — no LLM. Build and test one before wiring into anything. Welcome messages currently do expensive per-request lookups in `WelcomeContext.GatherAsync`; a pre-computed digest replaces that with a fast GUID keyed lookup.
+
+**Digest schema** (`data/season-digest.json`):
+- `generated_at` — ISO timestamp
+- `window_days` — integer (95)
+- `players` — array, each entry: `{guid, name, instrument, nation, days_active, top_servers: [{key: "ip:port", display_name: "...", tick_count}], known_partners: [guid, ...]}`
+- `pairs` — array: `{guid_a, guid_b, name_a, name_b, hours_together, top_server_key, top_server_name}`
+- `servers` — array: `{key: "ip:port", display_name, nation, unique_players, top_songs: ["title — artist", ...]}`
+
+**Naming collision rule:** server names and relationship labels must never share a string. Use `ip:port` as the primary key for servers throughout. Never use natural-language labels like `"trio"` or `"duo"` as field names — use `group_size: 3` or reference members by GUID. The consuming LLM sees both server names and relationship descriptions; ambiguous strings cause hallucinated cross-references (e.g. a server named *Trio* being described as a trio grouping).
+
+**Essay generation** (`ops/long-essay.py`): add a new `PROMPT_SEASON` combining portraits concision with songs-as-texture. Replace the three-variant output with a single essay per language: `wwwroot/essays/season-en.html` and `wwwroot/essays/season-th.html`. Add `--lang Thai` mode (Gemini writes Thai directly). Embed `generated_at` timestamp in both footers. Monthly cron — cost ~$0.06/month (Gemini 2.5 Pro, two languages).
+
+**Monitoring:** read several iterations before publishing. Bot content, listener-only players, and server churn are the likely weak spots. Do not mention Cameron.
+
+**Serving:** once quality confirmed, two subtle links at the bottom of the daily essay — Thai link first, English second, one shared age label between them: `<i>รายงานฤดูกาล</i> · <i>Seasonal report</i> · written N days ago`. Age computed from `season-en.html` mtime (both essays regenerate together). Routes in `Program.cs` for both files.
+
+**Implementation order:**
+1. Write `ops/recent-digest.py` — emit `data/recent-digest.json` (30-day) from census data. No LLM. Inspect the output before wiring anywhere.
+2. Wire `recent-digest.json` into welcome context (`WelcomeContext.GatherAsync`). Observe welcome message quality.
+3. Write `ops/season-digest.py` — emit `data/season-digest.json` (95-day). Wire into `DailyEssayService.BuildContext`. Observe essay quality.
+4. Add `PROMPT_SEASON` to `long-essay.py`; add Thai mode; generate `season-en.html` and `season-th.html`.
+5. Add localhost-only routes; monitor essay quality over a few iterations.
+6. Add Thai-first + English links at bottom of daily essay once quality confirmed.
+
 ## Daily Essay
 
-- **Per-IP rate limit on `/api/nearby-essay`** (`Program.cs`): add `ConcurrentDictionary<string, (int Count, DateTime Window)>` with same pattern as `/chat-url-client` (line 29). Limit: 5 requests per hour per IP. Return 204 on limit — client already handles 204 gracefully. No need to distinguish cache-hit vs generation at the route layer; just gate all requests.
+- **Essay rate limit blocks legitimate polling — real users never see the essay (diagnosed 2026-07-16)** (`Program.cs:390-409`, `Pages/Client.cshtml:3006-3017`, `DailyEssayService.cs:145-159`): the per-IP rate limit above shipped (as `_essayRateLimit`, `rl.Count > 2` → 204 — tighter than the original 5/hr spec), but two bugs compound so generation works fine (959 recent LLM calls in `output.log`, only 10 errors) while almost nobody actually sees a result:
+
+  1. **Client retry loop exhausts the limit before the essay is ready.** `checkForEssay`/`fetchAndShowEssay` polls `/api/nearby-essay` every 60–240s for as long as nothing is shown. The route allows only 2 real attempts per rolling hour per IP — a tab open more than ~4-6 min without a ready essay has already burned its quota, so it gets silent 204s even after the essay finishes generating server-side. Confirmed in `output.log`: many IPs stuck at climbing rate-limit counts (one lifetime count: 2707 — an unattended tab open for weeks).
+  2. **Solo visitors in quiet regions can never trigger generation.** `GetEssayHtmlAsync` requires a second, *different* IP to request the same `region:language` key before it calls the LLM — a lone visitor's own repeat requests never count as that second trigger. Confirmed pattern: `reqCount=1 — first request, waiting for 2nd` → `same IP as first, not triggering`, repeating for hours in quiet regions (e.g. NA-W/Tacoma).
+
+  **Status (2026-07-16):** step (b) implemented — `/api/nearby-essay` (`Program.cs`) now checks the existing count/window without incrementing, and only calls `_essayRateLimit.AddOrUpdate` after `DailyEssayService.GetEssayHtmlAsync` returns non-null html. Polling while not-ready no longer costs quota; the 40/day `s_onDemandToday` cap in `DailyEssayService.cs` remains the real abuse guard. Watch `output.log` `[ESSAY] rate-limit` frequency over the next day or two — should drop sharply. If quiet-region visitors (solo, no second IP) still report never seeing an essay, that's the separate two-distinct-IP generation gate (`DailyEssayService.cs:155-159`) — candidate fix: relax it to trigger solo after a longer wait (e.g. 90s), trading a small LLM-cost risk for actually serving those visitors. Client-side retry-cap idea overlaps with **Client-side trigger redesign** below — revisit together if (b) alone isn't enough.
 
 - **Daily on-demand generation cap** (`DailyEssayService.cs`): static `int` counter + `DateTime` reset-at-UTC-midnight. Inside `GetEssayHtmlAsync`, after the first cache-miss check, if `onDemandToday >= 40` return null (→ 204). Scheduled pre-gen calls bypass this counter (they go through `GenerateAsync` directly). Log `[ESSAY] daily-cap-hit ip={clientIp} key={cacheKey}` when blocked. Cap of 40 gives headroom above the typical 24–30 on-demand calls/day.
 
@@ -77,60 +191,221 @@
 
   **Friend highlights** (implement first): look up the requesting GUID's top 3 co-jammers by `timeTogether`, resolve their names via `m_guidNamePairs` (HtmlDecode before matching; skip empty names; skip names shorter than 4 chars to avoid false positives). Replace each `<b>NAME</b>` in the essay HTML with `<b class="essay-friend">NAME</b>`. CSS: `.essay-friend { color: #e8a840; }`. Rare and meaningful — only fires when the reader's actual friends appear in the essay.
 
-  **"You're in this one" badge**: if the reader's own name (resolved from `m_guidNamePairs[guid]`) appears as a `<b>` tag in the essay, change the `#essay-age-top` badge text from "Written Xmin ago" to "You're in this one · Written Xmin ago". No server state needed — the reader's name is a simple search on the cached HTML.
+  **"You're in this one" badge** — *self-mention now covered for the no-login case by the IP-resolved banner below (shipped). This `?guid=`-supplied variant remains only as a possible complement for explicitly logged-in users; do not re-implement the same self-mention detection.*
+
+- **"Hey, you're in this one!" banner — IP-resolved variant** — **IMPLEMENTED (staged, needs restart)**: server-side IP→GUID→banner. `DailyEssayService.TryGetVisitorBanner(ip, cacheKey)` resolves the visitor's IP via `IdentityManager.GetGuidStrengths` (floor ≥16), intersects with a featured GUID→name provenance map captured at generation time (`GenerateAsync`, stored in the widened `s_cache` tuple — the open `LookupCensusName` item was sidestepped by storing GUID→name directly, so the name is the census name that was fed to the LLM), confirms the name survived into the prose via word-boundary regex, and returns an inline-styled left-border callout. Endpoint (`Program.cs` `/api/nearby-essay`) prepends it after `GetEssayHtmlAsync`; `ResolveCacheKeyAsync` locates the visitor's own region essay. No client CSS needed (inline style).
+
+  **Observability (shipped):** every attempt logs `[ESSAY-YOU] eval … result=<token>` to `output.log`, where token ∈ {no-essay, no-guids, below-floor, no-mention-match, name-not-in-prose, shown}. Success rate = `grep -c "result=shown"` ÷ `grep -c "\[ESSAY-YOU\] eval"`. Shown notifications also append to `data/essay-you.log` (git-ignored) with GUID, name, IP, `strength` (merged), `golden` (join-events-only strength — <16 means the qualifying strength came from fleet synth, weaker), `guidIPs` (distinct join-events IPs for that GUID — >1 flagged `MULTI-IP`), `qualifying` (how many ≥16 GUIDs the IP resolved to), `featured` (essay's candidate count). Flags `SYNTH-ONLY` / `MULTI-IP` / `MULTI-QUALIFYING` mark lower-confidence firings. `IdentityManager.GetIpCountForGuid` backs the multi-IP signal. **Live since 2026-08-10 restart; confirmed working** — first real firing (EU-W:Dutch, "Rens") logged `result=shown`. **Owner decision (2026-08-10): false positives are acceptable** — a wrong "you're in this one" now and then is a fine trade. Do NOT tighten: fleet-synth-16 stays valid (no `golden ≥ 16` floor), no `guidIPs` ceiling, harvester shared-IP denylist dropped. The `SYNTH-ONLY`/`MULTI-IP`/`MULTI-QUALIFYING` flags remain as ledger visibility only, not gates.
 
   **Co-jammer near-miss line**: if the reader's GUID was active in the last 24h (appears in census.csv for today) AND one or more of their top-3 co-jammers was also active but on a different server, append a short italic line after the essay's closing `<p>`: `<p class="essay-nearmiss"><i>Jonas was on Freiheit last night while you were on CBVB.</i></p>`. Derived entirely from census.csv + timeTogether — no LLM. Skip if they were on the same server.
 
   **Crew summary line**: if the reader was NOT active last 24h but their top co-jammers were, append: `<p class="essay-crew"><i>Your people last night: Jonas on <i>Freiheit</i>, Felix on <i>Studio D</i>.</i></p>`. Server resolves crew names + server names from census.csv. No LLM. Shows even when the reader has no personal session to anchor to.
 
-- **Jammer map hyperlinks in the essay** *(disabled — `DailyEssayService.cs` line ~290 returns empty list)*: once per essay, the LLM may hyperlink a group name to the jammer map. C# builds the URL from `jammer-map.json` GUIDs; post-processor strips unauthorized links. Re-enable when ready: replace the `new List<...>()` stub with the `BuildJammerMapLinks(...)` call.
+- **Essay time-fixation: reduce timing detail & prompt surface area** (`DailyEssayService.cs:641`, `data/essay-system-prompt.txt`): essays over-narrate duration/start/end times ("kept a steady jazz pulse going... for nearly a full day..."), despite repeated prior attempts to suppress this via prompt rules. Two feeding mechanisms identified: (1) every session in the context gets three separate timing representations — local start-end, UTC start-end, and an approx-duration phrase — the most complete, always-present data field in the whole input, present for every session unlike songs/instruments which are spotty; (2) ~25 of the prompt's ~90 WRONG/RIGHT examples concern time/duration phrasing, which anchors model attention on the topic even though every one of those examples is a prohibition, not an encouragement.
 
+  **Full plan (in order of increasing cost):**
+  1. **Prompt-only frequency cap** — add one explicit instruction near the top of `essay-system-prompt.txt`: mention time-of-day or duration in at most ~1 in 3 sessions described; most sessions should carry zero time language. No code change, no context change.
+  2. **Trim prompt example library** — consolidate the ~25 time-related WRONG/RIGHT pairs down to 4-5 representative ones, freeing up prompt space currently spent reinforcing the topic even in negative form.
+  3. **Context reduction** (`BuildContext`, `DailyEssayService.cs:628-669`) — give full start/end + UTC + duration detail only to the single headline session (top local + top global by score); replace the three timing fields for every other session with one coarse day-part tag (morning/afternoon/evening/night) — no numbers, no duration phrase at all.
+
+  **Minimum-step approach (try this first):** step 1 alone — cheapest possible test, pure prompt edit, reversible in one line. Generate a handful of essays and read them before deciding whether steps 2–3 are still needed. Steps 2 and 3 stay on the shelf unless step 1 alone doesn't move the needle.
+
+  **Status (2026-07-15):** step 1 done — added a frequency-cap bullet to `essay-system-prompt.txt` (1-in-3 sessions may carry time/duration language, zero for the rest, no more than one time-opened paragraph per essay). No code change, no restart needed (prompt re-read per call). Next: read the next few generated essays (`data/essay-llm.log`, or trigger via the spoofed-IP curl in `JamFan22/CLAUDE.md`) and judge whether steps 2–3 are still warranted.
 
 ## Geolocation / Geo-diag
 
 - **region-centroids.json**: canonical lat/lon per `{countryCode}:{regionName}` from GeoNames/Natural Earth, to replace ip-api datacenter-IP coordinates.
 
-- **geo-diag: Fleet/JE IP disagreement categories** (`nearby.cs`): `same-ip`, `/8-agree`, `/8-differ,geo-agree`, `/8-differ,geo-differ`. Add `[JE-FLEET-DIVERGE]` log + `fleet-ranges` indicator.
-
-- **geo-diag: page-level agreement stats**: summary line at top.
-
-- **InferredRegion open concerns**: strength 2–15 gap (threshold ≤1 too conservative); `country-adjacency.json` not yet wired; `fleet(1d)` should also apply ≤1 override.
+- **InferredRegion open concerns**: `country-adjacency.json` not yet wired; `fleet(1d)` should also apply ≤1 override.
 
 - **InferredRegion: nightly cull cron + /login enhancement**: prune stale server-region cache; pre-filter by visitor IP.
 
 
+## Data / Infrastructure
+
+- **`/chat-url-client`: remove join-events GUID resolution** (`Program.cs`): the modified client always supplies `serverAddr`, so the `IdentityManager.GetGuidStrengths` lookup is dead weight in this path — it can never know the server better than the client does. Remove the GUID-resolution block (lines ~482–520) and the `bestGuid`/`bestStrength` variables; keep only the `req.serverAddr` validity check and the identity gate (`guidStrengths.Count == 0 && FleetGuidCache…`). The identity gate itself may also be removable if the fleet binary is the only caller — audit before dropping.
+
+- **`server.csv` timestamp** — deployed 2026-06-24 or earlier; confirmed live. Schema: `ip:port,name,city,country,minute` (col 4 added). Readers using cols 0–3 are unaffected. `server-lore.json` `name` field remains the authoritative override for stale names.
+
+  **Pruning plan** (file is pure append-only, currently ~45 MB / 867K lines, never pruned):
+  - **Near-term (a few months post-deploy):** drop all rows where col 4 is absent (old format). Safe once the pre-restart backlog is no longer the latest row for any `ip:port`.
+  - **Long-term:** for each `ip:port`, keep only the row with the highest minute value; drop rows older than ~1 year. Script: group by `ip:port`, keep `max(col 4)` row per key, discard the rest. Do not run until the file is mostly minute-stamped — before that, "last by position" and "last by minute" diverge for old rows.
+
 ## Fleet / Infrastructure
 
+- **Rename TH + HK dormant fleet instances to "destiny"-themed native names** (remote systemd service files on the fleet hosts — NOT this repo): the limited-time "See your destiny" joiner-centered essay welcome (see **LLM Welcome** → the essay feature; code already shipped in `Program.cs` `DormantEssayFeature`, `WelcomeMessageGenerator.GetEssayAsync`, `WelcomeContext.EssayLanguage`, `data/welcome-essay-prompt.txt`) fires on servers geolocated in Thailand and Hong Kong. The owner wants the **actual Jamulus server display names** of our dormant instances in those two countries changed to reflect "see your destiny" in the native script — Thai for the TH instances, Chinese (Traditional) for the HK instances — because that's where the destiny essays appear. The destiny theme applies **only** to TH and HK — nowhere else in the fleet.
 
-- **Self-updating server lore** (`data/server-lore.json`, new script `lore-update.py`): weekly cron job that reads `census.csv` (last 4 weeks) and updates `server-lore.json` automatically — adding emerging patterns, removing dead ones. For each fleet server: detect recurring session windows (≥2 of last 4 matching weekday/hour slots with ≥5 players), compare against current `events[]` entries, add new ones and remove any that have missed ≥2 consecutive scheduled occurrences. Also refresh `themes[]` from instrument/genre distribution if shifted significantly. No manual hand-holding — runs weekly, commits the result or at minimum writes `data/server-lore.json` in-place (app re-reads on next call). Pair with the existing `band-finder.py` cron cadence. The hype must reflect reality.
+  **Important distinction:** the app-side work is done and only brands the welcome *chat message* (a `🔮` banner: `ดูโชคชะตาของคุณ` / `看見你的命運`). The **directory display name** each instance registers is set per-instance in its own Jamulus systemd unit (the `-n`/`--servername` / `--serverinfo` arg in `ExecStart`) on the remote fleet host — untouched by anything in this repo. That is what this task changes.
+
+  **What the agent must do:**
+  1. Identify which dormant fleet instances are in TH and HK. Start from `data/fleet-server-ips.txt` (IPs like `43.208.241.171`, `43.212.6.248` → AWS `ap-southeast-7` Bangkok; `16.163.141.108` → AWS `ap-east-1` Hong Kong — **verify by geolocation, don't trust the guess**) and cross-reference the dormant-instance tooling: `ops` `dormant-monitor.py` (runs as `dormant-monitor.service`, starts/stops instances via boto3), `/root/dormant-ip-cache.json` (instanceId→IP), and `dormant-instances.json` (per-instance templates / `fleet_entries`). Current custom names seen in `data/welcome-events.log` for TH: *Route 66*, *Krub Club*, *Piper Club*, *Esplanade*, *Sei*; and *女巫店* (already Chinese) — confirm each one's actual country before renaming.
+  2. Determine access to each host's systemd unit. Per prior TODO notes, **no SSH key on this host currently reaches the fleet instances** — resolve access first (this was an open blocker for reading Jamulus service configs; see the `/debug/fleet-rpc` item's "Concerns"). Dormant instances get a fresh EC2 instance per wake, so a durable rename must live in the **AMI / user-data startup script**, not just the running instance, or it reverts on next wake.
+  3. Edit the servername in each TH/HK unit to a destiny-themed native name, restart that Jamulus process, and confirm the new name appears in the directory feed. **Final names (picked — assign one per instance, primary first; do not duplicate a name across two live instances):**
+     - **Thailand (Thai):** `โชคชะตา` (*chôhk-chá-taa*, "Destiny" — flagship/busiest instance) · `พรหมลิขิต` (*phrom-lí-kìt*, "Fate Foretold") · `เผยชะตา` (*phə̌əy chá-taa*, "Fate Revealed") · `ดวงชะตา` (*duang chá-taa*, "Your Stars").
+     - **Hong Kong (Traditional Chinese):** `命運` (*mihng-wahn*, "Destiny" — flagship) · `緣分` (*yùhn-fahn*, "Fated Meeting" — the fate that draws people together; ideal for the busiest HK instance) · `天命` (*tīn-mihng*, "Heaven's Will") · `窺見命運` (*kwāi-gin mihng-wahn*, "A Glimpse of Destiny").
+     - All are short by design — long names get truncated in the grid. Owner has approved the destiny theme; confirm the exact per-instance assignment before restarting.
+
+  **Cautions:** outward-facing, hard-to-reverse infra change on production hosts across multiple cloud accounts — confirm the exact instance list and the final names with the owner before restarting anything. Record the old names so the rename can be reverted when the essay feature expires (hardcoded `2026-08-05`, or after 29 essays).
+
+- **Chile expansion (GCP `southamerica-west1`, Santiago)**: census shows 6,925 player-sessions / 5 active servers in Chile with no fleet coverage. Add a dormant GCP instance in Santiago. Lowest-effort: spin up, install Jamulus + ChatReporter, snapshot as an AMI/image, keep stopped until demand justifies it.
+
+- **Persistent outbound WebSocket channel for welcome delivery** — eliminates the need to open inbound RPC ports (9999/9998) on cloud fleet servers.
+
+  **Problem:** JamFan22 currently opens an outbound TCP connection *to* the fleet server's RPC port to deliver welcomes. Cloud firewalls (AWS security groups, OCI VCN ACLs) block inbound TCP by default — TCP hole-punching cannot fix this, as the deny rule blocks the inbound SYN regardless. Every new fleet instance requires a manual firewall rule. Servers without it (e.g. `24.199.107.192`) receive no welcome messages at all.
+
+  **Solution:** Flip the connection direction. Each fleet server binary (`chatreporter.cpp`) opens a persistent outbound WebSocket to `wss://jamulus.live/fleet-rpc-channel?port=NNNN` at startup, riding the existing HTTPS port 443 — no new port, no new firewall rule on either end. JamFan22 receives the connection, registers it, and pushes delivery instructions down the socket. The binary delivers each message via loopback RPC to `127.0.0.1:m_rpcPort`. All TCP is binary-initiated outbound.
+
+  **JamFan22 side (`Program.cs`) — ✅ DONE (2026-07-03):**
+  - `GET /fleet-rpc-channel?port=NNNN` WebSocket endpoint live; registry in `_fleetWsRegistry` (keyed `{RemoteIpAddress}:{port}`).
+  - Personal welcome and group welcome blocks both check WS first; fall back to existing TCP if not registered or send fails.
+  - Log prefixes: `[fleet-rpc-channel] <UTC ts> connected/disconnected` (timestamped 2026-08-19; grep `\[fleet-rpc-channel\].*connected`, not the two words as one literal), `[PLAYER-IDENTIFIED-WELCOME] ws`, `[PLAYER-IDENTIFIED-GROUP] ws`.
+
+  **C++ side (`chatreporter.cpp`/`.h` + `main.cpp`) — ✅ DEPLOYED (2026-07-04 build; source uncommitted in central `/root/jamulus`, commit pending — see central TODO.md). `[fleet-rpc-channel] connected` lines confirm live fleet connections. Spec as built:**
+  1. Add `QWebSocket* m_fleetSocket` to `ChatReporter`. At `ChatReporter::start()`, connect to `wss://jamulus.live/fleet-rpc-channel?port=NNNN` where `NNNN` is `m_port`.
+  2. On `textMessageReceived`: parse `[{"channelId": N, "message": "..."}]`. For each entry, call new `deliverWelcomeViaRpc(channelId, message)` — opens a `QTcpSocket` to `127.0.0.1:m_rpcPort`, sends `jamulus/apiAuth` + `jamulusserver/sendClientChatMessage`, closes. All async via Qt event loop; never blocks the audio path.
+  3. On disconnect: `QTimer::singleShot(5000, ...)` in the `disconnected` slot, doubling up to 60 seconds.
+
+  **Multiple servers on the same host:** each Jamulus process connects with its own `?port=NNNN` (e.g. `22224`, `22225`). JamFan22 keys the registry by `{RemoteIpAddress}:{port}` so they are always distinct entries, even on shared-IP instances (Freiheit+Jazzstübchen, Louvre+New Morning, the full Trio cluster, etc.).
+
+  **Rollout:** deploy new C++ binary to one server; watch for `[fleet-rpc-channel] connected` in the JamFan22 log; trigger a test join; confirm welcome appears. Old and new binaries coexist safely via the fallback TCP path. Once all servers are on the new binary, remove the TCP fallback from JamFan22.
+
+  **Reliability improvement:** eliminates the entire class of `OperationCanceledException` / TCP-connect-timeout welcome failures. All currently cloud-firewalled servers (including `24.199.107.192`) start receiving welcomes the moment they connect.
+
+- **`/debug/fleet-rpc` — localhost RPC-over-WebSocket debug endpoint** (proposed 2026-07-08, owner undecided — revisit): ~15-line GET endpoint in `Program.cs` next to `/debug/fleet-levels`, same loopback-only gate. Takes `?key=IP:PORT&method=...` (default `jamulusserver/getServerProfile`), looks up the live WS in `_fleetWsRegistry`, and sends the call through the existing `FleetWsRpcCallAsync` (same 5s timeout/locking welcomes already use). Empty params, so only parameterless reads work in practice.
+
+  **Rationale:** the 22226 rooms on Paris and Milan have unknown names — never directory-registered (absent from server.csv/census), and their RPC port 9997 is blocked by the AWS security groups (only 9999/9998 open; confirmed by sweep — only the permanent Dallas host answers 9997). Their only reachable interface is the outbound WS channel each room's ChatReporter holds open to JamFan22. This endpoint would let us ask any connected room its own name/registration status — this class of invisible-room mystery generally.
+
+  **Concerns:** adds a production code path + restart for what is essentially a one-off lookup; alternative is reading the Jamulus service configs on the instances once SSH/console access exists (no key on this host works today). Related cleanup regardless of decision: Paris/Milan `fleet_entries` templates in `dormant-instances.json` carry only 22224/22225, so their 22226 lines in `fleet-server-ips.txt` are stranded on old IPs (e.g. `15.160.126.238`, `52.47.185.95`) and never get patched on wake.
+
+- **ChatReporter missing from all dormant instances + `147.182.199.22`**: 11 fleet servers have never sent a `player-identified` call to JamFan22 — meaning no welcome messages, no IP tracking, and no census audible data for any player who joins them.
+
+  **Affected servers (as of 2026-07-04):**
+  - All 10 currently-tracked dormant instances (Oregon, Thailand, Milan, Taipei, No Way, Montreal, Paris, Sao Paulo, Singapore, Spain, Garibaldi, Calgary) — all AWS, all rotating IPs
+  - `147.182.199.22` (DigitalOcean Santa Clara, **permanent**) — also absent from census entirely
+
+  **Root cause:** these servers were provisioned after the initial ChatReporter deployment. The dormant instances each get a new EC2 instance on first spin-up that never had the ChatReporter binary installed. `147.182.199.22` is a permanent server that was also missed.
+
+  **Fix:** deploy the ChatReporter binary (and the new outbound WebSocket variant per the persistent-channel item above) to each instance. For dormant instances, this means baking it into the AMI or user-data startup script so each fresh instance gets it automatically. `147.182.199.22` can be done manually via SSH like any other permanent fleet server.
+
+  **Update 2026-07-07:** the 2026-07-04 deploy put the WS-capable binary on the *running* dormant instances (Milan and Maple were recovered from failed deploys the same day — missing `libqt5websockets5` / wrong-arch binary; see central TODO.md). Remaining: stopped dormant instances on next wake, the AMI/user-data bake, and `147.182.199.22`.
+
+  **Impact:** players on dormant servers get no welcome, no co-player context, no lore — they're invisible to JamFan22 from the inside despite appearing in census from the directory feed.
 
 
-- **Ear silence sampler** (`NonFleetSilencePoller.cs`): rewrite scheduler with GUID-urgency scoring. Kill switch currently active (`silence-poller-disabled`). Design:
+- **`132.226.27.144:22225` (Rising jazz) intermittently fails hole-punch** (`harvest.cs:417-497`): **fix implemented 2026-07-28, build-verified, not yet deployed.** Root cause: once a server is confirmed `s_requiresPunch=true`, there was no in-cycle retry on timeout — it fell straight into the unconditional `catch` with no second attempt, unlike the *discovery* path which retries once before giving up. Evidence: 2,928/53,787 (~5.4%) failures over the full log; ~1/3 clustered with same-cycle failures on `132.226.27.144:22224` (same host, different directory host), pointing at OCI NAT/security-list flakiness rather than a directory-specific issue.
 
-  **Scheduler — score-based server selection (replaces interval table):**
-  Pick the highest-scoring eligible server each cycle. Score per server:
+  **Fix:** widened the retry `catch` guard from `when (!requiresPunch && hasDirInfo)` to `when (hasDirInfo)` so confirmed-punch servers now also get one punch+retry before giving up for the cycle; guarded the `s_requiresPunch[ipport]=true` log line with `if (!requiresPunch)` so already-confirmed servers don't re-log "marked as requiring hole-punch" on every successful retry. `dotnet build` clean, 0 errors. Needs `systemctl restart jamfan22` to take effect in production.
+
+- **Paris jazz server** (`15.188.59.20`): add a second Jamulus process on port 22225 for jazz genre. RPC port 9998 already pre-wired in `fleet-rpc-ports.txt`. Steps: SSH to Paris VM → start Jamulus server on 22225 → open port 22225 in cloud firewall → add `15.188.59.20:22225:9998:jazz.jamulus.io:22324` to `fleet-server-ips.txt`. Name suggestion: *Jazz Café* or similar. (Louvre RPC confirmed working via `output.log` — `nc` timeout was misleading; the VM's firewall allows outbound connections to us on 443 but blocks our inbound TCP probe on 9999.)
+
+- **Welcome messages blocked: `24.199.107.192`** (large multi-port Trio cluster): every welcome attempt fails with `OperationCanceledException` on RPC ports 10001, 10002, 10007. The host's firewall blocks inbound TCP from jamulus.live — same connectivity issue that forces hole-punch for all its game ports. No welcome messages are reaching any player on this cluster (ports 22121–22127). Resolution: the outbound WebSocket channel — the Trio cluster gets welcomes once it runs a jamfan binary with the WS client (Trio fleet-integration plan, central `/root/TODO.md`). Do not pursue inbound RPC port openings; the outbound channel is the durable fix.
+
+
+
+## Client-sourced level data (`POST /client-levels`)
+
+The operator's jamfan Jamulus client (chatreporter.cpp) is frequently connected to non-fleet servers. It already receives per-channel level nibbles (message 1015) and per-channel GUID data (via `reportClientInfo`). This makes it a natural long-running silence sampler for servers the lounge bot isn't watching.
+
+**Endpoint:** `POST /client-levels` on JamFan22
+**IP gate:** read allowed IPs from `data/client-level-reporter-ips.txt` (operator's home/VPN IPs); return 403 for anything else. No shared secret in the binary — IP gate is sufficient for the single-operator threat model.
+
+**Request body:**
+```json
+{"server": "ip:port", "channels": [{"guid": "abc...", "level": 3}, ...]}
+```
+- `guid` — MD5(name + phpCountryName(countryId) + phpInstrumentName(instrumentId)), same as chatreporter's existing GUID logic
+- `level` — 0–15 nibble from the 1015 channel level list
+
+**C++ side (chatreporter.cpp):** add a 30-second timer that fires while connected. Cross-join the stored channel-info table (keyed by channel slot) with the most recent 1015 nibbles; POST for each slot where channel info is known. Fire at most once per 30s; cancel/restart on connect/disconnect.
+
+**JamFan22 side:** store latest `(guid → level)` per `ip:port` in a new `m_clientLevels` dict (same shape as `m_fleetClientLevels`). When `JamulusCacheManager` writes census.csv rows for non-fleet servers, fall through to `m_clientLevels` the same way it currently falls through to `NonFleetSilencePoller.ClientLevels` (that path is already wired, currently empty). Census col 3 (`audible`) semantics stay identical: `0` = this GUID's level was 0, `1`-`f` = audible, value = total audible player count in session. No schema change.
+
+**Cadence note:** client reports every ~30s; census writer samples once per minute. JamFan22 stores the latest report and the census writer picks it up at write time — same behavior as fleet polling (harvest.cs polls every ~50s, census writes every ~60s).
+
+**Silent vs quiet-but-present distinction:** the existing `audible=0` / `audible>0` encoding already captures the binary presence signal. A GUID showing `audible=0` across hundreds of samples is a strong silence signal. A GUID showing `audible=1` or `audible=2` (active but in a near-empty or quiet session) is real presence. The census consumer (welcome context, essay) should treat `audible>0` as "present" regardless of the session size value — do NOT suppress a GUID with `audible=2` the same way as `audible=0`. The current LLM prompt context should already reflect this; verify before assuming.
+
+**What this does NOT capture:** the GUID's own loudness within a non-zero sample. `audible=1` could be a whisper or a roar — only the boolean is encoded. If loudness distinction ever matters (e.g., "barely audible vs. clearly playing"), that would require a raw-level file (deferred — don't create it now).
+
+**Prerequisite:** operator's current home/VPN IPs collected and written to `data/client-level-reporter-ips.txt` before enabling. Start with this file and the 403 gate before wiring any C++ timer.
+
+
+- **Ear silence sampler** (`NonFleetSilencePoller.cs`): rewrite scheduler with GUID-urgency scoring. Kill switch currently active (`silence-poller-disabled`).
+
+  **Stealth principle:** Ear is visible. Every probe is a named connection that appears briefly to every player on that server. The constraints below are designed so Ear arrives rarely, at the highest-value moment, and never where audio data is already flowing from another source.
+
+  **Optimal target selection — score-based, patience-first:**
+  Each 5-second cycle the scheduler checks whether to fire. It only fires when two conditions are both true:
+  1. The global cap allows it (no probe in the last 60 min)
+  2. The top-scoring eligible server clears the minimum score threshold
+
+  Score per server:
   ```
   score(server) = Σ t_unseen(g)  for each GUID g currently on that server
   ```
-  `t_unseen(g)` = minutes since GUID g's server was last probed by Ear, OR minutes since g first appeared in `LastReportedList` if never probed. **No never-sampled multiplier** — new GUIDs accrue time like everyone else. This prevents name-changers (new GUID every few minutes) from inflating a server's score; their fresh GUIDs add only a few minutes each, easily outcompeted by hour-old GUIDs on other servers.
+  `t_unseen(g)` = minutes since GUID g was last sampled by Ear, OR minutes since g was first observed anywhere across all directory feeds (not just this feed) if never sampled. **No never-sampled multiplier** — unknown GUIDs accrue time like everyone else; their advantage is naturally time-compounding (unseen for 3 hours beats sampled 1 hour ago). This prevents name-changers (new GUID every few minutes) from gaming the score.
 
-  **New data structures:**
+  **Lay-in-wait / pounce behavior:** During the blocked window (60 min after last probe), the scheduler watches all servers every 5 seconds as their scores climb. The moment the cap clears, it immediately pounces on whatever has the highest score at that instant — the server with the largest group of longest-unseen GUIDs. If no server clears the threshold at cap-clear time, it keeps watching and pounces the cycle the threshold is first crossed. The pounce time within the second hour is determined by when the optimal target emerges, not by a fixed offset from the hour boundary.
+
+  **Data structures to ADD:**
   - `_guidFirstSeen: ConcurrentDictionary<string, DateTime>` — set on first appearance, never updated
-  - `_guidLastSampled: ConcurrentDictionary<string, DateTime>` — updated for every GUID present when a server is probed
-  - Drop `_pollInterval` (the doubling/halving table is replaced by scoring)
+  - `_guidLastSampled: ConcurrentDictionary<string, DateTime>` — updated for every GUID on a server when that server is probed
+  - `_probeTimestamps: Queue<DateTime>` — rolling window for global cap; entries older than 60 min are purged each cycle
 
-  **Hard constraints — applied as filters before scoring picks the winner:**
-  1. **Per-GUID Ear-visit floor (20 min, always):** track `_guidLastEarVisit` per GUID. If every GUID on a candidate server was seen by Ear within the last 20 minutes, skip that server entirely. This is a promise: no player ever sees Ear's named connection more than once per 20 minutes, regardless of how high their server scores. Separate from audio-level data (which can come from fleet UDP or lounge sources without this constraint).
-  2. **Active-server throttle (15 min):** if the last probe of a server detected audio (not quiet), don't probe it again for at least 15 minutes. Active sessions don't need rapid re-sampling, and the Ear visit is visible.
-  3. **Silence-confirm override (4 min, excepted from per-GUID floor):** when a server reports quiet for the first time (first-quiet result), schedule a mandatory re-probe at +4 minutes regardless of score or GUID floor. This confirms the silence before the 🔇 emoji settles and Active Only removal can proceed. This is the one case where the 20-min floor is bypassed — silence confirmation is a server-state check, not a GUID-harvest probe.
+  **Data structures to DROP:**
+  - `_lastPolled` — replaced by per-GUID tracking
+  - `_pollInterval` — replaced by scoring; the doubling/halving interval table is gone
 
-  **Cleanup:** when a GUID disappears from `LastReportedList` for more than ~4 hours, remove from `_guidFirstSeen` and `_guidLastSampled`. On re-appearance it starts fresh (as-if new), which is correct — it may be the same player on a new session.
+  **GUID computation:** use `EncounterTracker.GetHash(name, country, instrument)` — same MD5 as used in `Api.cshtml.cs`. GUIDs are derived from the `sv.clients` entries in the directory listing.
 
-  **Logging** (one line per probe):
+  **Filters — applied before scoring:**
+  - ~~**Per-GUID Ear-visit floor (20 min):**~~ **RETIRED.** With a global cap of 1 probe/hr, no server can be re-hit within an hour anyway — the floor is always satisfied automatically.
+  - ~~**Silence-confirm re-probe (4 min):**~~ **REMOVED.** Don't re-probe to confirm silence; let the 🔇 emoji resolve via TTL in `Api.cshtml.cs` instead (see below). Burning the hourly cap on a confirmation probe is not worth it.
+  - **Coverage exclusion:** skip fleet servers (existing `_fleetIps` check) and any non-fleet server currently keyed in `JamulusAnalyzer.m_connectedLounges` — lounge SSE already provides audio state for those.
+  - **Minimum occupancy (≥3 GUIDs):** lone and duo servers don't justify the visibility cost; small groups are also easy to startle.
+
+  **Minimum score threshold — wait for the ideal sample:**
+  Don't probe unless top score ≥ **60 GUID-minutes** (e.g., 3 players each unseen for 20 min). Tunable via `_minScoreThreshold`. Below the threshold, idle. This is the patience mechanism: no pressure to probe a marginal server just because the cap window is open.
+
+  **After a probe:** update `_guidLastSampled` for every GUID present on the probed server; push `DateTime.UtcNow` to `_probeTimestamps`.
+
+  **Cleanup:** when a GUID disappears from `LastReportedList` for >4 hours, remove from `_guidFirstSeen` and `_guidLastSampled`. On re-appearance it starts fresh — correct, since it may be a new session.
+
+  **Logging** (one line per probe; one line per idle skip):
   ```
-  [EAR] ip:port "Server Name" guids=N score=X quiet=T/F audible=N/M method=ear|1028 next=constraint
+  [EAR] ip:port "Server Name" guids=N score=X quiet=T/F audible=N/M
+  [EAR] idle — cap|threshold|no-candidates (next cap window in Xmin)
   ```
-  where `next=constraint` is `active-floor`, `guid-floor`, or `scored` to indicate why this server was chosen and what limits the next visit.
+
+  **Quiet-state TTL in `Api.cshtml.cs`** (replaces silence-confirm):
+  A single Ear probe that returns quiet must not permanently suppress a card. Add a 90-min TTL to the `isQuiet` and `isSignalKnown` checks (lines ~360–365). Add to the NonFleetSilencePoller clause:
+  ```csharp
+  && _nfq.Quiet && _nfq.Error == null
+  && (DateTime.UtcNow - _nfq.UpdatedAt).TotalMinutes < 90
+  ```
+  And apply the same TTL to `isSignalKnown` so expired entries don't appear as "known signal." 90-min TTL: if Ear doesn't re-probe within 90 min, the quiet state expires and the card re-emerges as "unknown signal" — better to show a potentially-active server than to permanently hide it.
+
+  **Implementation checklist:**
+
+  `NonFleetSilencePoller.cs` — full rewrite:
+  - **Add:** `_guidFirstSeen: ConcurrentDictionary<string, DateTime>` (set on first appearance, never updated); `_guidLastSampled: ConcurrentDictionary<string, DateTime>` (updated per probe); `_probeTimestamps: Queue<DateTime>` + `_probeTimestampsLock: object` (global cap rolling window); `_lastIdleLog: DateTime` (throttle idle log to once per 5 min); `_minScoreThreshold = 60.0`
+  - **Drop:** `_lastPolled`, `_pollInterval`, `_concurrencyGate` (no concurrency needed — 1 probe/hr)
+  - **Keep unchanged:** `Status`, `ClientLevels`, `_fleetIps`, `_directoryHosts`, kill-switch fields, `BuildUdpFrame`, `JamulusCrc`, `Parse1013Body`, `TryUdp1014Async`, `PollLoopAsync` outer shape
+  - **New `RunOneCycleAsync` steps:**
+    1. Kill switch check → `Status.Clear(); ClientLevels.Clear(); return`
+    2. Iterate `LastReportedList` → build `serverToGuids` dict (ipport → guids+dirHost+name); call `_guidFirstSeen.TryAdd(guid, now)` for each GUID; accumulate `allVisibleGuids`
+    3. Purge absent GUIDs: `_guidFirstSeen` keys not in `allVisibleGuids` and older than 4h → `TryRemove` from both dicts
+    4. Purge `_probeTimestamps` entries older than 60 min (under lock)
+    5. Remove `Status`/`ClientLevels` keys not in `serverToGuids`
+    6. Check cap: `capped = _probeTimestamps.Count > 0`
+    7. Score eligible servers: skip lounge-connected, skip if `guids.Count < 3`; `score = Σ (now - baseline).TotalMinutes` where `baseline = _guidLastSampled[g]` if sampled else `_guidFirstSeen[g]`
+    8. If capped → throttled idle log `[EAR] idle — cap (next cap window in Xmin)`; return
+    9. If no candidates or `bestScore < _minScoreThreshold` → throttled idle log `[EAR] idle — threshold|no-candidates`; return
+    10. Probe top server → update `_guidLastSampled[g] = now` for each GUID on server; push `now` to `_probeTimestamps`
+  - **New `ProbeServerAsync` signature:** `(string ipPort, string? directoryHost, string serverName, List<string> guids, double score)` — drop all `_pollInterval` manipulation; log `[EAR] ip:port "Server Name" guids=N score=X quiet=T/F audible=N/M`
+
+  `Api.cshtml.cs` lines ~360–365 — quiet-state TTL:
+  - `isQuiet` NonFleet clause: add `&& _nfq.Error == null && (DateTime.UtcNow - _nfq.UpdatedAt).TotalMinutes < 90`
+  - `isSignalKnown` NonFleet clause: replace `NonFleetSilencePoller.Status.ContainsKey(serverAddress)` with `NonFleetSilencePoller.Status.TryGetValue(serverAddress, out var _nfqk) && (DateTime.UtcNow - _nfqk.UpdatedAt).TotalMinutes < 90`
 
 - **census.csv `audible` column** — per-GUID hex char: `0`=this GUID silent, `1`-`f`=this GUID was audible AND value=total audible count on server (capped at f=15), empty=no data. Goal: filter silent players from essay narratives.
 
@@ -154,9 +429,7 @@
 - **Alt-source silent-state slow polling** (`JamulusCacheManager.cs`): when all clients on a blocked server have `minsHere > 8h` (bots), skip N round-robin cycles. Clear on any short-duration client.
 
 
-- **fleet-guid-ip.csv fallback for prediction geolocation** (`Program.cs`, `FleetGuidCache`): use most recent non-blocked `client_ip` when join-events col 11 is empty.
-
-- **VPN-user geofencing** (`Program.cs`, `FleetGuidCache`): GUID-level VPN allowlist from blocked-IP frequency in fleet-guid-ip.csv.
+- **Blocked-GUID visibility** (`FleetGuidCache`, ops script): query `fleet-guid-ip.csv` for GUIDs where every recorded IP has `blocked=1` — these are players who hit the ASN/IP block gate every time they join a fleet server. Useful for spotting over-blocking or identifying VPN users who never get through. An ops script (not a runtime feature) is sufficient.
 
 - **Lounge bot summon command logging**: lounge bot should POST summon requests (timestamp, requester, target server) to a JamFan22 endpoint.
 
@@ -165,24 +438,6 @@
 ## Telemetry / Analytics
 
 - **`user-awareness.py`: fix engagement_score()** — current score inflates for bots and long-idle tabs via `total_sec // 60` (dwell time). Reweight to favor deliberate actions: `hover_server`, `scroll_depth`, `click_musician`, `click_more`, `click_listen`, `tab_switch`, `nearby_toggle`, `return_visit`, `tracked_arrival`, `ui_hide`. Cap or discount dwell time alone.
-
-
-## SignalR / GUID-personalized push (sketch)
-
-ChatHub is live and idle. The interesting opportunity: tag each SignalR connection with a GUID (obtained via login, or inferred from telemetry/census without login — we already have IP→GUID evidence from fleet-guid-ip.csv and join-events), then push targeted events to that tab when something meaningful happens to that specific player.
-
-What "meaningful" could mean — none of these are decided, just possibilities:
-- **Your usual crew just arrived** — push when a high-timeTogether pair partner appears on any server, while the viewer is on the radar page but not on that server themselves.
-- **Someone who plays with you is here right now** — on page load, check if any current server has a GUID the viewer has 10h+ history with; highlight it immediately, no wait for the next poll.
-- **Your server just got a new arrival** — if we know which server the viewer is currently on (from fleet data), push when someone joins, rather than waiting for the 5s poll.
-- **Predicted arrival imminent** — predicted.csv says a regular is due in 15 min; push a heads-up.
-
-GUID acquisition without login: IP→GUID from fleet-guid-ip.csv (most recent non-blocked row for the client IP). Confidence is lower but sufficient for non-critical nudges. Login gives certainty.
-
-Open question: what is the actual experience? A toast? A highlighted card that pulses? A sound? The push mechanism is clear; the UX is not. Don't implement until the use case is specific.
-
-Prerequisite for any of this: `OnConnectedAsync`/`OnDisconnectedAsync` overrides in `ChatHub.cs` to register/unregister the connection→GUID mapping in a static `ConcurrentDictionary`.
-
 
 
 - **Browser compatibility audit — Firefox on Windows**: Web Audio API / MediaRecorder support; translated notice if unsupported; enumerate User-Agents from logs.
@@ -279,3 +534,66 @@ ASP.NET project (`JamFan22/`), `deploy-test-build.sh`, `jamfan-cli.sh`, `SCHEMA.
 
 - **Soon: prediction TTL — expire after likely arrival window** (`BandIndex.cs`, `Api.cshtml.cs`): once a canary trigger fires, the "Soon:" orange line should expire automatically rather than persisting indefinitely. Design: record the minute the canary first fired (`BandSoonResult.TriggeredAtMinute`). Estimate the expected arrival window from `predict-future.py` data — if the predicted regular typically arrives within X minutes of their canary, use that as the TTL (e.g., 30–45 min). If no prediction data exists for the missing member, fall back to a fixed TTL (suggest 60 min). When `nowMinutes - triggeredAtMinute > ttl`, suppress the Soon line from the card. Log `[BAND-SOON] expired: {bandId} triggered={T} now={N}`. The trigger minute should be tracked in a static `ConcurrentDictionary<string, int>` in `BandIndex` keyed by `{bandId}:{serverKey}`, cleared when the predicted member actually arrives or the canary members depart.
 
+- **Band canary hint in welcome messages** (`WelcomeContext.cs`, `Api.cshtml.cs`): when a player arrives at a server where a band canary is already present, pass that context to the welcome LLM so it can naturally mention the possibility — conversationally, not as a promise. The server card stays "Soon:" only; soft hedged language belongs in prose.
+
+  **How it works:** `BandIndex.GetBandSoon` already runs per-server in `Api.cshtml.cs`. At welcome time (in the `/ip-allowed` path), call it again for the arriving player's server and, if it fires, include a hint in `WelcomeContext`: which canary member is present and which bandmates are typically expected. The LLM can then say something like "Z is already here — the rest of the crew often turns up." No bold claim, just conversational awareness.
+
+  **Reliability signal:** `solo_trigger_rate` in `bands.json` measures what fraction of canary appearances lead to a full band session. Pass this value alongside the hint so the LLM can calibrate — low rate → "sometimes the others follow", high rate → more confident phrasing. The rate is already in the JSON; `BandIndex.cs` just needs to read it and expose it on `BandSoonResult` (add `double TriggerRate` to `BandMember`, `double CanaryTriggerRate` to `BandSoonResult`).
+
+  **Out of Order specifically:** members are RustyShackleford, Z, sometimes Daniel, and Gentle Bunny (who plays under many names — GUID-matched, not name-matched). Not yet in bands.json; GUID-based clustering in `band-finder.py` will detect them once enough co-sessions accumulate in census.csv. Gentle Bunny's name-changing is fine — the clustering is GUID-based. When detected, their trigger rate will naturally govern how confident the welcome message sounds.
+
+  **Changes required:**
+  1. `BandIndex.cs` — add `double TriggerRate` to `BandMember`; read `solo_trigger_rate` from JSON; add `double CanaryTriggerRate` to `BandSoonResult`.
+  2. `WelcomeContext.GatherAsync` — call `BandIndex.GetBandSoon` for the arriving player's server; if it fires, add a context section: `Band canary present: {canaryName} (usual crew: {missing}). Typical assembly rate: {rate:P0}.`
+  3. `data/welcome-system-prompt.txt` — add guidance: when a band canary hint is present, weave it in as light anticipation, not a guarantee. Low rate → "sometimes"; high rate → more confident. Never say "Soon" verbatim.
+
+## Band Fleet Invites — special-feature welcome for detected bands
+
+Vision (2026-07-28): when we detect a player is part of a recognized band (`bands.json`, same clique detection as canary/lore), give them a one-off special-case welcome message inviting them to use the fleet for something a public server can't offer. Throttle to at most once per band per week — this is a pitch, not a nag.
+
+Candidate features to invite them into (not yet designed/built):
+- **Advance notice** — post "starting soon" publicly ~1 hour before a predicted session, piggybacking on the existing `[BAND-SOON]` canary/`predict-future.py` prediction machinery.
+- **Off-Jamulus listen-in** — already exists: `StreamGate.cs` runs the lounge at `ear.jamulus.live`. This would just be pointing bands at a feature that's already live, not building new infra.
+- **MP3 recording** — the lounge announcement string already says "Hear and record this jam" (`StreamGate.cs:359`); unclear whether recording is actually implemented end-to-end or just aspirational copy. Needs verification before promising it to anyone.
+- **Persistent "your usual slot" link** — one stable URL for a band's regulars/fans instead of hunting for whichever fleet server is up that week.
+- Others TBD.
+
+Message content refinement (2026-07-28): the invite should name the player's other bandmates ("come center your sessions with X and Y here") — pulled straight from the `bands.json` member list already available via `BandIndex.FindBandForGuid`. But only pitch this on servers that will actually be there next time: **fixed-hour or 24h fleet servers only**, never the demand-scored dormant pool. Recommending an unpredictable server undermines the pitch. Classification uses data already on hand — no new fields needed:
+- Fixed-hour: entries in `dormant-instances.json` with a `"schedule"` field (currently Paris, Milan).
+- 24h: fleet servers *not* present in `dormant-instances.json` at all (lounge, harvest-pings, and the other always-on relays in `fleet-server-ips.txt`).
+- Excluded: the remaining demand-scored dormant instances (most of the fleet) — up/down unpredictably, so never recommended as a destination.
+
+Tradeoff: shrinks the eligible destination pool to a handful of servers, so most bands' invites funnel toward the same few boxes rather than their nearest fleet instance. Acceptable for a first version; revisit once there are more scheduled/24h boxes.
+
+Reusable pieces already in the codebase: `BandIndex.cs` (band/member detection, canary), `StreamRequestManager.cs` (`IsWeekly` flag) and `StreamGate.cs` (`WeeklyReservation`: day/hour/duration) already model a weekly cadence — the "once a week" throttle for invites could piggyback on that pattern instead of inventing a new one. `WelcomeMessageGenerator.cs` / `WelcomeContext.cs` are the natural injection point for the special-case message itself.
+
+Shipped (2026-07-28): detection + throttle, logging-only. `BandIndex.FindBandForGuid` looks up band membership; `BandInviteTracker` (new file) throttles to 1x/week per band via `data/band-invite-log.json`; hooked into `WelcomeContext.GatherAsync` right after `arrivingGuid`/`nowMinutes` are known — logs `[BAND-INVITE-ELIGIBLE] band_id=X band_name=Y guid=Z`, no change to what the player sees yet. Verified against band 3 (KP/VKP) via `/debug/welcome-preview` on the debug build: fires once, throttles on immediate repeat, silent for non-band guids.
+
+Next step: pick a lead feature (advance notice, listen-in pointer, or recording — see above) and wire real copy into the welcome LLM using this same eligibility signal.
+
+## Band Lore Paragraphs
+
+Shipped: `band-finder.py` emits `first_session_date`, `session_count`, `span_weeks`, `core_stability`, `url_samples` per band. `BandLoreService.cs` generates per-language paragraphs on demand, 7-day disk cache, daily cap 10. `BandIndex.cs` sets `HasLore` on `BandSoonResult`. `/api/band-lore?id=X` endpoint live. Client staggered eye reveals (20s→40s→80s→120s cap, DOM order), popup with jamulus.live server map link. Prompt at `data/band-lore-prompt.txt`. Server/home-server mentions removed from context and prompt (2026-07-15); stale pre-fix cache entries site-wide purged and prompt now requires naming all members of 3+ groups instead of narrowing to the pair with pairwise-hours data (2026-07-16).
+
+---
+
+## HiBot Non-Fleet Welcome (`POST /hibot/arrival`)
+
+Design spec for when HiBot (the operator's Jamulus client) is connected to a non-fleet server. HiBot broadcasts whatever this endpoint returns via `CreateChatTextMes` — it goes to the whole room, not a single client.
+
+**Auth:** `X-HiBot-Secret` header validated against `data/hibot-secret.txt`. Return 401 if missing or wrong.
+
+**Request body:** `{guid: string, serverAddr: string, countryVotes: [int]}`
+- `guid` — arriving player's GUID (MD5 of name+country+instrument, same as fleet)
+- `serverAddr` — address the operator typed when connecting (hostname or IP, possibly with port)
+- `countryVotes` — non-zero QLocale country code ints from all connected clients (operator excluded by keeping their flag blank)
+
+**Language detection:** map `countryVotes` ints to languages via `_countryLanguage`; geolocate the `serverAddr` IP for 1 additional vote; plurality wins.
+
+**Name lookup:** scan `data/censusgeo.csv` for rows where col 0 == guid; last matching line wins; col 1 is URL-encoded name — decode it. Fall back to a nameless greeting if not found.
+
+**LLM:** Gemini 2.5 Flash. System prompt: `data/hibot-welcome-system-prompt.txt` (new file, separate from fleet prompt). Key constraint: message is **public broadcast**, not private — frame as the group welcoming a newcomer, not the server addressing an individual. 1-2 sentences, HTML ok.
+
+**Response:** plain text (the HTML greeting). HiBot calls `CreateChatTextMes()` with it.
+
+**Do not touch** the fleet welcome path (`WelcomeContext.cs`, `WelcomeMessageGenerator.cs`, `/ip-allowed`). This is a separate code path.

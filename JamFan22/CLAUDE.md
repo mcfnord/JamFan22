@@ -86,6 +86,8 @@ Documented inline in `Program.cs` — see comments before `app.Run()`. Key log m
 
 `CensusIndex.cs` — static class, built once at startup from `census.csv`. All subsequent queries are O(1) dictionary lookups. New ticks fed in via `AddTick` (called by `JamulusCacheManager` each time a tick is written). See XML doc comments on each public method for full API.
 
+**census.csv duplicate-row history:** Before deduplication guards were added to `JamulusCacheManager`, it was common for the same `(minute, guid, server)` triple to be written multiple times per minute — up to ~8× at peak poll rates. `data/trim_census.sh` (runs daily at 4am) sorts and deduplicates to one row per `(minute, guid, server)`, keeping the highest `audible` value for that minute. Code that counts raw ticks from `census.csv` should treat tick count as a rough proxy, not a precise minute count. Use `LastMin - FirstMin` (span) for time-based thresholds — it is unaffected by duplicate rows.
+
 ### BandIndex — Band Canary Detection
 
 `BandIndex.cs` — static class. Reads `data/bands.json` (written weekly by `ops/band-finder.py`). 12h reload TTL. Detects when "canary" band members are present on a server and returns missing members for the Soon field.
@@ -156,7 +158,7 @@ The 4-minute floor: first quiet shows 🔇 emoji; only the *second* consecutive 
 
 ### Fleet Silence Detection — UDP ChannelLevelList Protocol
 
-`harvest.cs:ChannelLevelPollLoopAsync` — polls fleet servers every **29s** via native Jamulus UDP protocol (not gjprobe). Reads `data/fleet-server-ips.txt` for server list (ip:port format). Each poll sends **1014 then 1028** on the same UDP socket (see Companion protocol below) — both responses arrive within one round-trip of each other, ensuring the client-slot map and level snapshot are consistent.
+`harvest.cs:ChannelLevelPollLoopAsync` — polls fleet servers every **~50s** via native Jamulus UDP protocol (not gjprobe). Reads `data/fleet-server-ips.txt` for server list (ip:port format). Each poll sends **1014 then 1028** on the same UDP socket (see Companion protocol below) — both responses arrive within one round-trip of each other, ensuring the client-slot map and level snapshot are consistent.
 
 **Protocol:** sends `PROTMESSID_CLM_REQ_CHANNEL_LEVEL_LIST` (message ID 1028 = `0x0404` LE) frame: 9 bytes total = TAG(2) + ID(2 LE) + counter(1) + bodyLen(2 LE=0) + CCITT-CRC(2 LE). CRC: poly=0x1021, init=0xFFFF, inverted. Parses response body: packed nibbles, low nibble = even-index client level, high nibble = odd-index; sentinel `0xF` = end. Any level > 0 → `quiet=false`.
 
@@ -216,8 +218,6 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 | `fleet(Nd)` | any days | IP Region | from fleet IP |
 | No IP | — | Anchor-filtered inferred region or null | unchanged |
 
-**Geo-diag labels:** `join-events-geo`, `server-region(ip-conf=N)`, `fleet-geo(Nd)`, `geo-unavailable/{tier}`.
-
 **Lobby filter**: Any musician name containing "lobby" (case-insensitive) is excluded from the nearby list.
 
 **Blues/Rock bot filter**: 77.163.83.31:22124 permanent bots suppressed in `Api.cshtml.cs`; card hidden when only bots present, "Tracks Playing" marker shown when a real user joins.
@@ -226,7 +226,9 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 
 `WelcomeContext.cs` + `WelcomeMessageGenerator.cs` + `WelcomeEventLog.cs` wired into `/ip-allowed` `Task.Run`. Model: Gemini 2.5 Flash. API key: `data/gemini-key.txt`. System prompt: `data/welcome-system-prompt.txt` (re-read per call). Hot-reloadable config: `data/welcome-config.txt`. Logs: `data/welcome-llm.log` (full), `data/welcome-events.log` (compact — tail this). Debug: `GET /debug/welcome-preview?guid=X&nation=DE&serverIp=Y&serverport=22124&rpcport=9999` (localhost only — returns `signals` and `english` fields).
 
-**Fleet coverage**: all fleet servers receive welcomes — all carry the binary that passes `channelId`+`rpcport` to `/ip-allowed`. Check `output.log` for `[IP-ALLOWED-WELCOME]`.
+**Fleet coverage**: all static fleet servers receive welcomes — all carry the binary that passes `channelId`+`rpcport` to `/ip-allowed`. Dormant servers are unconfirmed: their IPs are dynamic and IP tracking only went in recently, so any `/ip-allowed` calls from a prior (unregistered) IP would have been 403'd. Coverage for a given dormant instance is only established after its first player join with a tracked IP. Check `output.log` for `[IP-ALLOWED-WELCOME]`.
+
+**Dormant fleet IPs change on every restart** — `CensusIndex.GetGuidOnServer` is keyed by `ip:port`, so a player's history on a dormant server is silently split across every IP that server has ever had. Result: the welcome system reliably says "first time here!" on dormant fleet servers even for repeat visitors. This is a known structural gap, not a GUID resolution bug. (Static fleet servers have stable IPs and are not affected.)
 
 **Reliability:**
 - **LLM timeout**: default 2000ms (`llm_timeout_ms` in welcome-config.txt). Static fallback on timeout. Events log shows `llm=timeout/error/1/0/cached`. Normal Gemini latency: 650–1050ms; fallback <300ms.
@@ -248,6 +250,8 @@ Algorithm: collect all servers this GUID has visited (census.csv, 4h cache), geo
 **Event hype hygiene:** Only hype scheduled events that are actually happening. If an event has missed 2+ consecutive weeks with no attendance, remove or suspend it from `server-lore.json` and update WRONG/RIGHT examples in `welcome-system-prompt.txt`. Hyping a dead event damages trust.
 
 **Title-artist context**: UG URL titles extracted from URL slug (no HTTP fetch). Other URLs: `ScrapeTitleAsync` → `m_songTitleAtAddr` (in-memory).
+
+**HTTP/2 fingerprinting in `ScrapeTitleAsync`**: .NET's `HttpClient` negotiates HTTP/2 by default; some sites (confirmed: dochord.com) detect this as non-browser via H2 fingerprint and return 403 despite a valid User-Agent. Symptom: curl from jamulus.live returns 200 but the scraper logs `403 Forbidden`. Fix already applied: `HttpClientHandler { AutomaticDecompression = GZip|Deflate|Brotli }` + `DefaultRequestVersion = HttpVersion.Version11` + `DefaultVersionPolicy = RequestVersionExact`. If a newly added scraping domain consistently returns 403, check with curl first — if curl succeeds, H2 fingerprinting is the cause; apply the same pattern. Also: never manually set `Accept-Encoding` alongside `GetStringAsync` without also enabling `AutomaticDecompression` — the handler won't decompress the response and `GetStringAsync` will return garbled bytes.
 
 **URL-to-GUID presence tracking**: `harvest.cs:AppendAcceptedLog` writes `data/url-guids.csv` (`minutes, serverAddr, encoded_url, encoded_title, guid1|guid2|...`). `WelcomeContext.cs` scans this file into three buckets: (a) `Shared songs with people here:` (arriving + room member both present), (b) `Songs people here often play:` (room only), (c) `Songs {name} has played in other sessions:` (arriving history). Also extracts dominant artist per bucket (≥2 occurrences) and most recently played song for the arriving player. Logged as `|songs:N`, `|room-songs:N`, `|history-songs:N`, `|room-artist:X`, `|artist:X`, `|recent-song`.
 
@@ -284,7 +288,7 @@ Language follows the individual user's IP country code (same `_countryLanguage` 
 
 In-memory `ConcurrentDictionary<string, (string html, DateTime generatedAt)>` keyed by `"EU-W:German"`, `"IT:Italian"`, etc. **8-hour TTL.** Cache survives restarts only incidentally — first visitor after restart triggers regeneration (acceptable; they wait up to 70s semaphore timeout).
 
-**Scheduled pre-generation:** `DailyEssayService.StartScheduledPregeneration()` runs a background loop that pre-generates the top 8 center:language pairs at 05:00, 12:00, and 19:00 UTC — just before the EU morning, EU afternoon/NA-E morning, and EU evening peak activity waves. Log prefix `[ESSAY-SCHED]`. On-demand generation still fires for rare pairs not in the list.
+**Generation model: demand-driven only.** No background scheduler. Generation fires on the first request for a given `centerId:language` key when the cache is cold or expired. First visitor waits (up to 70s semaphore timeout); all subsequent visitors in the same region share the cached result for 8h.
 
 **Anti-duplication lock (critical):** One `SemaphoreSlim(1,1)` per cache key. When two users simultaneously request an uncached essay, the second waits on the same semaphore — zero duplicate LLM calls.
 
@@ -295,6 +299,7 @@ Assembled in C# at generation time:
 - **Local sessions** (servers within ~400km of center): from `census.csv` last 24h, joined to `censusgeo.csv` (names, instruments) and `server.csv` (server names, cities). Grouped by server, sorted by tick count. Include: server name, city, player names+instruments, session start/end approximated from first/last tick, total player-minutes.
 - **Global highlights**: top 5 sessions by player-count or total player-minutes, worldwide, same 24h window. Include cross-geography notes (e.g., 4 countries in one session).
 - **URL context** (optional enrichment): from `urls.csv`, last 24h — song titles being played on active servers. Surface if interesting (title-artist pairs, not raw URLs).
+- **Web-user GUID bias** (`WebUserTickBonus = 60`): resolves IPs from `data/telemetry.log` (last 96h) to GUIDs via `IdentityManager.GetAllAssociatedGuids` (join-events, strength ≥13). GUIDs who visited the web app get +60 phantom ticks in two places: (1) player-naming order within a session (within the same active/unknown/listener tier), and (2) session-level score for local/global Top-10/5 selection. Soft tiebreaker only — high-activity sessions still dominate. Cache refreshes every 20 min; logs `[ESSAY] WebAppGuids96h refreshed`. Only people who can read the essay are nudged into it.
 
 ### Prompt Structure
 
@@ -324,29 +329,16 @@ All centers use **Gemini 2.5 Pro** (SA center added). Thinking tokens are includ
 
 **Per-call estimate:** ~1,500 input tokens + ~1,500 output tokens ≈ **$0.017/call**.
 
-**Cache TTL: 8 hours.** Scheduled pre-gen fires at 05:00, 12:00, 19:00 UTC for top 8 pairs; on-demand covers rare pairs. Each pair generates at most 3 calls/day from the schedule. Rare on-demand pairs also cap at 3/day with 8h TTL.
+**Cache TTL: 8 hours.** Each `centerId:language` pair generates at most 3 times/day (one per 8h window), only when a real visitor arrives with a cold cache. All readers in the same region share one essay for up to 8h.
 
-**Top 8 scheduled pairs** (cover ~84% of all generations, derived from telemetry analysis):
-`EU-W:German`, `IT:Italian`, `NA-W:English`, `EU-W:Dutch`, `UK:French`, `NA-E:English`, `UK:English`, `WORLD:English`
+**Cost:** ~$0.017/call (1,500 input + 1,500 output tokens, Gemini 2.5 Pro). Real per-reader cost = `$0.017 / prev_readers` where `prev_readers` is logged on each generation. Flash would be ~4× cheaper — switch if Pro costs escalate.
 
-**Expected daily call volume:**
-
-| Traffic | Calls/day | Cost/day | Cost/month |
-|---|---|---|---|
-| Typical | 24–30 | $0.41–$0.51 | ~$13–$16 |
-| Busy | 40 | $0.68 | ~$20 |
-
-Flash for all would be ~$3–5/month (4× cheaper). Switch back if Pro costs escalate.
-
-**Reader hit counter:** `output.log` logs `prev_readers=N` on every scheduled or on-demand generation — how many readers were served from the expiring cache entry before it was replaced. Use this to compute real per-reader cost: `$0.017 / prev_readers`. Scheduled pre-gen shows `prev_readers=0` when no user triggered it organically.
+**Reader hit counter:** `output.log` logs `prev_readers=N` on every generation — how many readers were served from the expiring cache entry. Low `prev_readers` means the region is quiet; high means good amortization.
 
 **Diagnostics commands:**
 ```bash
 # On-demand generations (user-triggered)
 grep "\[ESSAY\] generating" /root/JamFan22/JamFan22/output.log | tail -30
-
-# Scheduled pre-gen events (05:00, 12:00, 19:00 UTC)
-grep "\[ESSAY-SCHED\]" /root/JamFan22/JamFan22/output.log | tail -30
 
 # LLM call details (model, language, ms, errors)
 grep "\[ESSAY-LLM\]" /root/JamFan22/JamFan22/output.log | tail -30
@@ -393,8 +385,12 @@ The grid should feel settled. Avoid states that look broken or unfinished: stale
 
 ## Fleet JSON-RPC
 
-Raw TCP, newline-delimited JSON, port 9999 (Syncopé: 9998). Firewalled to `134.199.209.51` + `147.182.199.22` only. Secret in `/secret.txt`. Two messages per session: `jamulus/apiAuth` first, then the method call; read response after each. See the `// Fleet JSON-RPC` comment block in `Program.cs` for the call pattern.
+**Send pipeline (Program.cs):** Uses the persistent `fleet-rpc-channel` WebSocket. To call a method, `FleetWsRpcCallAsync` sends a JSON-RPC request object (not an array) over the WS and awaits the response via a `TaskCompletionSource` keyed by `{regKey}:{id}`. The receive loop in `/fleet-rpc-channel` parses incoming messages and routes objects with an `id` field to the pending TCS. Welcome messages continue to be sent as JSON arrays `[{channelId, message}]`. No auth step needed (TCP auth replaced by WS connection identity). Timeout: 5s.
+
+**Context gathering (WelcomeContext.cs `GetClientsAsync`):** Still uses raw TCP (newline-delimited JSON, port 9999). Firewalled to `134.199.209.51` + `147.182.199.22` only. Secret in `/secret.txt`. Auth with `jamulus/apiAuth` first, then method call.
 
 **Key methods:** `jamulusserver/getClients` (fields: `instrumentCode` int, `countryName` string — NOT `instrument`/`country`), `jamulusserver/sendClientChatMessage` (params: `{channelId, message}`).
 
-**Trigger:** `/ip-allowed/{ip}` receives `channelId`+`rpcport` from the fleet binary; welcome fires async after the 200 response.
+**Trigger:** `/player-identified/{ip}` fires the welcome pipeline async after the 200 response.
+
+
