@@ -775,6 +775,7 @@ public string DurationHere(string server, string who, string nationCode)
                     matchReason = bestMatch.IsOnline ? "Active (ONLINE)" : "Most Recent (Offline)";
                 }
 
+                long nowMin = JamulusCacheManager.MinutesSince2023AsInt();
                 string primaryLoc = geo != null ? $"{geo.city}, {geo.countryCode2}" : "Unknown";
                 Console.WriteLine("________________________________________________________________________________");
                 Console.WriteLine($"Client IP:       {ipAddress}");
@@ -791,7 +792,7 @@ public string DurationHere(string server, string who, string nationCode)
 
                 if (candidates.Count > 0)
                 {
-                    Console.WriteLine($"{"TIME",-8} {"SIG",-4} {"STATUS",-8} {"GUID",-6} {"INSTRUMENT",-16} IDENTITY");
+                    Console.WriteLine($"{"TIME",-8} {"SIG",-4} {"FLEET",-7} {"STATUS",-8} {"GUID",-6} {"INSTRUMENT",-16} IDENTITY");
                     foreach (var c in sortedCandidates)
                     {
                         string guidFragment = c.Guid.Length > 5 ? c.Guid.Substring(c.Guid.Length - 5) : c.Guid;
@@ -799,7 +800,13 @@ public string DurationHere(string server, string who, string nationCode)
                         string inst   = string.IsNullOrEmpty(c.Instrument) ? "-" : c.Instrument;
                         if (inst.Length > 15) inst = inst.Substring(0, 13) + "..";
 
-                        Console.Write($" {c.Timestamp,-8} {c.Signal,-4} ");
+                        long fleetAge = FleetGuidCache.GetLastSeenMinutes(c.Guid, ipAddress.Replace("::ffff:", "").Trim());
+                        string fleetCol = fleetAge < 0 ? "-"
+                                        : (nowMin - fleetAge) < 60   ? $"{nowMin - fleetAge}m"
+                                        : (nowMin - fleetAge) < 1440 ? $"{(nowMin - fleetAge) / 60}h"
+                                        : $"{(nowMin - fleetAge) / 1440}d";
+
+                        Console.Write($" {c.Timestamp,-8} {c.Signal,-4} {fleetCol,-7} ");
                         if (c.IsOnline) { Console.ForegroundColor = ConsoleColor.Green; Console.Write($"{"ONLINE",-8} "); Console.ResetColor(); }
                         else
                         {
@@ -844,6 +851,7 @@ public string DurationHere(string server, string who, string nationCode)
             string ipClean = ipAddress.Replace("::ffff:", "").Trim();
 
             var activeGuids = new HashSet<string>();
+            var activeGuidNames = new Dictionary<string, string>();
             var keys = JamulusCacheManager.LastReportedList.Keys.ToList();
             foreach (var key in keys)
             {
@@ -852,7 +860,11 @@ public string DurationHere(string server, string who, string nationCode)
                     foreach (var server in servers)
                         if (server.clients != null)
                             foreach (var client in server.clients)
-                                activeGuids.Add(EncounterTracker.GetHash(client.name, client.country, client.instrument));
+                            {
+                                string liveHash = EncounterTracker.GetHash(client.name, client.country, client.instrument);
+                                activeGuids.Add(liveHash);
+                                activeGuidNames[liveHash] = client.name;
+                            }
                 }
                 else if (JamulusCacheManager.LastReportedList.TryGetValue(key, out string json))
                 {
@@ -862,7 +874,11 @@ public string DurationHere(string server, string who, string nationCode)
                         foreach (var server in manualServers)
                             if (server.clients != null)
                                 foreach (var client in server.clients)
-                                    activeGuids.Add(EncounterTracker.GetHash(client.name, client.country, client.instrument));
+                                {
+                                    string liveHash = EncounterTracker.GetHash(client.name, client.country, client.instrument);
+                                    activeGuids.Add(liveHash);
+                                    activeGuidNames[liveHash] = client.name;
+                                }
                     }
                     catch { continue; }
                 }
@@ -914,6 +930,73 @@ public string DurationHere(string server, string who, string nationCode)
                     }
                 }
                 catch (IOException ex) { Console.WriteLine($"[GuidFromIpAsync] Join Read Error: {ex.Message}"); }
+            }
+
+            // ── Fleet anchor (2026-09-05) ─────────────────────────────────────────
+            // join-events col 11 is a directory-ping timing correlation, not ownership: it is
+            // absent or strength-0 for any player whose client never pings a public directory,
+            // and it routinely pairs an IP with a stranger's GUID. fleet-guid-ip.csv is a direct
+            // observation — a fleet server saw this GUID arrive from this IP — and until now no
+            // caller of GuidFromIpAsync could see it, so those players got no X-IP-Derived-Hash
+            // and no "my server" border.
+            //
+            // PRIORITY. The question is "who is at this browser now", not "who has ever used this
+            // IP", so RECENCY sets the band and cross-session confidence only breaks ties inside
+            // it. Live-on-a-server is band 3 and is never aged out; IsOnline already sorts those
+            // ahead of everything regardless. Anything last seen over a week ago is dropped: it is
+            // not evidence about the current visitor.
+            //
+            // synth stays inside 4..15 on purpose — never 0, so a fleet candidate cannot misfire
+            // the crowded-IP veto; never >=16, so it never outranks a genuine join-events
+            // FLAG_HISTORY row; never >=28, so it can never pose as an "Iron-Clad Regular".
+            int nowMinutes = JamulusCacheManager.MinutesSince2023AsInt();
+            foreach (var fleetGuid in FleetGuidCache.GetGuidsByIp(ipClean))
+            {
+                if (string.IsNullOrWhiteSpace(fleetGuid)) continue;
+
+                bool isLive   = activeGuids.Contains(fleetGuid);
+                long lastSeen = FleetGuidCache.GetLastSeenMinutes(fleetGuid, ipClean);
+                long ageMin   = lastSeen < 0 ? long.MaxValue : nowMinutes - lastSeen;
+
+                int band = isLive            ? 3    // on a server right now
+                         : ageMin <= 60      ? 3    // within the hour
+                         : ageMin <= 1440    ? 2    // today
+                         : ageMin <= 10080   ? 1    // this week
+                         : 0;                       // older — not evidence
+                if (band == 0) continue;
+
+                int days = FleetGuidCache.GetCalendarDayCount(fleetGuid, ipClean);
+                int hits = FleetGuidCache.GetHitCount(fleetGuid);
+                int conf = days >= 3 ? 3 : days == 2 ? 2 : hits >= 2 ? 1 : 0;
+
+                int synth = 4 * band + conf;
+
+                if (!guidMaxSignals.TryGetValue(fleetGuid, out int prior) || synth > prior)
+                {
+                    guidMaxSignals[fleetGuid] = synth;
+                    Console.WriteLine($"[FLEET-ANCHOR] ip={ipClean} guid={fleetGuid} live={isLive} age={(ageMin == long.MaxValue ? -1L : ageMin)}m band={band} days={days} hits={hits} synth={synth} prior={prior}");
+                }
+                if (!guidTimestamp.ContainsKey(fleetGuid) && lastSeen >= 0)
+                    guidTimestamp[fleetGuid] = lastSeen;
+                // Display name for the diagnostic table only — the returned identity is the GUID.
+                // A live client is authoritative; otherwise fall back to the guid->name map, which
+                // is an UNSYNCHRONIZED Dictionary mutated by EncounterTracker.GetHash on every
+                // sweep, so a torn read must cost nothing more than a blank name.
+                if (!guidNames.ContainsKey(fleetGuid))
+                {
+                    if (activeGuidNames.TryGetValue(fleetGuid, out var liveName))
+                        guidNames[fleetGuid] = liveName;
+                    else
+                    {
+                        try
+                        {
+                            if (EncounterTracker.m_guidNamePairs.TryGetValue(fleetGuid, out var knownName)
+                                && !string.IsNullOrWhiteSpace(knownName))
+                                guidNames[fleetGuid] = System.Web.HttpUtility.HtmlDecode(knownName);
+                        }
+                        catch { /* concurrent mutation — leave the name unresolved */ }
+                    }
+                }
             }
 
             var richCache = await GetCensusCacheAsync();

@@ -10,7 +10,17 @@ namespace JamFan22
         private static Dictionary<string, (string Name, string Guid)> _ipToPersona = new Dictionary<string, (string Name, string Guid)>();
         private static Dictionary<string, HashSet<string>> _ipToAllAssociatedGuids = new Dictionary<string, HashSet<string>>();
         private static Dictionary<string, Dictionary<string, int>> _ipToGuidStrengths = new Dictionary<string, Dictionary<string, int>>();
+        private static Dictionary<string, HashSet<string>> _guidToIps = new Dictionary<string, HashSet<string>>();
         private static DateTime _lastRead = DateTime.MinValue;
+
+        // How many distinct client IPs this GUID has appeared under in join-events.csv.
+        // A confidence signal for IP→GUID resolution: 1 = stable/reliable; higher = the GUID is
+        // shared across many IPs (dynamic IP, shared machine), so an IP-based match is weaker.
+        public static int GetIpCountForGuid(string guid)
+        {
+            if (guid != null && _guidToIps.TryGetValue(guid, out var ips)) return ips.Count;
+            return 0;
+        }
         private static readonly object _lock = new object();
 
         public static string GetPersona(string ip)
@@ -93,6 +103,7 @@ namespace JamFan22
                             var dict = new Dictionary<string, (string Name, string Guid, long Minute)>();
                             var allAssociated = new Dictionary<string, HashSet<string>>();
                             var allStrengths = new Dictionary<string, Dictionary<string, int>>();
+                            var guidIps = new Dictionary<string, HashSet<string>>();
 
                             foreach (var line in File.ReadLines(file))
                             {
@@ -118,6 +129,11 @@ namespace JamFan22
                                             if (!allStrengths.ContainsKey(clientIp)) allStrengths[clientIp] = new Dictionary<string, int>();
                                             if (!allStrengths[clientIp].ContainsKey(guid) || allStrengths[clientIp][guid] < strength)
                                                 allStrengths[clientIp][guid] = strength;
+                                            if (!string.IsNullOrWhiteSpace(clientIp))
+                                            {
+                                                if (!guidIps.ContainsKey(guid)) guidIps[guid] = new HashSet<string>();
+                                                guidIps[guid].Add(clientIp);
+                                            }
                                         }
 
                                         // STRICT NET: Only >= 16 strength for UI Enablement and Chat Identity
@@ -148,6 +164,7 @@ namespace JamFan22
                             _ipToPersona = newIpToPersona;
                             _ipToAllAssociatedGuids = allAssociated;
                             _ipToGuidStrengths = allStrengths;
+                            _guidToIps = guidIps;
                             _lastRead = lastWrite;
                         }
                     }

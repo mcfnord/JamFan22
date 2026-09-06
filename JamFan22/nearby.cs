@@ -43,6 +43,9 @@ namespace JamFan22
         // join-events.csv once per musician in GetGuidInferredRegionAsync.
         private static CacheItem<Dictionary<string, (string ip, int strength)>> _jeAnchorCache;
         private static readonly SemaphoreSlim _jeAnchorSem = new SemaphoreSlim(1, 1);
+        private static Dictionary<string, Newtonsoft.Json.Linq.JObject> _serverIpGeoCache;
+        private static readonly SemaphoreSlim _serverIpGeoSem = new SemaphoreSlim(1, 1);
+        private const string ServerIpGeoCacheFile = "data/server-ip-geo-cache.json";
         private static readonly object _cacheLock = new object();
         private static Dictionary<string, List<string>> _usStateAdjacency;
         private static readonly object _adjacencyLock = new object();
@@ -148,7 +151,8 @@ namespace JamFan22
             public string InferredRegion { get; set; }
             public bool IsPredicted { get; set; } = false;
             public DateTime PredictedArrivalTime { get; set; }
-            public string PredictedServer { get; set; } 
+            public string PredictedServer { get; set; }
+            public bool IsGlobalFallback { get; set; } = false;
         }
         
         private class UserStats
@@ -272,7 +276,7 @@ namespace JamFan22
             if (t1FleetTotal > 0)
                 sb.Append($"<p><b>T1+fleet:</b> {t1FleetSameIp} same-ip, {t1FleetSlash8Agree} /8-agree, {t1FleetGeoAgree} /8-differ,geo-agree, {t1FleetGeoDiffer} /8-differ,geo-differ</p>");
             sb.Append("<p>" +
-                "<span style=\"background:#d4edda;padding:2px 8px\">T1</span> join-events IP (strength ≥ 2) &nbsp; " +
+                "<span style=\"background:#d4edda;padding:2px 8px\">T1</span> join-events IP (strength ≥ 2, not 16) &nbsp; " +
                 "<span style=\"background:#fff3cd;padding:2px 8px\">T2</span> fleet IP (/ip-allowed, used when je &lt; 2) &nbsp; " +
                 "<span style=\"background:#e9ecef;padding:2px 8px\">T3</span> server region (no reliable IP)" +
                 "</p>");
@@ -643,6 +647,43 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
             }
             // --- END OF HACK ---
 
+            // Global fallback: if nothing survived the normal pipeline (e.g. sparse region like Tacoma),
+            // find the closest eligible player(s) anywhere in the world and show their distance.
+            if (finalProcessedRecords.Count == 0)
+            {
+                var globalCandidates = new List<(MusicianRecord record, double distance)>();
+                foreach (var guid in finalGuids)
+                {
+                    if (!csvDataDebug.FullStatsMap.TryGetValue(guid, out var gStats) || gStats.MostRecentRecord == null) continue;
+                    var r = gStats.MostRecentRecord;
+                    if (string.IsNullOrWhiteSpace(r.Name) || r.Name.IndexOf("lobby", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    bool hasLowCeiling = gStats.MaxGoldenValue <= 1;
+                    bool hasHighZeroRatio = gStats.TotalEntries > 0 && ((double)gStats.ZeroGoldenCount / gStats.TotalEntries >= 0.9375);
+                    if (hasLowCeiling && hasHighZeroRatio) continue;
+                    if (gStats.TotalEntries >= 10 && gStats.MaxGoldenValue < 3 && gStats.ClientIps.Count > 3) continue;
+                    if (!csvDataDebug.AllGoldenGuids.Contains(guid) && gStats.TotalEntries <= 1) continue;
+                    double dist = CalculateDistance(userLat, userLon, r.Lat, r.Lon);
+                    if (dist < 1) continue; // skip 0,0 coords
+                    globalCandidates.Add((r, dist));
+                }
+                foreach (var (r, dist) in globalCandidates.OrderBy(c => c.distance).Take(2))
+                {
+                    // Resolve region the same way normal rows do so the fallback row shows
+                    // city + region (not a raw distance). Only Take(2), so at most 2 lookups.
+                    var (fbRegion, _, _, _, _) = await GetGuidInferredRegionAsync(r.Guid);
+                    finalProcessedRecords.Add(new MusicianRecord
+                    {
+                        Guid = r.Guid, Name = r.Name, Instrument = r.Instrument,
+                        UserCity = CleanAndFormatUserCity(r.UserCity, fbRegion),
+                        Lat = r.Lat, Lon = r.Lon,
+                        DistanceKm = dist, IsPredicted = false, IsGlobalFallback = true,
+                        InferredRegion = fbRegion,
+                        LastSeen = lastSeenMap.TryGetValue(r.Guid, out var ls) ? ls : DateTime.UtcNow,
+                    });
+                    Console.WriteLine($"[GLOBAL-FALLBACK] {r.Name} ({r.Guid[..8]}) region={fbRegion ?? "null"} live={rawLiveGuids.Contains(r.Guid)}");
+                }
+            }
+
             return BuildHtmlTable(finalProcessedRecords, rawLiveGuids, _liveUserFirstSeen);
         }
         
@@ -864,7 +905,15 @@ for (int i = trimEnd - 1; i >= 0; i--)
                 if(record.IsPredicted)
                     detailsPart = $"Displays \"{GetArrivalTimeDisplayString(record.PredictedArrivalTime)}\"";
                 else
-                    detailsPart = !string.IsNullOrWhiteSpace(record.UserCity) ? $"{record.UserCity}, {record.Location?.regionName}" : record.Location?.regionName;
+                {
+                    var region = record.Location?.regionName ?? record.InferredRegion;
+                    if (!string.IsNullOrWhiteSpace(record.UserCity) && !string.IsNullOrWhiteSpace(region))
+                        detailsPart = $"{record.UserCity}, {region}";
+                    else if (!string.IsNullOrWhiteSpace(record.UserCity))
+                        detailsPart = record.UserCity;
+                    else
+                        detailsPart = region;
+                }
                 Console.WriteLine($"{record.Guid} {status,-9} {musicianPart,-35} -> {detailsPart}");
             }
             return sb.ToString();
@@ -930,8 +979,9 @@ for (int i = trimEnd - 1; i >= 0; i--)
                 bool hasValidCity = !string.IsNullOrWhiteSpace(record.UserCity) && record.UserCity.Trim() != "-";
                 bool cityIsDifferentFromRegion = !string.Equals(record.UserCity.Trim(), ipDerivedRegion.Trim(), StringComparison.OrdinalIgnoreCase);
 
-                locationDisplay = (hasValidCity && cityIsDifferentFromRegion) 
-                    ? $"{record.UserCity},<br/>{regionHtml}" 
+                // Fallback rows render the same as normal rows: city (if given) + region.
+                locationDisplay = (hasValidCity && cityIsDifferentFromRegion)
+                    ? $"{record.UserCity},<br/>{regionHtml}"
                     : regionHtml;
             }
 
@@ -1592,7 +1642,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
             int fleetDays = 0;
             int tier;
 
-            if (jeStrength >= 2)
+            if (jeStrength >= 2 && jeStrength != 16)
             {
                 resolvedIp = jeIp;
                 ipSrc = $"je({jeStrength})";
@@ -1689,6 +1739,52 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
             return (winner, lat, lon, tierLabel, ipSrc, ipRegion, rawServers ?? "", maskedIp, isPending, jeStrength);
         }
 
+        private async Task<Newtonsoft.Json.Linq.JObject> GetServerIpGeoAsync(string ip)
+        {
+            await _serverIpGeoSem.WaitAsync();
+            try
+            {
+                if (_serverIpGeoCache == null)
+                {
+                    if (File.Exists(ServerIpGeoCacheFile))
+                    {
+                        try
+                        {
+                            var raw = await File.ReadAllTextAsync(ServerIpGeoCacheFile);
+                            _serverIpGeoCache = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, Newtonsoft.Json.Linq.JObject>>(raw)
+                                ?? new Dictionary<string, Newtonsoft.Json.Linq.JObject>();
+                        }
+                        catch { _serverIpGeoCache = new Dictionary<string, Newtonsoft.Json.Linq.JObject>(); }
+                    }
+                    else
+                        _serverIpGeoCache = new Dictionary<string, Newtonsoft.Json.Linq.JObject>();
+                }
+                if (_serverIpGeoCache.TryGetValue(ip, out var cached))
+                    return cached;
+            }
+            finally { _serverIpGeoSem.Release(); }
+
+            var result = await Services.IpAnalyticsService.FetchIpApiAsync(ip, waitIfThrottled: false);
+
+            await _serverIpGeoSem.WaitAsync();
+            try
+            {
+                if (result != null)
+                {
+                    _serverIpGeoCache[ip] = result;
+                    try
+                    {
+                        var json = Newtonsoft.Json.JsonConvert.SerializeObject(_serverIpGeoCache);
+                        await File.WriteAllTextAsync(ServerIpGeoCacheFile, json);
+                    }
+                    catch { /* non-fatal */ }
+                }
+            }
+            finally { _serverIpGeoSem.Release(); }
+
+            return result;
+        }
+
         private async Task<(string region, string tier, string rawServers, double? topLat, double? topLon)> GetGuidInferredRegionAsync(string guidHash)
         {
             if (string.IsNullOrEmpty(guidHash)) return (null, null, null, null, null);
@@ -1703,7 +1799,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
             var regionBestLatLon = new Dictionary<string, (double lat, double lon, int ticks)>(StringComparer.OrdinalIgnoreCase);
             foreach (var (serverIp, ticks) in serverIpTicks)
             {
-                var json = await Services.IpAnalyticsService.FetchIpApiAsync(serverIp);
+                var json = await GetServerIpGeoAsync(serverIp);
                 if (json == null) continue;
                 string region = json["regionName"]?.ToString();
                 if (!string.IsNullOrWhiteSpace(region))
@@ -1738,7 +1834,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                 var jeAnchorMap = await GetJeAnchorMapAsync();
                 if (jeAnchorMap.TryGetValue(guidHash, out var anchor))
                 {
-                    var anchorJson = await Services.IpAnalyticsService.FetchIpApiAsync(anchor.ip);
+                    var anchorJson = await GetServerIpGeoAsync(anchor.ip);
                     anchorState = anchorJson?["regionName"]?.ToString();
                 }
             }
@@ -1755,7 +1851,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                 {
                     try
                     {
-                        var ffj = await Services.IpAnalyticsService.FetchIpApiAsync(fleetFallbackIp);
+                        var ffj = await GetServerIpGeoAsync(fleetFallbackIp);
                         string ffRegion = ffj?["regionName"]?.ToString();
                         if (!string.IsNullOrWhiteSpace(ffRegion))
                         {
@@ -1782,7 +1878,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
                     var fleetGeo = new List<(string country, string region, int days)>();
                     foreach (var (fip, days) in fleetIps)
                     {
-                        var fj = await Services.IpAnalyticsService.FetchIpApiAsync(fip);
+                        var fj = await GetServerIpGeoAsync(fip);
                         if (fj == null) continue;
                         string fc = fj["country"]?.ToString();
                         string fr = fj["regionName"]?.ToString();

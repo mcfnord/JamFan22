@@ -10,6 +10,10 @@ namespace JamFan22
         private static readonly ConcurrentDictionary<string, List<string>> _ipToGuids = new();
         // key: "guid|ip", value: set of "yyyy-MM-dd" UTC day strings
         private static readonly ConcurrentDictionary<string, HashSet<string>> _guidIpDays = new();
+        // (guid|ip) -> minutes-since-2023 of the most recent NON-BLOCKED sighting of that pair.
+        // _guidIpDays answers "how many separate days has this pair been seen" (confidence);
+        // this answers "how long ago" (recency). Identity resolution needs both.
+        private static readonly ConcurrentDictionary<string, long> _guidIpLastSeen = new();
         // key: guid, value: (ip, timestamp_minutes) of most recent non-blocked entry
         private static readonly ConcurrentDictionary<string, (string ip, long minutes)> _guidBestNonBlocked = new();
         private static readonly object _lock = new object();
@@ -43,6 +47,7 @@ namespace JamFan22
                 _guidBestNonBlocked.AddOrUpdate(guid,
                     _ => (ip, minutes),
                     (_, old) => minutes >= old.minutes ? (ip, minutes) : old);
+                _guidIpLastSeen.AddOrUpdate(dayKey, minutes, (_, old) => minutes >= old ? minutes : old);
             }
             lock (_csvLock)
                 File.AppendAllText("data/fleet-guid-ip.csv", $"{minutes},{guid},{ip},{serverIp.Replace("::ffff:", "")},{(blocked ? 1 : 0)}\n");
@@ -92,6 +97,7 @@ namespace JamFan22
                         _guidBestNonBlocked.AddOrUpdate(guid,
                             _ => (clientIp, rowMinutes),
                             (_, old) => rowMinutes >= old.minutes ? (clientIp, rowMinutes) : old);
+                        _guidIpLastSeen.AddOrUpdate(dayKey, rowMinutes, (_, old) => rowMinutes >= old ? rowMinutes : old);
                     }
                 }
                 loaded++;
@@ -110,6 +116,11 @@ namespace JamFan22
             string key = $"{guid}|{ip}";
             return _guidIpDays.TryGetValue(key, out var days) ? days.Count : 0;
         }
+
+        // Minutes-since-2023 of the most recent non-blocked sighting of this GUID at this IP,
+        // or -1 if the pair was never seen non-blocked.
+        public static long GetLastSeenMinutes(string guid, string ip)
+            => _guidIpLastSeen.TryGetValue($"{guid}|{ip}", out var m) ? m : -1;
 
         public static List<string> GetHighConfidenceIpsByGuid(string guid, int minDays = 3)
         {
