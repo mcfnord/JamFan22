@@ -816,6 +816,17 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
     if (!string.IsNullOrEmpty(guid) && guid != "-")
         FleetGuidCache.UpsertGuid(guid, ip, serverKey, blocked: false);
 
+    // Per-room welcome rate cap (gate 2). A burst of joins fans out into one
+    // expensive welcome each; this is the backstop for a rate no amount of caching
+    // absorbs. GUID tracking above still runs — only the welcome is dropped.
+    if (!WelcomeRateLimiter.Allow(serverKey))
+    {
+        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] rate-capped server={serverKey} " +
+                          $"count={WelcomeRateLimiter.CountThisMinute(serverKey)}/min " +
+                          $"cap={WelcomeRateLimiter.MaxPerMinute} — welcome suppressed");
+        return Results.Ok();
+    }
+
     var capturedGuid = guid;
     var capturedNation = nationCode;
     var capturedChannelKey = $"channel:{callerIP}:{channelId}:{capturedGuid}";
@@ -853,7 +864,7 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
             string cacheKey = $"{capturedGuid}:{serverKey}";
             if (WelcomeCache.TryGet(cacheKey, out _))
             {
-                Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] suppressed rapid re-join caller={callerIP} channelId={channelId}");
+                Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] suppressed rapid re-join caller={callerIP} channelId={channelId} guid={capturedGuid} age_s={WelcomeCache.AgeSeconds(cacheKey):F1} tutc={DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss}");
                 return;
             }
             {
@@ -956,7 +967,7 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
                     if (sendResp == null)
                         Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws-send-failed caller={callerIP} channelId={channelId} nation={capturedNation}");
                     else
-                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws caller={callerIP} channelId={channelId} nation={capturedNation}");
+                        Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws caller={callerIP} channelId={channelId} nation={capturedNation} guid={capturedGuid} tutc={DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss}");
                 }
                 catch (Exception wsEx)
                 { Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] ws-error caller={callerIP} channelId={channelId}: {wsEx.Message}"); }
@@ -1340,9 +1351,33 @@ public static class GroupJoinerAccumulator
         => _bags.TryRemove(serverKey, out var bag) ? bag.ToList() : new();
 }
 
+// Per-room welcome rate cap. The busiest minutes in welcome-events.log are 36/min
+// (Big Ben, 2026-06-27), then 20/19/19/18 — but the operator judges 36 joiners in a
+// minute to be illegitimate on its face and asked for half that (2026-09-12).
+// 18/min clips only 4 minutes in the whole log, and is far below the 43-62/min the
+// synthetic Freiheit ramp sustained that night.
+public static class WelcomeRateLimiter
+{
+    public const int MaxPerMinute = 18;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Window, int Count)> _counts = new();
+
+    public static bool Allow(string serverKey)
+    {
+        var now = DateTime.UtcNow;
+        var entry = _counts.AddOrUpdate(serverKey,
+            _ => (now, 1),
+            (_, prev) => now - prev.Window > TimeSpan.FromMinutes(1) ? (now, 1) : (prev.Window, prev.Count + 1));
+        return entry.Count <= MaxPerMinute;
+    }
+
+    public static int CountThisMinute(string serverKey) =>
+        _counts.TryGetValue(serverKey, out var e) ? e.Count : 0;
+}
+
 public static class WelcomeCache
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Expiry, string Message)> _cache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Expiry, string Message, DateTime SetAt)> _cache = new();
     private const int DefaultMinutes = 5;
 
     public static bool TryGet(string key, out string message)
@@ -1354,7 +1389,10 @@ public static class WelcomeCache
     }
 
     public static void Set(string key, string message, int minutes = DefaultMinutes) =>
-        _cache[key] = (DateTime.UtcNow.AddMinutes(minutes), message);
+        _cache[key] = (DateTime.UtcNow.AddMinutes(minutes), message, DateTime.UtcNow);
+
+    public static double AgeSeconds(string key) =>
+        _cache.TryGetValue(key, out var e) ? (DateTime.UtcNow - e.SetAt).TotalSeconds : -1;
 }
 
 public class ChatUrlRequest

@@ -270,6 +270,73 @@ public static class WelcomeContext
         return result;
     }
 
+    // ---- server.csv lookup cache ------------------------------------------------
+    // server.csv is append-only and ~2.69M rows / 173 MB; one full scan costs ~1.84 s.
+    // LookupServer is called several times per welcome, so the old scan-per-call
+    // pegged both cores whenever joins arrived in bursts (measured 2026-09-12:
+    // 24+ concurrent handles to server.csv, every one at pos=0, /api stalling 6-15 s).
+    // Build the key -> row map once per TTL; serve the stale map while a rebuild is
+    // in flight so no request ever waits behind another caller's scan.
+    private const int ServerMapTtlSeconds = 120;
+    private static Dictionary<string, (string name, string city, int idx)>? _serverMap;
+    private static DateTime _serverMapExpiryUtc = DateTime.MinValue;
+    private static readonly object _serverMapLock = new();
+    private static readonly SemaphoreSlim _serverMapSem = new(1, 1);
+
+    private static string DecodeCsvField(string raw) =>
+        HttpUtility.UrlDecode(raw.Replace("+", " "));
+
+    private static Dictionary<string, (string name, string city, int idx)> BuildServerMap()
+    {
+        // Last row per key wins, reproducing the original scan-to-EOF semantics.
+        // Fields are stored raw and decoded at lookup time: decoding 2.69M rows here
+        // would cost more than the scan it replaces.
+        var map = new Dictionary<string, (string name, string city, int idx)>(StringComparer.Ordinal);
+        int idx = 0;
+        try
+        {
+            foreach (var line in File.ReadLines("data/server.csv"))
+            {
+                idx++;
+                var cols = line.Split(',');
+                if (cols.Length < 3) continue;
+                var key = cols[0].Trim();
+                if (key.Length == 0) continue;
+                map[key] = (cols[1].Trim(), cols[2].Trim(), idx);
+            }
+        }
+        catch { }
+        return map;
+    }
+
+    private static Dictionary<string, (string name, string city, int idx)> GetServerMap()
+    {
+        lock (_serverMapLock)
+        {
+            if (_serverMap != null && DateTime.UtcNow < _serverMapExpiryUtc) return _serverMap;
+        }
+        Dictionary<string, (string name, string city, int idx)>? stale;
+        lock (_serverMapLock) { stale = _serverMap; }
+        // A rebuild is already running and we have something usable — serve it.
+        if (stale != null && !_serverMapSem.Wait(0)) return stale;
+        if (stale == null) _serverMapSem.Wait();   // cold start: the first caller must build
+        try
+        {
+            lock (_serverMapLock)
+            {
+                if (_serverMap != null && DateTime.UtcNow < _serverMapExpiryUtc) return _serverMap;
+            }
+            var built = BuildServerMap();
+            lock (_serverMapLock)
+            {
+                _serverMap = built;
+                _serverMapExpiryUtc = DateTime.UtcNow.AddSeconds(ServerMapTtlSeconds);
+            }
+            return built;
+        }
+        finally { _serverMapSem.Release(); }
+    }
+
     // Looks up name/city for an exact ip:port key in server.csv.
     public static (string name, string city) LookupServer(string serverKey)
     {
@@ -278,16 +345,28 @@ public static class WelcomeContext
         string foundName = "", foundCity = "";
         try
         {
-            foreach (var line in File.ReadLines("data/server.csv"))
+            var map = GetServerMap();
+            if (hasPort)
             {
-                var cols = line.Split(',');
-                if (cols.Length < 3) continue;
-                var key = cols[0].Trim();
-                bool match = hasPort ? key == serverKey : key.StartsWith(serverKey + ":");
-                if (match)
+                if (map.TryGetValue(serverKey, out var hit))
                 {
-                    foundName = HttpUtility.UrlDecode(cols[1].Trim().Replace("+", " "));
-                    foundCity = HttpUtility.UrlDecode(cols[2].Trim().Replace("+", " "));
+                    foundName = DecodeCsvField(hit.name);
+                    foundCity = DecodeCsvField(hit.city);
+                }
+            }
+            else
+            {
+                // Prefix form: highest row index wins, same as the old last-match-wins scan.
+                string prefix = serverKey + ":";
+                int best = -1;
+                foreach (var kv in map)
+                {
+                    if (kv.Value.idx > best && kv.Key.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        best = kv.Value.idx;
+                        foundName = DecodeCsvField(kv.Value.name);
+                        foundCity = DecodeCsvField(kv.Value.city);
+                    }
                 }
             }
         }
