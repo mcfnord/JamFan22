@@ -4,6 +4,14 @@
 //   2. Fleet servers via POST /chat-url-server (raw text match)
 //   3. Custom client via POST /chat-url-client
 //
+// NOT a source: anything the SERVER injected rather than a person sent. A Jamulus server hands
+// its welcome message to every client on connect, so a URL in it would re-arm the video link on
+// every join forever. Two shapes exist: a stock server prefixes "<b>Server Welcome Message:</b>",
+// while the welcome JamFan22 pushes over the RPC channel is raw HTML with no prefix at all --
+// so the test is the presence of the per-channel chat stamp (ChatStamp below), not the prefix.
+// The lounge loop drops unstamped messages; the custom client drops them in
+// ChatReporter::reportIfMatchFromChat. Clients built before 2026-09-11 still report welcomes.
+//
 // URL LOGGING (data/urls.csv and data/urls-rejected.csv)
 // Every URL arriving via any path is logged:
 //   - Passes chat-patterns.txt  → data/urls.csv  (minutes, source, server, encoded_url)
@@ -49,6 +57,12 @@ namespace JamFan22
         }
 
         private static readonly Regex TagCleaner = new Regex("<.*?>", RegexOptions.Compiled);
+        // The stamp a Jamulus server puts on every message a CHANNEL sent:
+        //   <font color="mediumblue">(02:37:01 PM) <b>fmt probe</b></font> text
+        // Measured 2026-09-11 against an upstream server and the live lounge. A message without
+        // it was injected by the server, not sent by a person in this session.
+        private static readonly Regex ChatStamp =
+            new Regex("^<font color=\"[^\"]*\">\\([^<]*\\) <b>.*</b></font> ", RegexOptions.Compiled);
         private static readonly Regex LobbyPattern = new Regex(@"lobby", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public static System.Collections.Concurrent.ConcurrentDictionary<string, bool> m_loungeIsQuiet = new();
@@ -701,7 +715,17 @@ namespace JamFan22
 
                         var msgToken = root["newChatMessage"]?["message"];
                         if (msgToken == null) continue;
-                        string chatText = TagCleaner.Replace(msgToken.Value<string>(), "");
+                        string rawChat = msgToken.Value<string>();
+
+                        // Only a message somebody SENT during this session may arm a video link. The
+                        // server hands its welcome message to every client the moment it connects, so
+                        // the lounge re-receives it on every reconnect -- that is how a dead video URL
+                        // used to re-arm itself forever. Unstamped also covers [Ear] announcements and
+                        // the raw-HTML welcome JamFan22 pushes over the RPC channel, which carries no
+                        // "Server Welcome Message:" prefix at all.
+                        if (!ChatStamp.IsMatch(rawChat)) continue;
+
+                        string chatText = TagCleaner.Replace(rawChat, "");
 
                         Match match = Regex.Match(chatText, urlPattern);
                         if (!match.Success) continue;

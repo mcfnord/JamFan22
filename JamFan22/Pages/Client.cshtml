@@ -739,6 +739,13 @@ body {
             html += `${server.listenHtml}`;
         }
 
+        // Video sits on its own line under the Listen link, above the song/artist line.
+        // listenHtml does not end in a break, so supply one only when it is present.
+        if (server.videoUrl) {
+            const escapedUrl = server.videoUrl.replace(/'/g, "\\'");
+            html += `${server.listenHtml ? '<br>' : ''}<span class="video-link" onclick="openVideoIfConnected(this, '${escapedUrl}')">Video</span>`;
+        }
+
         if (server.songTitle) {
             const dashIdx = server.songTitle.indexOf(' \u2014 ');
             if (dashIdx !== -1) {
@@ -748,11 +755,6 @@ body {
             } else {
                 html += `<br><font size='-1'><b><i>${server.songTitle}</i></b></font>`;
             }
-        }
-
-        if (server.videoUrl) {
-            const escapedUrl = server.videoUrl.replace(/'/g, "\\'");
-            html += `<span class="video-link" onclick="openVideoIfConnected(this, '${escapedUrl}')">Video</span>`;
         }
 
         html += `</center>`;
