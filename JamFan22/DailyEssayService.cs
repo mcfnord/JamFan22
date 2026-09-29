@@ -99,6 +99,16 @@ public static class DailyEssayService
     // have been in the room this long. Presence, not a cameo — see the pri -1 tier below.
     private const int HostMinSpanMinutes = 30;
 
+    // Bots, by measured name — the same list fleet-value.py excludes (keep the two in step).
+    // The lounge lobby client ("lobby [0]", "lobby [1]") moves between fleet rooms, so it is
+    // caught by NAME wherever it is, however briefly it stayed. Muh is muh-bot.py.
+    private static readonly System.Text.RegularExpressions.Regex s_botName = new(
+        @"(lobby|^muh$|^muh\b|gjstress|jamulus-?lounge|^listener|^soakbot|^test bot|^cap tester)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+    // An UNNAMED GUID present across >= 90% of the 24 h window is a bot too (operator
+    // 2026-09-24). Andre's US Sound: a blank-name Streamer sat all 1440 minutes.
+    private const int UnnamedAllDayMinutes = 1296;
+
     public static void LoadApiKey()
     {
         try   { s_apiKey = File.ReadAllText(KeyPath).Trim(); Console.WriteLine("[ESSAY] key loaded."); }
@@ -115,7 +125,7 @@ public static class DailyEssayService
         double lat = (double?)geo?["lat"] ?? 0;
         double lon = (double?)geo?["lon"] ?? 0;
         string cc  = geo?["countryCode"]?.ToString() ?? "";
-        string centerId = NearestCenter(lat, lon);
+        string centerId = NearestCenter(lat, lon, cc);
         string language = s_lang.TryGetValue(cc, out var l) ? l : "English";
         string cacheKey = $"{centerId}:{language}";
         int delay = s_essayDelay.TryGetValue(centerId, out var d) ? d : 240;
@@ -134,7 +144,7 @@ public static class DailyEssayService
         double lon = (double?)geo?["lon"] ?? 0;
         string cc  = geo?["countryCode"]?.ToString() ?? "";
         string language = s_lang.TryGetValue(cc, out var l) ? l : "English";
-        return $"{NearestCenter(lat, lon)}:{language}";
+        return $"{NearestCenter(lat, lon, cc)}:{language}";
     }
 
     // "You're in this one" — resolves the visitor's IP to a GUID via join-events (authoritative
@@ -227,7 +237,7 @@ public static class DailyEssayService
         double lon = (double?)geo?["lon"] ?? 0;
         string cc  = geo?["countryCode"]?.ToString() ?? "";
 
-        string centerId = NearestCenter(lat, lon);
+        string centerId = NearestCenter(lat, lon, cc);
         string language = s_lang.TryGetValue(cc, out var l) ? l : "English";
         string cacheKey = $"{centerId}:{language}";
 
@@ -345,8 +355,16 @@ public static class DailyEssayService
 
     // ── Center selection ───────────────────────────────────────────────────────
 
-    private static string NearestCenter(double lat, double lon)
+    // Country -> center overrides, applied before the lat/lon distance. Most of France is nearer the UK
+    // center than EU-W, so French readers got essays about UK/Ireland servers (FOLLOW-UP 666, 2026-09-29).
+    private static readonly Dictionary<string, string> s_centerOverride = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["FR"] = "EU-W",
+    };
+
+    private static string NearestCenter(double lat, double lon, string cc)
+    {
+        if (s_centerOverride.TryGetValue(cc, out var forced)) return forced;
         if (lat == 0 && lon == 0) return "WORLD";
         string best = "WORLD";
         double bestD = double.MaxValue;
@@ -393,6 +411,23 @@ public static class DailyEssayService
         var ttMap    = ttTask.Result;
         var lore     = loreTask.Result;
         var webGuids = webTask.Result;
+
+        // Bots never reach the essay, not even as numbers. Before 2026-09-24 only their NAMES
+        // were filtered (from Players); their minutes still set the room's player count, its
+        // "~most of the day" span and its SessionScore rank. Studio D's only occupant for 24 h
+        // was the lobby client, and the model wrote "stayed warm most of the day... the lights
+        // stayed on" — a bot's day, told as a room's. A named player who drops in for 20 min
+        // next to a bot must read as 20 min, not the bot's day.
+        foreach (var sess in sessions)
+            foreach (var guid in sess.GuidTicks.Keys.ToList())
+            {
+                var t = sess.GuidTicks[guid];
+                bool named = geoMap.TryGetValue(guid, out var g) && !string.IsNullOrWhiteSpace(g.N);
+                bool isBot = named ? s_botName.IsMatch(g.N.Trim())
+                                   : t.L - t.F >= UnnamedAllDayMinutes;
+                if (isBot) sess.GuidTicks.Remove(guid);
+            }
+        sessions.RemoveAll(s => s.GuidTicks.Count == 0);
 
         var serverIpNations = await GeolocateServerIpsAsync(sessions);
 
@@ -441,8 +476,14 @@ public static class DailyEssayService
                 .Select(p => (p.Name, p.Instr, p.Ticks)).ToList();
         }
 
+        // A room with no named player is never a story (operator 2026-09-24: "If there are no
+        // names involved, NOTHING IS WORTH MENTIONING"). The prompt already said so, but a
+        // nameless room still arrived with its lore, and the model wrote it up anyway: Studio D,
+        // 2 unnamed players, became "stayed warm most of the day... the lights stayed on".
+        // Drop it here so it never reaches the model and its slot goes to a room with names.
         bool IsValidSession(SessionEntry s) =>
-            !s.Name.Contains("lobby", StringComparison.OrdinalIgnoreCase);
+            !s.Name.Contains("lobby", StringComparison.OrdinalIgnoreCase)
+            && s.Players.Count > 0;
 
         int SessionScore(SessionEntry s) =>
             s.TotalTicks + WebUserTickBonus * s.GuidTicks.Keys.Count(webGuids.Contains);
@@ -483,6 +524,8 @@ public static class DailyEssayService
         if (html != null)
         {
             html = StripUnauthorizedLinks(html);
+            html = DropNamelessSentences(html, out int gateKept, out int gateCut);
+            Console.WriteLine($"[ESSAY] nameless-gate kept={gateKept} cut={gateCut} key={centerId}:{language}");
             var genTs = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
             html += $"\n<p class=\"essay-footer\" data-essay-generated=\"{genTs}\" style=\"font-size:0.8em;color:#aaa;margin-top:1.5em;text-align:right\">Written <time class=\"essay-age\"></time></p>";
         }
@@ -882,6 +925,61 @@ public static class DailyEssayService
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
     }
 
+    // ── Nameless-sentence gate (operator 2026-09-27: "let's kill these weak sentences") ──
+    // A sentence with no bold player name, no italic room name and no quoted song title is
+    // filler by definition ("Glasgow was still awake.", "The whole session wrapped up just a
+    // few hours ago.") and is dropped before publication. The prompt already forbids these
+    // shapes in 39 examples and the model still writes them, so the rule is enforced here.
+    // Accepts <b>/<strong>/<i>/<em> (open or close, so a sentence split inside a tag keeps
+    // both halves) and markdown **bold** (2 of 40 logged essays used it). The quote test
+    // runs on tag-stripped text, or the double quotes in <time datetime="…"> would rescue
+    // exactly the sentence this was built for. Sentences split on [.!?] + whitespace; a
+    // script without those marks stays one sentence and is kept; a paragraph left empty is
+    // dropped; an essay left empty is returned untouched (fails open).
+    private static readonly System.Text.RegularExpressions.Regex s_gatePara = new(
+        @"<p(?:\s[^>]*)?>(.*?)</p>",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex s_gateSplit = new(
+        @"(?<=[.!?])\s+", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex s_gateKeep = new(
+        @"</?(b|strong|i|em)\b|\*\*[^*]+\*\*",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex s_gateQuote = new(
+        "[\"“”„«»「『]", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex s_gateTag = new(
+        "<[^>]+>", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static string DropNamelessSentences(string html, out int kept, out int cut)
+    {
+        kept = 0; cut = 0;
+        if (string.IsNullOrEmpty(html)) return html;
+        var sb = new System.Text.StringBuilder(html.Length);
+        int last = 0;
+        foreach (System.Text.RegularExpressions.Match m in s_gatePara.Matches(html))
+        {
+            sb.Append(html, last, m.Index - last);
+            last = m.Index + m.Length;
+            var body = m.Groups[1];
+            var keptParts = new List<string>();
+            foreach (var s in s_gateSplit.Split(body.Value))
+            {
+                var t = s.Trim();
+                if (t.Length == 0) continue;
+                bool keep = t.Length < 15
+                         || s_gateKeep.IsMatch(t)
+                         || s_gateQuote.IsMatch(s_gateTag.Replace(t, ""));
+                if (keep) { keptParts.Add(t); kept++; } else cut++;
+            }
+            if (keptParts.Count == 0) continue;
+            sb.Append(html, m.Index, body.Index - m.Index);   // the <p …> opening tag as written
+            sb.Append(string.Join(" ", keptParts));
+            sb.Append("</p>");
+        }
+        sb.Append(html, last, html.Length - last);
+        if (kept == 0) { cut = 0; return html; }
+        return sb.ToString();
+    }
+
     // ── LLM call ──────────────────────────────────────────────────────────────
 
     private static (string model, double temperature) ReadEssayConfig(string defaultModel)
@@ -933,6 +1031,7 @@ public static class DailyEssayService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         string? result = null;
         string err = "";
+        int tokIn = 0, tokOut = 0, tokThink = 0, tokCached = 0;
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
@@ -943,6 +1042,12 @@ public static class DailyEssayService
             if (resp.IsSuccessStatusCode)
             {
                 using var doc = JsonDocument.Parse(raw);
+                if (doc.RootElement.TryGetProperty("usageMetadata", out var um))
+                {
+                    int Tok(string name) => um.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+                    tokIn = Tok("promptTokenCount"); tokOut = Tok("candidatesTokenCount");
+                    tokThink = Tok("thoughtsTokenCount"); tokCached = Tok("cachedContentTokenCount");
+                }
                 if (doc.RootElement.TryGetProperty("candidates", out var cands) &&
                     cands.GetArrayLength() > 0 &&
                     cands[0].TryGetProperty("content", out var cont) &&
@@ -969,12 +1074,12 @@ public static class DailyEssayService
         catch (Exception ex) { err = ex.Message; }
 
         sw.Stop();
-        Console.WriteLine($"[ESSAY-LLM] model={model} lang={language} ms={sw.ElapsedMilliseconds}" + (err.Length > 0 ? $" err={err}" : ""));
+        Console.WriteLine($"[ESSAY-LLM] model={model} lang={language} ms={sw.ElapsedMilliseconds} in={tokIn} out={tokOut} think={tokThink} cached={tokCached}" + (err.Length > 0 ? $" err={err}" : ""));
 
         try
         {
             var log = new StringBuilder();
-            log.AppendLine($"--- {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC  lang={language}  model={model}  ms={sw.ElapsedMilliseconds} ---");
+            log.AppendLine($"--- {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC  lang={language}  model={model}  ms={sw.ElapsedMilliseconds}  in={tokIn}  out={tokOut}  think={tokThink}  cached={tokCached} ---");
             log.AppendLine("CONTEXT:"); log.AppendLine(contextText.TrimEnd());
             log.AppendLine("ESSAY:");   log.AppendLine(result ?? $"(null — {err})");
             log.AppendLine();
