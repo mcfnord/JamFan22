@@ -217,6 +217,8 @@ public string DurationHere(string server, string who, string nationCode)
                 freshLounges.TryAdd("179.228.137.154:22124", "https://lobby.jam.voixtel.net.br/");
                 freshLounges.TryAdd("139.162.251.38:22124",  "http://1.onj.me:32123/");
                 freshLounges.TryAdd("69.164.213.250:22124",  "http://3.onj.me:8000/jamulus4");
+                // Goody Music (Lampang): Icecast player, not an SSE lounge; streamer client is "LIVE STREAM".
+                freshLounges.TryAdd("171.97.239.132:57659",  "https://live.aunstack.dev/");
 
                 m_connectedLounges = freshLounges;
                 _loungesCacheExpiry = DateTime.UtcNow.AddHours(24);
@@ -244,18 +246,22 @@ public string DurationHere(string server, string who, string nationCode)
                     return "";
                 }
             }
+            static bool IsStreamer(string n) => n.Contains("obby") || n == "" || n.Equals("LIVE STREAM", StringComparison.OrdinalIgnoreCase);
             foreach (var user in s.whoObjectFromSourceData)
             {
-                if (user.name.Contains("obby") || user.name == "")
+                if (IsStreamer(user.name))
                 {
-                    int musicianCount = s.whoObjectFromSourceData.Count(u => !u.name.Contains("obby") && u.name != "");
+                    int musicianCount = s.whoObjectFromSourceData.Count(u => !IsStreamer(u.name) && !u.name.Equals("MUSIC BOT", StringComparison.OrdinalIgnoreCase));
                     if (musicianCount <= 1) return "";
                     string num = "";
                     var iPos = user.name.IndexOf("[");
                     if (iPos > 0 && '0' != user.name[iPos + 1])
                         num = "<sub> " + user.name[iPos + 1] + "</sub>";
                     m_listenLinkDeployment.Add(ipport);
-                    bool isQuiet = harvest.m_loungeIsQuiet.TryGetValue(url, out bool q) && q;
+                    // SSE lounges report quiet themselves; a plain stream page (no /events) falls back to the non-fleet poller.
+                    bool isQuiet = harvest.m_loungeIsQuiet.TryGetValue(url, out bool q)
+                        ? q
+                        : NonFleetSilencePoller.Status.TryGetValue(ipport, out var nfq) && nfq.Quiet;
                     string listenLabel = isQuiet
                         ? LocalizedText(nationCode, "Quiet", "安靜", "เงียบ", "Leise", "Silenzio", "Tranquille", "Silencio", "Stil")
                         : LocalizedText(nationCode, "Listen", "聽", "ฟัง", "Hören", "Ascoltare", "Écouter", "Escuchar", "Luisteren");
@@ -713,6 +719,35 @@ public string DurationHere(string server, string who, string nationCode)
         private static Dictionary<string, (string City, string Nation, string Instrument)> _censusCache = null;
         private static DateTime _censusCacheTime = DateTime.MinValue;
 
+        // A default-name identity can never answer "who is at this browser".
+        //
+        // GUID = MD5(name + country + instrument), so every player using the Jamulus default
+        // name in one country collapses into ONE GUID shared by all of them. Measured over the
+        // 15-day join-events corpus: "No Name" is the #1 name by 5x (1,088 joins across 76
+        // GUIDs, 5.2% of all joins) and its US GUID was in two different rooms in the same
+        // minute 7 times -- more concurrent sessions than any other GUID in the corpus. It also
+        // touched 114 distinct client IPs, roughly 3x any comparable single identity. Blank is
+        // the same defect wearing no clothes: 263 joins, 29 GUIDs, 141 IPs.
+        //
+        // MATCHED EXACTLY (trimmed, case-insensitive) AND NEVER AS A SUBSTRING. The corpus
+        // carries "Claudio No Name", "No Name" + Thai suffix, and a palm-tree-prefixed
+        // "no name" -- chosen names belonging to real people. A Contains() test would silence
+        // all three. Same shape as fleet mistake 40, where "disconnected" contains "connected".
+        //
+        // English literal only, deliberately. settings.cpp:477 builds the default via
+        // QCoreApplication::translate(), but main.cpp:984 Settings.Load() runs BEFORE
+        // main.cpp:1004 CLocale::LoadTranslation() -- no translator is installed yet, so
+        // translate() returns the source string and every locale writes "No Name". Measured:
+        // 0 of 20,904 joins over 15 days carry any translated form.
+        //
+        // NOTE: "Unknown" is deliberately NOT treated as default. GuidFromIpAsync assigns that
+        // literal when a fleet-anchor GUID has no resolvable display name -- it means "name not
+        // found", not "player has none", and suppressing it would break the 2026-09-05 fleet
+        // anchor for exactly the players it was added to serve.
+        internal static bool IsDefaultName(string name)
+            => string.IsNullOrWhiteSpace(name)
+               || name.Trim().Equals("No Name", StringComparison.OrdinalIgnoreCase);
+
         public async Task<string> GetIPDerivedHashAsync(string ipAddress)
         {
 #if WINDOWS
@@ -730,6 +765,17 @@ public string DurationHere(string server, string who, string nationCode)
             string rawAsn  = asnTask.Result ?? "";
             var blockData  = blockListTask.Result;
 
+            // Who is allowed to BE the visitor: everyone found on this IP, minus default names.
+            //
+            // `candidates` is deliberately NOT filtered. The vetoes below measure the CROWD on
+            // this IP -- "Crowded IP" needs candidates.Count > 4, "Strong History" needs the
+            // high-signal row to still be counted. Filtering the list would shrink that count
+            // below the threshold and switch the Crowded-IP veto OFF, handing the border to some
+            // other weak stranger that is correctly vetoed today: one wrong border traded for
+            // another, and much harder to notice. The crowd counts everyone; only the winner
+            // is restricted.
+            var eligible = candidates.Where(c => !IsDefaultName(c.Name)).ToList();
+
             string shortAsn  = rawAsn.Split(' ')[0];
             bool   isBlocked = blockData.BlockedASNs.Contains(shortAsn);
 
@@ -740,15 +786,18 @@ public string DurationHere(string server, string who, string nationCode)
                                                  .ThenByDescending(c => c.Timestamp)
                                                  .ToList();
 
-                var bestMatch        = sortedCandidates.FirstOrDefault();
+                // sortedCandidates still holds EVERYONE (the table below prints the full
+                // crowd), but the reported match must be eligible or the log contradicts
+                // the X-IP-Derived-Hash header this same function returns.
+                var bestMatch        = sortedCandidates.FirstOrDefault(c => !IsDefaultName(c.Name));
                 string inferredIdentity = "Unknown";
                 string matchReason      = "Insufficient Data";
                 bool veto = false, overrideTriggered = false;
 
                 if (bestMatch != default && bestMatch.IsOnline && bestMatch.Signal < 2)
                 {
-                    var heavyHitter = candidates.Where(c => !c.IsOnline && c.Signal >= 28)
-                                               .OrderByDescending(c => c.Timestamp).FirstOrDefault();
+                    var heavyHitter = eligible.Where(c => !c.IsOnline && c.Signal >= 28)
+                                              .OrderByDescending(c => c.Timestamp).FirstOrDefault();
                     if (heavyHitter != default)
                     {
                         bestMatch = heavyHitter;
@@ -821,12 +870,12 @@ public string DurationHere(string server, string who, string nationCode)
                 else { Console.WriteLine("   (No historical GUID matches found for this IP)"); }
             }
 
-            var onlineCandidate = candidates.FirstOrDefault(c => c.IsOnline);
+            var onlineCandidate = eligible.FirstOrDefault(c => c.IsOnline);
 
             if (onlineCandidate != default && onlineCandidate.Signal < 2)
             {
-                var heavyHitters = candidates.Where(c => !c.IsOnline && c.Signal >= 28)
-                                             .OrderByDescending(c => c.Timestamp).ToList();
+                var heavyHitters = eligible.Where(c => !c.IsOnline && c.Signal >= 28)
+                                           .OrderByDescending(c => c.Timestamp).ToList();
                 if (heavyHitters.Any()) return "\"" + heavyHitters.First().Guid + "\";";
             }
 
@@ -839,9 +888,19 @@ public string DurationHere(string server, string who, string nationCode)
             }
             else
             {
-                var offlineWinner = candidates.OrderByDescending(c => c.Signal).ThenByDescending(c => c.Timestamp).FirstOrDefault();
+                var offlineWinner = eligible.OrderByDescending(c => c.Signal).ThenByDescending(c => c.Timestamp).FirstOrDefault();
                 if (offlineWinner != default && offlineWinner.Signal > 0)
+                {
+                    // Same vetoes the online branch applies, judged against the FULL crowd.
+                    // Dropping a default-name candidate must never PROMOTE a weaker identity
+                    // that the crowd would otherwise veto: that trades one wrong border for
+                    // another. Measured 2026-09-17 over 30 No-Name-bearing IPs before this
+                    // guard existed -- 4 of 30 gained a border the old code declined, and one
+                    // fell from strength 17 to strength 1.
+                    if (offlineWinner.Signal < 3 && candidates.Any(c => c.Signal >= 3)) return "null;";
+                    if (candidates.Count > 4 && offlineWinner.Signal == 0) return "null;";
                     return "\"" + offlineWinner.Guid + "\";";
+                }
             }
             return "null;";
         }
