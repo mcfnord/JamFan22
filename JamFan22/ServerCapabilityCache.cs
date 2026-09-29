@@ -35,10 +35,22 @@ namespace JamFan22
                     $"https://explorer.jamulus.io/servers.php?query={ip}:{port}");
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
-                bool raw = root.ValueKind == JsonValueKind.Array
+                // explorer returns a well-formed row with ping -1 and an empty version when its
+                // UDP probe got no reply. That is "unknown", not "no raw audio": caching it as
+                // false for 24 h hid the MAX sash on Paulista (2026-09-28) while its neighbours,
+                // same binary, same host, showed it. Retry an unanswered probe after 30 min.
+                bool answered = root.ValueKind == JsonValueKind.Array
                     && root.GetArrayLength() > 0
-                    && root[0].TryGetProperty("rawaudio", out var ra)
-                    && ra.GetBoolean();
+                    && root[0].TryGetProperty("version", out var ver)
+                    && ver.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrEmpty(ver.GetString());
+                if (!answered)
+                {
+                    _cache[key] = (false, DateTime.UtcNow.AddMinutes(30));
+                    return;
+                }
+                bool raw = root[0].TryGetProperty("rawaudio", out var ra)
+                    && ra.ValueKind == JsonValueKind.True;
                 _cache[key] = (raw, DateTime.UtcNow.AddHours(24));
             }
             catch
