@@ -20,6 +20,34 @@ namespace JamFan22.Services
         // ── Swap this one line to redirect all geolocation traffic to a new provider ──
         private static string _geoEndpoint = "http://ip-api.com/json/";
 
+        // Default ip-api fields + proxy/hosting/mobile (FU603). Every default is kept: callers read city, lat, as, ...
+        private const string IpApiFields =
+            "status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile";
+
+        // One row per SUCCESSFUL lookup (the 48 h cache means at most one row per address per 48 h).
+        // epochmin,ip,asn,asname,countryCode,proxy,hosting,mobile   -- epoch 2023-01-01 UTC, like every data/*.csv.
+        // Holds player IPs: data/ only, never a backup glob. Failures here never affect the lookup.
+        private const string IpApiLookupsFile = "data/ip-api-lookups.csv";
+        private static readonly object _ipApiLookupsLock = new object();
+        private static void RecordIpApiLookup(string ip, JObject json)
+        {
+            try
+            {
+                string asFull = json["as"]?.ToString() ?? "";
+                int sp = asFull.IndexOf(' ');
+                string asn = sp > 0 ? asFull.Substring(0, sp) : asFull;
+                string asName = (sp > 0 ? asFull.Substring(sp + 1) : "").Replace(",", " ").Replace("\n", " ").Replace("\r", " ");
+                string flag(string k) => json[k] == null ? "" : (json[k].ToObject<bool>() ? "1" : "0");
+                long epochMin = (long)(DateTime.UtcNow - new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMinutes;
+                string line = $"{epochMin},{ip},{asn},{asName},{json["countryCode"]},{flag("proxy")},{flag("hosting")},{flag("mobile")}\n";
+                lock (_ipApiLookupsLock) { System.IO.File.AppendAllText(IpApiLookupsFile, line); }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ip-api] lookup record failed: {ex.Message}");
+            }
+        }
+
         private static readonly object _ipApiLock = new object();
         private static DateTime _ipApiNextAllowed = DateTime.MinValue;
         private static int _ipApiBackoffSeconds = 1;
@@ -72,7 +100,7 @@ namespace JamFan22.Services
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 linked.CancelAfter(TimeSpan.FromSeconds(3));
 
-                var response = await httpClient.GetAsync($"{_geoEndpoint}{ip}", linked.Token);
+                var response = await httpClient.GetAsync($"{_geoEndpoint}{ip}?fields={IpApiFields}", linked.Token);
 
                 if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
                 {
@@ -100,6 +128,7 @@ namespace JamFan22.Services
 
                 lock (_ipApiLock) { _ipApiBackoffSeconds = 1; _ipApiNextAllowed = DateTime.UtcNow.AddSeconds(1); }
                 _ipApiCache[ip] = (json, DateTime.UtcNow.AddHours(48));
+                RecordIpApiLookup(ip, json);
                 Console.WriteLine($"[ip-api] success for {ip}: {json["city"]}, {json["countryCode"]}");
                 return json;
             }

@@ -277,6 +277,9 @@ app.MapGet("/countries", (HttpContext context) =>
     return Results.Content(sb.ToString(), "text/html");
 });
 
+// FU610: one row per gate verdict in data/gate.csv (epochmin,caller,query,guid,verdict; epoch 2023-01-01 UTC),
+// so nothing has to grep output.log for gate lines. Player IPs: data/ only, never a backup glob.
+var gateCsvLock = new object();
 app.MapGet("/ip-allowed/{ip}", async (string ip, HttpContext context) =>
 {
     string callerIP = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -299,6 +302,14 @@ app.MapGet("/ip-allowed/{ip}", async (string ip, HttpContext context) =>
         FleetGuidCache.UpsertGuid(guid, ip, serverKey, blocked);
     string verdict = blocked ? "BLOCKED" : "ALLOWED";
     Console.WriteLine($"[IP-ALLOWED] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} caller={callerIP} query={ip} guid={guid ?? "-"} => {verdict}");
+    try
+    {
+        long gateEpochMin = (long)(DateTime.UtcNow - new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMinutes;
+        string gateRow = $"{gateEpochMin},{callerIP},{ip},{guid ?? "-"},{verdict}\n";
+        lock (gateCsvLock) { System.IO.File.AppendAllText("data/gate.csv", gateRow); }
+    }
+    catch { }
+
 
     return Results.Text(blocked ? "false" : "true", "text/plain");
 });
