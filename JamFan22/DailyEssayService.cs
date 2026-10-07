@@ -105,6 +105,9 @@ public static class DailyEssayService
     private static readonly System.Text.RegularExpressions.Regex s_botName = new(
         @"(lobby|^muh$|^muh\b|gjstress|jamulus-?lounge|^listener|^soakbot|^test bot|^cap tester)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+    // Shared with the welcome path (Program.cs /player-identified): our bots get no welcome and
+    // trigger no group announcement. ONE list, here.
+    public static bool IsBotName(string? name) => !string.IsNullOrEmpty(name) && s_botName.IsMatch(name);
     // An UNNAMED GUID present across >= 90% of the 24 h window is a bot too (operator
     // 2026-09-24). Andre's US Sound: a blank-name Streamer sat all 1440 minutes.
     private const int UnnamedAllDayMinutes = 1296;
@@ -495,6 +498,14 @@ public static class DailyEssayService
 
         var allSessions = local.Concat(global).ToList();
         var featuredServerKeys = allSessions.Select(s => s.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Defect C (FLEET-SAMPLING-GAP.md): a song whose room is in no session list has no home the
+        // model can name, and the prompt makes using songs mandatory — so it invented one ("Someone
+        // put on 'Lately' over at an Italian server named for its IP address", 2026-10-06). Only
+        // songs from rooms the context describes reach the prompt.
+        var featuredSongs = songs.Where(s => featuredServerKeys.Contains(s.ServerKey)).ToList();
+        if (featuredSongs.Count != songs.Count)
+            Console.WriteLine($"[ESSAY] song-filter kept={featuredSongs.Count} dropped={songs.Count - featuredSongs.Count} key={centerId}:{language}");
         var pairs = FindNotablePairs(allSessions, geoMap, ttMap);
 
         // Provenance for the "You're in this one" banner: map each featured player's GUID to the
@@ -519,7 +530,7 @@ public static class DailyEssayService
 
         var jazzKeys = GetGenreServerKeys("Genre Jazz");
         var rockKeys = GetGenreServerKeys("Genre Rock");
-        string ctx = BuildContext(centerId, center.Label, language, local, global, songs, meta, pairs, lore, jazzKeys, rockKeys, prevSummary);
+        string ctx = BuildContext(centerId, center.Label, language, local, global, featuredSongs, meta, pairs, lore, jazzKeys, rockKeys, prevSummary);
         var html = await CallLlmAsync(ctx, language, center.Model);
         if (html != null)
         {
@@ -661,15 +672,26 @@ public static class DailyEssayService
     private static async Task<Dictionary<string, (string N, string C, string Na)>> LoadServerMetaAsync()
     {
         var map = new Dictionary<string, (string, string, string)>(StringComparer.Ordinal);
-        await foreach (var line in ReadTailAsync("data/server.csv", 8_000_000))
+        // The tail is BYTES, not hours: 8 MB of a 191 MB file reached back ~15 h against the 24 h
+        // essay window (FLEET-SAMPLING-GAP.md Defect C step 2), so a room that went offline early
+        // in the window lost its name — La Scala, offline 17:54Z, was "15.160.194.36:22224 (Italy)"
+        // by the next morning. ~13 MB/day measured 2026-10-06; 32 MB ≈ 2.5 days. Streamed, not
+        // held. The coverage line below is the check: covers= must exceed 24.0h.
+        long oldestMin = long.MaxValue; int rows = 0;
+        await foreach (var line in ReadTailAsync("data/server.csv", 32_000_000))
         {
             var f = line.Split(',');
             if (f.Length < 2 || !f[0].Contains(':')) continue;
+            rows++;
+            if (f.Length > 4 && long.TryParse(f[4], out long rowMin) && rowMin < oldestMin) oldestMin = rowMin;
             var name = WebUtility.UrlDecode(f[1]).Trim();
             var city = f.Length > 2 ? WebUtility.UrlDecode(f[2]).Trim() : "";
             var nat  = f.Length > 3 ? f[3].Trim() : "";
             if (!string.IsNullOrWhiteSpace(name)) map[f[0]] = (name, city, nat);
         }
+        long nowMin = JamFan22.Services.JamulusCacheManager.MinutesSince2023AsInt();
+        var covers = oldestMin == long.MaxValue ? "n/a" : $"{(nowMin - oldestMin) / 60.0:F1}h";
+        Console.WriteLine($"[ESSAY] meta-window rows={rows} keys={map.Count} covers={covers} (need >24.0h)");
         return map;
     }
 
@@ -787,6 +809,26 @@ public static class DailyEssayService
         }
     }
 
+    // A room with no directory name is described by its place and nothing else (operator
+    // 2026-10-06: "if there's a server named for its IP address, that is not noteworthy"). The raw
+    // ip:port never reaches the model — from it the model wrote "named for its IP address", "known
+    // only by its IP address", "just an IP address in the US", "the anonymous IP address".
+    private static string WhereOf(SessionEntry s)
+    {
+        var nation = !string.IsNullOrWhiteSpace(s.NationDisplay) ? s.NationDisplay : s.Nation;
+        return string.IsNullOrWhiteSpace(s.City) ? nation : $"{s.City}, {nation}";
+    }
+
+    private static string RoomNameOf(SessionEntry s)
+    {
+        if (!string.IsNullOrWhiteSpace(s.Name)) return s.Name;
+        var where = WhereOf(s);
+        return string.IsNullOrWhiteSpace(where) ? "a server" : $"a server in {where}";
+    }
+
+    private static string RoomHeadingOf(SessionEntry s) =>
+        string.IsNullOrWhiteSpace(s.Name) ? RoomNameOf(s) : $"{s.Name} ({WhereOf(s)})";
+
     private static string BuildContext(string centerId, string centerLabel, string language,
         List<SessionEntry> local, List<SessionEntry> global,
         List<(string ServerKey, string Title, string Artist)> songs,
@@ -820,11 +862,8 @@ public static class DailyEssayService
         {
             foreach (var s in local)
             {
-                var nationLabel = !string.IsNullOrWhiteSpace(s.NationDisplay) ? s.NationDisplay : s.Nation;
-                var where = string.IsNullOrWhiteSpace(s.City) ? nationLabel : $"{s.City}, {nationLabel}";
-                var sname = string.IsNullOrWhiteSpace(s.Name) ? s.Key : s.Name;
                 sb.AppendLine();
-                sb.AppendLine($"{sname} ({where})");
+                sb.AppendLine(RoomHeadingOf(s));
                 var tStartUtc = s_epoch.AddMinutes(s.FirstMin);
                 var tEndUtc   = s_epoch.AddMinutes(s.LastMin);
                 var tStart = TimeZoneInfo.ConvertTimeFromUtc(tStartUtc, tzInfo).ToString("yyyy-MM-ddTHH:mm");
@@ -847,10 +886,7 @@ public static class DailyEssayService
         int rank = 1;
         foreach (var s in global)
         {
-            var nationLabel2 = !string.IsNullOrWhiteSpace(s.NationDisplay) ? s.NationDisplay : s.Nation;
-            var where = string.IsNullOrWhiteSpace(s.City) ? nationLabel2 : $"{s.City}, {nationLabel2}";
-            var sname = string.IsNullOrWhiteSpace(s.Name) ? s.Key : s.Name;
-            sb.AppendLine($"{rank++}. {sname} ({where}) — {s.GuidTicks.Count} players, ~{ApproxDuration(s.LastMin - s.FirstMin)}");
+            sb.AppendLine($"{rank++}. {RoomHeadingOf(s)} — {s.GuidTicks.Count} players, ~{ApproxDuration(s.LastMin - s.FirstMin)}");
             if (s.Players.Count > 0)
                 sb.AppendLine("   " + string.Join(", ", s.Players.Take(4).Select(p => $"{p.Name} ({p.Instr})")));
             if (lore.TryGetValue(s.Key, out var gLore) && gLore["tagline"]?.ToString() is { Length: > 0 } gtag)
@@ -865,9 +901,13 @@ public static class DailyEssayService
         {
             sb.AppendLine();
             sb.AppendLine("SONG TITLES FROM CHAT LINKS:");
+            // The song's room label is the one its session heading used, so the model can match
+            // them; a key with no session gets no line (no raw-address fallback — Defect C).
+            var roomLabel = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in local.Concat(global)) roomLabel.TryAdd(s.Key, RoomNameOf(s));
             foreach (var (key, title, artist) in songs.Take(10))
             {
-                var sname      = meta.TryGetValue(key, out var m) && !string.IsNullOrWhiteSpace(m.N) ? m.N : key;
+                if (!roomLabel.TryGetValue(key, out var sname)) continue;
                 var artistPart = !string.IsNullOrWhiteSpace(artist) ? $" (by {artist})" : "";
                 sb.AppendLine($"  \"{title}\"{artistPart} — {sname}");
             }
