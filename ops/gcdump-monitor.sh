@@ -18,8 +18,13 @@ dump_instance() {
     echo "$(date): PID=$PID label=$LABEL RSS=${RSS_KB}kB dump=$OUTFILE" >> "$DUMP_DIR/gcdump.log"
 }
 
-# Production instance (runs from JamFan22/bin via dotnet run)
-PROD_PID=$(pgrep -f "JamFan22/bin" | head -1)
+# Production instance: the unit's MainPID (releases/current/JamFan22.dll since 2026-10-02).
+# Under the old `dotnet run` shape MainPID is the build host and the app is its child.
+PROD_PID=$(systemctl show -p MainPID --value jamfan22)
+if [ -n "$PROD_PID" ] && [ "$PROD_PID" != 0 ] && tr '\0' ' ' < /proc/$PROD_PID/cmdline 2>/dev/null | grep -q "dotnet run"; then
+    PROD_PID=$(pgrep -P "$PROD_PID" | head -1)
+fi
+[ "$PROD_PID" = 0 ] && PROD_PID=
 if [ -z "$PROD_PID" ]; then
     echo "$(date): jamfan22 production process not found, skipping." >> "$DUMP_DIR/gcdump.log"
 else

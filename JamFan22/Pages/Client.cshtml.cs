@@ -131,9 +131,10 @@ namespace JamFan22.Pages
             {
                 if (JamulusAnalyzer.m_safeServerSnapshot == null) return "";
                 var ret = new StringBuilder($"<table><tr><th>{JamulusAnalyzer.LocalizedText(NationCode, "Server", "服务器", "เซิร์ฟเวอร์", "Server", "Server", "Serveur", "Servidor", "Server")}<th>{JamulusAnalyzer.LocalizedText(NationCode, "Server Address", "服务器地址", "ที่อยู่เซิร์ฟเวอร์", "Serveradresse", "Indirizzo server", "Adresse du serveur", "Dirección del servidor", "Serveradres")}</tr>\n");
+                var copyTip = JamulusAnalyzer.LocalizedText(NationCode, "Click to copy", "点击复制", "คลิกเพื่อคัดลอก", "Zum Kopieren klicken", "Clicca per copiare", "Cliquer pour copier", "Clic para copiar", "Klik om te kopiëren");
                 foreach (var s in JamulusAnalyzer.m_safeServerSnapshot.OrderBy(x => x.name).ToList())
                 {
-                    ret.Append("<tr><td>" + s.name + "<td>" + s.serverIpAddress + ":" + s.serverPort + "</tr>\n");
+                    ret.Append("<tr><td>" + s.name + "<td><a href=\"#\" class=\"copy-addr\" title=\"" + copyTip + "\">" + s.serverIpAddress + ":" + s.serverPort + "</a></tr>\n");
                 }
                 ret.Append("</table>\n");
                 return ret.ToString();

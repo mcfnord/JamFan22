@@ -33,6 +33,7 @@ var _essayRateLimit = new System.Collections.Concurrent.ConcurrentDictionary<str
 
 // Fleet WebSocket channel registry: "{callerIP}:{serverPort}" → open WebSocket
 var _fleetWsRegistry = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Net.WebSockets.WebSocket>(StringComparer.Ordinal);
+FleetClientAllowlist.LiveChannelKeys = () => _fleetWsRegistry.Keys;
 // Pending JSON-RPC responses: "{regKey}:{id}" → TaskCompletionSource (completed by receive loop)
 var _fleetWsRpcPending = new System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<string>>(StringComparer.Ordinal);
 // Per-connection RPC request ID counter
@@ -301,7 +302,25 @@ app.MapGet("/ip-allowed/{ip}", async (string ip, HttpContext context) =>
     if (!string.IsNullOrEmpty(guid))
         FleetGuidCache.UpsertGuid(guid, ip, serverKey, blocked);
     string verdict = blocked ? "BLOCKED" : "ALLOWED";
-    Console.WriteLine($"[IP-ALLOWED] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} caller={callerIP} query={ip} guid={guid ?? "-"} => {verdict}");
+
+    // Origin class as a clue for the fleet servers (FOLLOW-UP 715, 2026-10-04): an ADDITIVE response
+    // header that old binaries ignore. proxy/hosting come from the same ip-api record IsIpBlockedAsync
+    // just consulted (cached, no second lookup). Absent when unknown or throttled, so a failed lookup
+    // reads as an ordinary origin -- fail open. The body stays the bare true/false the fork parses.
+    string origin = "";
+    try
+    {
+        var ipData = await IpAnalyticsService.FetchIpApiAsync(ip);
+        if (ipData != null)
+        {
+            bool isProxy = ipData["proxy"]?.ToObject<bool>() ?? false;
+            bool isHosting = ipData["hosting"]?.ToObject<bool>() ?? false;
+            origin = isProxy && isHosting ? "proxy,hosting" : isProxy ? "proxy" : isHosting ? "hosting" : "";
+        }
+    }
+    catch { }
+    if (origin.Length > 0) context.Response.Headers["X-Jamfan-Origin"] = origin;
+    Console.WriteLine($"[IP-ALLOWED] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} caller={callerIP} query={ip} guid={guid ?? "-"} => {verdict} origin={(origin.Length > 0 ? origin : "-")}");
     try
     {
         long gateEpochMin = (long)(DateTime.UtcNow - new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMinutes;
@@ -335,13 +354,13 @@ app.MapGet("/debug/welcome-preview", async (HttpContext context) =>
     bool rich = WelcomeContext.IsRich(ctx);
     bool usePro = WelcomeContext.IsLoreGuest(serverKey, gatherDebug.ArrivingName, guid);
     int fleetMinutes = WelcomeContext.FleetMinutes(guid);
-    string? llmMessage = rich ? (await WelcomeMessageGenerator.GetAsync(ctx, nation, nameColors, usePro: usePro)).Message : null;
+    string? llmMessage = rich ? (await WelcomeMessageGenerator.GetAsync(ctx, nation, nameColors, usePro: usePro, arrivingName: gatherDebug.ArrivingName)).Message : null;
     string? englishMessage = null;
     if (rich && nation != "US")
     {
         var ctxEn = System.Text.RegularExpressions.Regex.Replace(ctx,
             @"Language to use for message: \S+", "Language to use for message: English");
-        englishMessage = (await WelcomeMessageGenerator.GetAsync(ctxEn, "US", nameColors, usePro: usePro)).Message;
+        englishMessage = (await WelcomeMessageGenerator.GetAsync(ctxEn, "US", nameColors, usePro: usePro, arrivingName: gatherDebug.ArrivingName)).Message;
     }
     WelcomeEventLog.Append($"preview:{serverKey}", nation, rich, llmMessage != null ? "1" : "0", signals, 0, llmMessage ?? WelcomeMessages.Get(nation));
 
@@ -880,6 +899,15 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
             }
             {
                 var gatherResult = await WelcomeContext.GatherAsync(capturedGuid, serverKey, rpcPort, capturedNation, channelId, ip, wsGC);
+                // Our own bots (capacity tests, the lounge lobby, muh) get no welcome, no LLM call and no
+                // group announcement; the finally below logs the skip as llm=bot.
+                if (DailyEssayService.IsBotName(gatherResult.ArrivingName))
+                {
+                    llmStatus = "bot";
+                    msg = "(skipped: our bot)";
+                    Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] skipped our bot name=\"{gatherResult.ArrivingName}\" server={serverKey} channelId={channelId}");
+                    return;
+                }
                 var contextText = gatherResult.Context;
                 var nameColors = gatherResult.NameColors;
                 roomChannelIds = gatherResult.RoomChannelIds;
@@ -923,14 +951,14 @@ app.MapGet("/player-identified/{ip}", async (string ip, HttpContext context) =>
                 if (!essayProduced && rich)
                 {
                     var (llm, llmErr, i, o, c) = await WelcomeMessageGenerator.GetAsync(contextText, capturedNation, nameColors, gatherResult.NameEmojis, gatherResult.EventNames,
-                        usePro: WelcomeContext.IsLoreGuest(serverKey, gatherResult.ArrivingName, capturedGuid));
+                        usePro: WelcomeContext.IsLoreGuest(serverKey, gatherResult.ArrivingName, capturedGuid), arrivingName: gatherResult.ArrivingName);
                     if (llm != null && o > 0 && o < 15)
                     {
                         // Dud: rich context but trivially short output — static fallback beats it
                         Console.WriteLine($"[PLAYER-IDENTIFIED-WELCOME] llm-short out={o} — static fallback caller={callerIP} channelId={channelId}");
                         llmStatus = "short";
                     }
-                    else if (llm != null) { msg = llm; llmStatus = "1"; }
+                    else if (llm != null) { msg = llm; llmStatus = llmErr == "template" ? "template" : "1"; }
                     else llmStatus = llmErr.Length > 0 ? llmErr : "error";
                     inTok = i; outTok = o; cachedTok = c;
                 }
@@ -1119,6 +1147,49 @@ public static class FleetIpAllowlist
                 _cache = (ips, DateTime.UtcNow.AddMinutes(5));
             }
             return _cache.Ips.Contains(bare);
+        }
+    }
+}
+
+// Fleet servers allowed to JOIN as players (capacity bots, tests, the lounge), checked before the ASN
+// block list: an IP on data/fleet-server-ips.txt that is an always-on host, or a dormant holding a live
+// /fleet-rpc-channel socket right now. A SLEEPING dormant's last-known IP (dormant-ip-cache.json keeps it
+// on purpose) is NOT allowed — AWS and GCP hand a released address to someone else.
+// The channel accepts any caller, so a live socket alone is never enough: the IP must be on the fleet list.
+public static class FleetClientAllowlist
+{
+    public static Func<IEnumerable<string>>? LiveChannelKeys;   // "ip:port" of every open fleet socket
+    private static (HashSet<string> Ips, DateTime Expiry) _dormant = (new HashSet<string>(), DateTime.MinValue);
+    private static readonly object _lock = new object();
+
+    public static bool Contains(string ip)
+    {
+        string bare = ip.Replace("::ffff:", "").Trim();
+        if (!FleetIpAllowlist.Contains(bare)) return false;
+        if (!IsDormantIp(bare)) return true;
+        var keys = LiveChannelKeys?.Invoke();
+        return keys != null && keys.Any(k => k.StartsWith(bare + ":", StringComparison.Ordinal));
+    }
+
+    // Unreadable cache => treat every fleet IP as dormant (fail closed): always-on hosts still pass,
+    // because they hold live sockets too.
+    private static bool IsDormantIp(string bare)
+    {
+        lock (_lock)
+        {
+            if (DateTime.UtcNow >= _dormant.Expiry)
+            {
+                try
+                {
+                    var ips = new HashSet<string>(StringComparer.Ordinal);
+                    using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText("/root/dormant-ip-cache.json"));
+                    foreach (var p in doc.RootElement.EnumerateObject())
+                        if (p.Value.GetString() is { Length: > 0 } v) ips.Add(v);
+                    _dormant = (ips, DateTime.UtcNow.AddMinutes(1));
+                }
+                catch { return true; }
+            }
+            return _dormant.Ips.Contains(bare);
         }
     }
 }

@@ -136,9 +136,34 @@ public static class WelcomeMessageGenerator
     }
 
     // Status values: "" = success, "timeout" = timed out, "error" = other failure
-    public static async Task<(string? Message, string Status, int InputTokens, int OutputTokens, int CachedTokens)> GetAsync(string contextText, string nationCode, Dictionary<string, string>? nameColors = null, Dictionary<string, string>? nameEmojis = null, List<string>? eventNames = null, bool usePro = false)
+    public static async Task<(string? Message, string Status, int InputTokens, int OutputTokens, int CachedTokens)> GetAsync(string contextText, string nationCode, Dictionary<string, string>? nameColors = null, Dictionary<string, string>? nameEmojis = null, List<string>? eventNames = null, bool usePro = false, string? arrivingName = null)
     {
         if (_apiKey == null) return (null, "error", 0, 0, 0);
+
+        // FU718 (2026-10-04): a lore guest (usePro) arriving ALONE at their home server gets the prompt's own
+        // canonical line ("Returning player to their home server" in welcome-system-prompt.txt) with the name
+        // filled, and NO model call. Measured 09-28..10-04: 5 of 17 Pro welcomes were exactly that line, each a
+        // Pro call and often the $0.14 Pro cache creation. English contexts only; anything else goes to the model.
+        if (usePro
+            && contextText.Contains("Server is currently empty")
+            && contextText.Contains("This is the player's home server")
+            && contextText.Contains("Language to use for message: English"))
+        {
+            string who = (arrivingName ?? "").Trim();
+            string tmpl = who.Length > 0 && who != "(unknown)"
+                ? $"<p>Welcome back to your favorite server, {who}.</p>"
+                : "<p>Welcome back to your favorite server.</p>";
+            if (nameColors != null && nameColors.Count > 0) tmpl = ApplyNameColors(tmpl, nameColors, nameEmojis);
+            Console.WriteLine($"[WELCOME-LLM] nation={nationCode} model=template-alone in=0 cached=0 out=0 ms=0");
+            try
+            {
+                await File.AppendAllTextAsync(LogPath,
+                    $"--- {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC  nation={nationCode}  ms=0  model=template-alone ---\n" +
+                    $"CONTEXT:\n{contextText.TrimEnd()}\nMESSAGE:\n{tmpl}\n\n");
+            }
+            catch { /* log failure is non-fatal */ }
+            return (tmpl, "template", 0, 0, 0);
+        }
 
         if (Interlocked.Increment(ref _inFlight) > MaxConcurrentLlm)
         {

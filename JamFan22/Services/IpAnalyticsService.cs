@@ -167,6 +167,7 @@ namespace JamFan22.Services
         public static async Task<bool> IsIpAllowedAsync(string ip, CancellationToken ct = default)
         {
             string cleanIp = ip.Replace("::ffff:", "");
+            if (global::FleetClientAllowlist.Contains(cleanIp)) return true;
             if (_ipAllowedCache.TryGetValue(cleanIp, out var cached) && DateTime.UtcNow < cached.Expiry)
                 return !cached.Blocked;
             bool blocked = await IsIpBlockedAsync(ip, ct);
@@ -176,6 +177,11 @@ namespace JamFan22.Services
 
         public static async Task<bool> IsIpBlockedAsync(string ip, CancellationToken ct = default)
         {
+            if (global::FleetClientAllowlist.Contains(ip))
+            {
+                Console.WriteLine($"[ip-gate] {ip.Replace("::ffff:", "")} => ALLOWED (fleet)");
+                return false;
+            }
             var ipData = await FetchIpApiAsync(ip, ct, waitIfThrottled: true);
             if (ipData == null) return false;
 

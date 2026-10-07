@@ -13,7 +13,9 @@ public static class BandLoreService
     private const string LorePath   = "data/server-lore.json";
     private const string ModelBase  = "https://generativelanguage.googleapis.com/v1beta/models/";
     private const string Model      = "gemini-2.5-flash";
-    private const int    DailyCap   = 10;
+    // 10 refused 789 requests in ~27 d (2026-09); each call is Flash, ~300 tokens in, ~$0.0002.
+    // 200 stays only as a runaway guard (operator 2026-09-30, FOLLOW-UP 668).
+    private const int    DailyCap   = 200;
 
     private static readonly TimeSpan s_ttl = TimeSpan.FromDays(7);
     private static readonly HttpClient s_http = new();

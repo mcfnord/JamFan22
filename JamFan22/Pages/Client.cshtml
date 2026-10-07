@@ -255,14 +255,14 @@ body {
     const NATION = '@Model.NationCode';
     const _lang = ({'TW':'CN','HK':'CN','BE':'FR','CH':'FR','MX':'ES','AR':'ES','CO':'ES','CL':'ES','PE':'ES','VE':'ES','EC':'ES','GT':'ES','CU':'ES','BO':'ES','DO':'ES','HN':'ES','PY':'ES','SV':'ES','NI':'ES','CR':'ES','PA':'ES','UY':'ES','SR':'NL','AW':'NL','CW':'NL','SX':'NL'})[NATION] || NATION;
     const TRANSLATIONS = {
-        'EN': { 'nearby-only': 'Nearby Only', 'active-only': 'Active Only', 'dark-mode': 'Dark Mode', 'hide': 'Hide', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Nearby', 'highlight': 'Click to highlight, Ctrl-Click to track many', 'quiet': 'Quiet' },
-        'CN': { 'nearby-only': '仅附近', 'active-only': '仅活跃', 'dark-mode': '深色模式', 'hide': '隐身', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人', 'quiet': '安靜' },
-        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'active-only': 'เฉพาะที่ใช้งาน', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อนตัว', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน', 'quiet': 'เงียบ' },
-        'DE': { 'nearby-only': 'Nur in der Nähe', 'active-only': 'Nur Aktive', 'dark-mode': 'Dunkelmodus', 'hide': 'Verstecken', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen', 'quiet': 'Leise' },
-        'IT': { 'nearby-only': 'Solo vicini', 'active-only': 'Solo attivi', 'dark-mode': 'Modalità scura', 'hide': 'Nasconditi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti', 'quiet': 'Silenzio' },
-        'FR': { 'nearby-only': 'Proximité uniquement', 'active-only': 'Actifs seulement', 'dark-mode': 'Mode sombre', 'hide': 'Masquer', 'servers': 'Serveurs', 'info': 'Info', 'nearby': 'À proximité', 'highlight': 'Cliquer pour surligner, Ctrl+Clic pour en suivre plusieurs', 'quiet': 'Tranquille' },
-        'ES': { 'nearby-only': 'Solo cerca', 'active-only': 'Solo activos', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultarse', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios', 'quiet': 'Silencio' },
-        'NL': { 'nearby-only': 'Alleen dichtbij', 'active-only': 'Alleen actief', 'dark-mode': 'Donkere modus', 'hide': 'Verbergen', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Dichtbij', 'highlight': 'Klik om te markeren, Ctrl+Klik om meerdere te volgen', 'quiet': 'Stil' },
+        'EN': { 'nearby-only': 'Nearby Only', 'active-only': 'Active Only', 'dark-mode': 'Dark Mode', 'hide': 'Hide', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Nearby', 'highlight': 'Click to highlight, Ctrl-Click to track many', 'quiet': 'Quiet', 'copy': 'Click to copy', 'copied': 'Copied!' },
+        'CN': { 'nearby-only': '仅附近', 'active-only': '仅活跃', 'dark-mode': '深色模式', 'hide': '隐身', 'servers': '服务器', 'info': '信息', 'nearby': '附近', 'highlight': '点击高亮，Ctrl+点击追踪多人', 'quiet': '安靜', 'copy': '点击复制', 'copied': '已复制' },
+        'TH': { 'nearby-only': 'เฉพาะใกล้เคียง', 'active-only': 'เฉพาะที่ใช้งาน', 'dark-mode': 'โหมดมืด', 'hide': 'ซ่อนตัว', 'servers': 'เซิร์ฟเวอร์', 'info': 'ข้อมูล', 'nearby': 'ใกล้เคียง', 'highlight': 'คลิกเพื่อไฮไลต์ Ctrl+คลิกเพื่อติดตามหลายคน', 'quiet': 'เงียบ', 'copy': 'คลิกเพื่อคัดลอก', 'copied': 'คัดลอกแล้ว' },
+        'DE': { 'nearby-only': 'Nur in der Nähe', 'active-only': 'Nur Aktive', 'dark-mode': 'Dunkelmodus', 'hide': 'Verstecken', 'servers': 'Server', 'info': 'Info', 'nearby': 'In der Nähe', 'highlight': 'Klicken zum Markieren, Strg+Klick für mehrere verfolgen', 'quiet': 'Leise', 'copy': 'Zum Kopieren klicken', 'copied': 'Kopiert!' },
+        'IT': { 'nearby-only': 'Solo vicini', 'active-only': 'Solo attivi', 'dark-mode': 'Modalità scura', 'hide': 'Nasconditi', 'servers': 'Server', 'info': 'Info', 'nearby': 'Vicini', 'highlight': 'Clic per evidenziare, Ctrl+Clic per tracciarne molti', 'quiet': 'Silenzio', 'copy': 'Clicca per copiare', 'copied': 'Copiato!' },
+        'FR': { 'nearby-only': 'Proximité uniquement', 'active-only': 'Actifs seulement', 'dark-mode': 'Mode sombre', 'hide': 'Masquer', 'servers': 'Serveurs', 'info': 'Info', 'nearby': 'À proximité', 'highlight': 'Cliquer pour surligner, Ctrl+Clic pour en suivre plusieurs', 'quiet': 'Tranquille', 'copy': 'Cliquer pour copier', 'copied': 'Copié !' },
+        'ES': { 'nearby-only': 'Solo cerca', 'active-only': 'Solo activos', 'dark-mode': 'Modo oscuro', 'hide': 'Ocultarse', 'servers': 'Servidores', 'info': 'Info', 'nearby': 'Cerca', 'highlight': 'Clic para resaltar, Ctrl+Clic para rastrear varios', 'quiet': 'Silencio', 'copy': 'Clic para copiar', 'copied': '¡Copiado!' },
+        'NL': { 'nearby-only': 'Alleen dichtbij', 'active-only': 'Alleen actief', 'dark-mode': 'Donkere modus', 'hide': 'Verbergen', 'servers': 'Servers', 'info': 'Info', 'nearby': 'Dichtbij', 'highlight': 'Klik om te markeren, Ctrl+Klik om meerdere te volgen', 'quiet': 'Stil', 'copy': 'Klik om te kopiëren', 'copied': 'Gekopieerd!' },
     };
     function T(key) { return (TRANSLATIONS[_lang] || TRANSLATIONS['EN'])[key] ?? TRANSLATIONS['EN'][key]; }
 
@@ -2283,12 +2283,36 @@ if (action.type === 'replace_server') {
         let html = "<table><tr><th>Server<th>Server Address</tr>\n";
         sortedData.forEach(server => {
             if (server.name && server.serverIpAddress) {
-                html += `<tr><td>${server.name}<td>${server.serverIpAddress}:${server.serverPort}</tr>\n`;
+                const addr = `${server.serverIpAddress}:${server.serverPort}`;
+                html += `<tr><td>${server.name}<td><a href="#" class="copy-addr" title="${T('copy')}">${addr}</a></tr>\n`;
             }
         });
         html += "</table>\n";
         container.innerHTML = html;
     }
+
+    // Click an IP:PORT in the Servers list to copy it for Jamulus's Connect dialog.
+    document.getElementById("servers-table-container")?.addEventListener("click", e => {
+        const a = e.target.closest("a.copy-addr");
+        if (!a) return;
+        e.preventDefault();
+        const addr = a.dataset.addr || a.textContent;
+        const done = () => {
+            a.dataset.addr = addr;
+            a.textContent = T('copied');
+            setTimeout(() => { a.textContent = addr; delete a.dataset.addr; }, 1200);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(addr).then(done).catch(() => {});
+        } else {
+            const ta = document.createElement("textarea");
+            ta.value = addr;
+            document.body.appendChild(ta);
+            ta.select();
+            if (document.execCommand("copy")) done();
+            ta.remove();
+        }
+    });
 
     function flipSwap(a, b) {
         return new Promise(resolve => {
@@ -2747,6 +2771,7 @@ async function fetchAndRender() {
             const data = await resp.json();
             if (!data || !data.html) return;
             _loreCache.set(bandId, data.html);
+            Tracker.log('lore_lit', { band: bandId });
             document.querySelectorAll(`.server-eyes[data-band-id="${bandId}"]`).forEach(eyes => {
                 activateLoreEyes(eyes, data.html);
             });
@@ -2758,7 +2783,7 @@ async function fetchAndRender() {
         eyes.dataset.loreReady = '1';
         eyes.style.transition = 'opacity 1.5s';
         eyes.style.opacity = '1';
-        eyes.onclick = (e) => { e.preventDefault(); openLorePopup(html, eyes.href); };
+        eyes.onclick = (e) => { e.preventDefault(); Tracker.log('lore_open', { band: eyes.dataset.bandId }); openLorePopup(html, eyes.href); };
     }
 
     function openLorePopup(html, jamUrl) {
