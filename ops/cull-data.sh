@@ -31,3 +31,7 @@ URLS_CUTOFF=$((MINUTES_SINCE_EPOCH - 129600))
 awk -v cutoff="$URLS_CUTOFF" -F, '$1 >= cutoff' "data/urls.csv" > "data/tmpfile.csv"
 cat data/tmpfile.csv > data/urls.csv
 rm data/tmpfile.csv
+
+# output.log: 90 days, cut IN PLACE (FU743, operator 2026-10-08). jamfan22 holds it O_APPEND via
+# systemd; never awk/cat-copy it back like the files above -- appends during the copy are lost.
+python3 /root/JamFan22/ops/logcut.py /root/JamFan22/JamFan22/output.log 90 --apply >> /root/JamFan22/JamFan22/output.log 2>&1
