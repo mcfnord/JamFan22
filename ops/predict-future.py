@@ -236,9 +236,15 @@ def find_imminent_hotspots(file_path='data/census.csv',
     hotspots = df_sessions[df_sessions['guid'].isin(eligible_guids)] \
         .groupby(['guid', 'day_of_week_utc', 'hour_utc']).size().reset_index(name='hotspot_sessions')
     
-    best_hotspots = hotspots.loc[hotspots.groupby('guid')['hotspot_sessions'].idxmax()]
+    # FU745: one candidate per (guid, weekday) -- its busiest hour, earliest on a tie --
+    # so a two-night regular gets two candidates and a two-hour session counts once.
+    hotspots = hotspots.sort_values(['guid', 'day_of_week_utc', 'hotspot_sessions', 'hour_utc'],
+                                    ascending=[True, True, False, True])
+    best_hotspots = hotspots.drop_duplicates(subset=['guid', 'day_of_week_utc'], keep='first')
 
-    stats = best_hotspots.merge(guid_counts.rename('total_sessions'), left_on='guid', right_index=True)
+    # FU745: confidence denominator = distinct play-days, not (date, hour) cells.
+    play_days = df_sessions.groupby('guid')['date_utc'].nunique()
+    stats = best_hotspots.merge(play_days.rename('total_sessions'), left_on='guid', right_index=True)
     raw_counts = df.groupby(['guid', 'day_of_week_utc', 'hour_utc']).size().reset_index(name='raw_samples')
     stats = stats.merge(raw_counts, on=['guid', 'day_of_week_utc', 'hour_utc'])
 
