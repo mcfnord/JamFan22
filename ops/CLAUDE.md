@@ -104,5 +104,5 @@ To find human-generated events in the last N minutes (`tail -200 /root/JamFan22/
 **Automated/timer noise to ignore:**
 - `[ON-DEMAND-REFRESH]` — directory cache misses in call-servers-php
 - `[RSS]`, `[ProcessServerListsAsync]`, `[DEBUG] Processing Genre` — routine directory cycles
-- `[GeoResolve]`, `[FILTER]`, `[SENSOR-BLOCKED]` — per-join welcome context computation
+- `[GeoResolve]`, `[FILTER]`, `[SENSOR-BLOCKED]` — per-join welcome context computation (`[FILTER]` no longer logged from the release after 2026-10-08, FU743: 18% of bytes, no consumer)
 - `[LEVEL-POLL]`, `[EAR]` — silence polling loops

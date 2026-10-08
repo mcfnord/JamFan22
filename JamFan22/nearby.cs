@@ -1216,11 +1216,7 @@ private List<MusicianRecord> GetMusicianRecords(HashSet<string> guidsToFind, dou
 
                 if (hasLowCeiling && hasHighZeroRatio)
                 {
-                    string uName = stats.MostRecentRecord.Name ?? "Unknown";
-                    Console.WriteLine($"[FILTER] Excluded {guid} ({uName}). " +
-                                      $"MaxGold: {stats.MaxGoldenValue}, " +
-                                      $"Zeroes: {stats.ZeroGoldenCount}/{stats.TotalEntries} " +
-                                      $"({(double)stats.ZeroGoldenCount / stats.TotalEntries:P0})");
+                    // [FILTER] log line removed 2026-10-08 (FU743): 18% of output.log bytes, no consumer.
                     continue; // Skip this user entirely
                 }
                 // -----------------------
