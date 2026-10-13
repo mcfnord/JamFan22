@@ -316,6 +316,19 @@ def find_imminent_hotspots(file_path='data/census.csv',
 
     # --- 9. Output Predictions ---
     results_df = pd.DataFrame(results).sort_values('pred_mins')
+    # DEDUPE: one prediction per GUID per 190 min (2026-10-13). nearby.cs:483 does
+    # ToDictionary(p => p.Guid) over the rows inside [now-10, now+180]; two rows of one GUID in that
+    # span throw and /api/nearby answers 500 for every client (the panel froze, then vanished).
+    # Cross-hour sessions produce a second row at the top of the next hour (seven rows at 00:00 on 10-13).
+    _kept, _last = [], {}
+    for _, _r in results_df.iterrows():
+        _prev = _last.get(_r['guid'])
+        if _prev is not None and _r['pred_mins'] - _prev < 190:
+            continue
+        _last[_r['guid']] = _r['pred_mins']
+        _kept.append(_r)
+    print(f"Dedupe: {len(results_df) - len(_kept)} rows dropped (same GUID within 190 min).")
+    results_df = pd.DataFrame(_kept) if _kept else results_df.iloc[0:0]
     results_df['safe_username'] = results_df['context'].apply(lambda x: urllib.parse.quote(x.split(',')[0]) if isinstance(x, str) else '')
     results_df['safe_servername'] = results_df['server_name'].apply(lambda x: urllib.parse.quote(x) if x else '')
 

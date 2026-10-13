@@ -54,6 +54,7 @@ Key files:
 - **`predict-future.py`** — runs 6× daily; writes `tooltips.json` and prediction outputs to `wwwroot/`. Run with `cd /root/JamFan22/JamFan22/`.
 - **`jammer-map.py`** — runs every 2 hours; writes `wwwroot/jammer-map.json`. Run with `cd /root/JamFan22/JamFan22/`.
 - **`gcdump-monitor.sh`** — runs every 2 hours; snapshots both production and debug (port 5000) instances into `heapdumps/`, 12-file rolling window per label.
+- **`dedupe-predicted.py <predicted.csv> [--dry]`** — drops a second prediction of one GUID within 190 min (backs up first). `predict-future.py` dedupes at write since 2026-10-13; before that, two rows of one GUID inside the 3-hour window made `/api/nearby` answer 500 for every client and the Nearby panel froze, then vanished on reload.
 - **`cull-data.sh`** — runs daily; trims telemetry.log, fleet-guid-ip.csv, urls-rejected.csv (15 days), urls.csv (90 days).
 - **`band-finder.py`** — runs weekly; writes `JamFan22/data/bands.json`. Run with `cd /root/JamFan22/`.
 - **`session-regulars.py`** — runs weekly; writes `data/session-regulars.json`. Run with `cd /root/JamFan22/JamFan22/`.

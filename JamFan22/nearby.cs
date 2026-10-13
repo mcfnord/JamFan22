@@ -480,7 +480,13 @@ private async Task<string> FindMusiciansHtmlAsync(double userLat, double userLon
             // Get Data
             var musicianRecords = GetMusicianRecords(combinedGuidsForLookup, userLat, userLon, new Dictionary<string, DateTime>(_liveUserFirstSeen));
             
-            var predictedUserDataMap = finalPredictedUsers.ToDictionary(p => p.Guid);
+            // Keep the earliest row per GUID: predicted.csv carried two rows of one GUID inside the
+            // 3-hour window on 2026-10-13 and ToDictionary threw, so /api/nearby answered 500 for everyone.
+            var predictedUserDataMap = finalPredictedUsers
+                .GroupBy(p => p.Guid)
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.PredictedArrivalTime).First());
+            if (predictedUserDataMap.Count != finalPredictedUsers.Count)
+                Console.WriteLine($"[PREDICTED-DUP] {finalPredictedUsers.Count - predictedUserDataMap.Count} duplicate predicted GUID row(s) in the window; kept the earliest of each.");
 
             var completedMusicianRecords = new List<MusicianRecord>();
             
