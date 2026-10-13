@@ -66,26 +66,6 @@ namespace JamFan22.Services
         // Data flows into census.csv / server.csv exactly like primary data.
         // No join-events (correlation engine) for these servers — expected degradation.
         public static HashSet<string> BlockedServerKeys = new HashSet<string>(StringComparer.Ordinal);
-        // data/hidden-servers.txt: "ip:port" per line (# comments). These keys are never taken from the explorer
-        // fallback -- not swept into the blocked list, not alt-polled -- so a room that answers explorer but not our
-        // sampler stays OFF jamulus.live (honeypot M1b, 2026-10-13). The primary (sampler) path is untouched.
-        public static HashSet<string> HiddenServerKeys = new HashSet<string>(StringComparer.Ordinal);
-        private const string HiddenServersPath = "data/hidden-servers.txt";
-        private static void LoadHiddenServerKeys()
-        {
-            try
-            {
-                var keys = new HashSet<string>(StringComparer.Ordinal);
-                if (File.Exists(HiddenServersPath))
-                    foreach (var raw in File.ReadAllLines(HiddenServersPath))
-                    {
-                        var line = raw.Trim();
-                        if (line.Length > 0 && !line.StartsWith("#")) keys.Add(line);
-                    }
-                HiddenServerKeys = keys;
-            }
-            catch (Exception ex) { Console.WriteLine($"[ALT] hidden-servers.txt not read: {ex.Message}"); }
-        }
         private static DateTime _blockedListFetchedAt = DateTime.MinValue;
         private static readonly Dictionary<string, JamulusServers> _altSourceCache =
             new Dictionary<string, JamulusServers>(StringComparer.Ordinal);
@@ -173,7 +153,6 @@ namespace JamFan22.Services
             {
                 // Sweep all 3 alt instances in parallel across all 7 directory hosts.
                 // Collect every server with ping >= 0 from any instance.
-                LoadHiddenServerKeys();
                 var altSeen = new Dictionary<string, (JamulusServers Srv, string Dir)>(StringComparer.Ordinal);
                 var altLock  = new object();
                 var tasks    = new List<Task>();
@@ -193,7 +172,6 @@ namespace JamFan22.Services
                             {
                                 if (s == null || s.ping < 0 || s.ip == null) continue;
                                 string addr = s.ip + ":" + s.port;
-                                if (HiddenServerKeys.Contains(addr)) continue;
                                 // Keep first sighting; upgrade to a real name if we only have the IP.
                                 if (!altSeen.TryGetValue(addr, out var existing)
                                     || (existing.Srv.name == existing.Srv.ip && s.name?.Length > 0 && s.name != s.ip))
@@ -237,7 +215,7 @@ namespace JamFan22.Services
                     if (!primaryReachable.Contains(addr))
                         keys.Add(addr);
                 foreach (var addr in BlockedServerKeys)
-                    if (!primaryReachable.Contains(addr) && !HiddenServerKeys.Contains(addr))
+                    if (!primaryReachable.Contains(addr))
                         keys.Add(addr);
 
                 var newlyBlocked = keys.Except(BlockedServerKeys).ToList();
