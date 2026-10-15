@@ -1422,15 +1422,31 @@ public static class WelcomeMessages
     }
 }
 
+// Joiners are added on every noteworthy arrival but drained only when a group message fires,
+// so an arrival into an empty room, or inside the 5-min group cooldown, used to sit here until
+// the next group send — Studio D 2026-10-15 21:20Z announced Roel (gone 50 min) and Giorgio
+// (joined 38 h earlier) as "arrived in the last 60 seconds", and Curt twice. Drain now returns
+// only joiners added within MaxAge, one entry per name (the latest).
 public static class GroupJoinerAccumulator
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<(string Name, string Nation, string Instrument, int DistKm)>> _bags = new();
+    public static readonly TimeSpan MaxAge = TimeSpan.FromSeconds(90);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<(string Name, string Nation, string Instrument, int DistKm, DateTime AddedUtc)>> _bags = new();
 
     public static void Add(string serverKey, string name, string nation, string instrument, int distKm)
-        => _bags.GetOrAdd(serverKey, _ => new()).Add((name, nation, instrument, distKm));
+        => _bags.GetOrAdd(serverKey, _ => new()).Add((name, nation, instrument, distKm, DateTime.UtcNow));
 
     public static List<(string Name, string Nation, string Instrument, int DistKm)> Drain(string serverKey)
-        => _bags.TryRemove(serverKey, out var bag) ? bag.ToList() : new();
+    {
+        if (!_bags.TryRemove(serverKey, out var bag)) return new();
+        var cutoff = DateTime.UtcNow - MaxAge;
+        return bag.Where(j => j.AddedUtc >= cutoff)
+                  .GroupBy(j => j.Name)
+                  .Select(g => g.OrderByDescending(j => j.AddedUtc).First())
+                  .OrderBy(j => j.AddedUtc)
+                  .Select(j => (j.Name, j.Nation, j.Instrument, j.DistKm))
+                  .ToList();
+    }
 }
 
 // Per-room welcome rate cap. The busiest minutes in welcome-events.log are 36/min
