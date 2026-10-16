@@ -42,27 +42,44 @@ dotnet build
 # Test deployment (Release publish, port 5000, sandboxed in /tmp/jamfan-test-build with copies of the data files)
 kill $(lsof -t -i :5000) 2>/dev/null; cd /root/JamFan22 && ./ops/deploy-test-build.sh
 
-# Production: managed as systemd service — do NOT run `dotnet run` yourself
+# Production: systemd runs the pinned publish in releases/current — do NOT run `dotnet run` yourself
 systemctl status jamfan22
-systemctl restart jamfan22
+ops/release.sh                # publish HEAD + flip current; restarts nothing
+systemctl restart jamfan22    # restarts whatever current points at (see below)
 ```
 
-**What production actually runs (2026-09-29):** `jamfan22.service` is `ExecStart=/root/.dotnet/dotnet run` in
-this working tree. Every start — including `Restart=always` after a crash, and a reboot — compiles whatever
-is in the tree at that moment, as a **Debug** build in the **`Development`** environment
-(`Properties/launchSettings.json`; `Program.cs` skips `UseExceptionHandler`/`UseHsts` in Development).
-Consequences: an edited file is live on the next restart whether or not anyone meant it; a tree that does
-not compile takes the site down until fixed; an unhandled error shows a stack trace to the public. **To tell
-whether an edit is live:** compare the file's mtime with the build time,
-`ls -la --time-style=full-iso JamFan22/bin/Debug/net9.0/JamFan22.dll`. The move to a published Release build
-under `releases/current` is planned step by step in `/root/jamfan-command/TODO.md` (FOLLOW-UP 670); until it
-lands, commit before you restart.
+**What production actually runs (since 2026-10-02, FOLLOW-UP 670):** a pinned **Release publish**, not the
+working tree. The drop-in `/etc/systemd/system/jamfan22.service.d/10-release.conf` replaces `dotnet run` with
+`ExecStart=/root/.dotnet/dotnet /root/JamFan22/releases/current/JamFan22.dll`; `WorkingDirectory` is still
+`JamFan22/`, so `data/`, `wwwroot/` and `key-current.pfx` resolve from the tree as before. Its `ExecStartPre`
+cats `releases/current/RELEASE` (sha, dirty hash, build time, dll hash) into `output.log`, so every start
+records which bytes came up. `ASPNETCORE_ENVIRONMENT=Development` is still set there (developer exception
+page, no HSTS) — the flip to Production is FU670 step 4. Rollback of the whole scheme: `rm` the drop-in,
+`systemctl daemon-reload`, restart.
+
+**Consequences:** `systemctl restart jamfan22` restarts the SAME bytes — a plain restart never picks up a code
+change, and the service compiles nothing. Conversely, once `current` is flipped, any start (a crash under
+`Restart=always`, a reboot) brings the new bytes up whether or not anyone restarted on purpose. **To tell
+whether an edit is live:** `readlink releases/current; cat releases/current/RELEASE` — the `sha=` must be at
+or after the commit, `dirty=clean` (a `-dirty-<hash>` release was published from uncommitted edits). The
+2026-10-15 group-welcome fix (`55666e6`) sat built-but-not-live because the old text said a restart would ship it.
+
+**Shipping a code change to production** (the operator's call; after 0:00 UTC when possible):
+1. Commit (`release.sh` tags the release with the HEAD sha; uncommitted edits make it `-dirty-<hash>`).
+2. `cd /root/JamFan22 && ops/release.sh` — `dotnet publish -c Release` into
+   `releases/<utc>-<sha>[-dirty-<hash>]/`, writes `RELEASE`, flips `current` atomically. **Restarts nothing.**
+   On failure it exits non-zero and `current` is untouched.
+3. `systemctl restart jamfan22`, then `tail -c 50000000 JamFan22/output.log | grep -a '^sha=' | tail -1` shows the new sha.
+4. Rollback: `ln -sfn /root/JamFan22/releases/<previous-dir> releases/current && systemctl restart jamfan22`.
 
 **CRITICAL — Two instances run as dotnet processes.** Never kill dotnet processes by PID or `pkill`. Use only:
-- `systemctl restart jamfan22` — for production (port 443). Use this to restart production after code changes — do NOT run `dotnet build` first; the service handles it.
-- To stop the debug instance specifically: `kill $(lsof -t -i :5000)`
+- `systemctl restart jamfan22` — production (port 443); runs whatever `releases/current` points at.
+- `kill $(lsof -t -i :5000)` — stops the debug instance (`ops/deploy-test-build.sh`, its own publish in `/tmp/jamfan-test-build`).
 
-**When the user asks to restart production:** run `systemctl restart jamfan22` directly. Do not build first, do not use `deploy-test-build.sh`. Production restarts are the operator's call (build → test on :5000 → operator verifies → restart on request).
+**When the operator asks to ship a change:** steps 1–3 above. **When asked only to restart:** `systemctl restart
+jamfan22` — say whether `current` is behind HEAD, because a restart alone ships nothing new. `dotnet build` in
+the tree is a compile check only; production never sees it. Production restarts are the operator's call
+(build → test on :5000 → operator verifies → release + restart on request).
 
 **Important:** Never read large `.json`, `.csv`, or `.log` data files without bounds — use `grep`/`jq`/`tail -c` for efficient extraction. `output.log` is 11 GB; `tail -c 300000000 output.log | grep -a …` is the shape.
 
