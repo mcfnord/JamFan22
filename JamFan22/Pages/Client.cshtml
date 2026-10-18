@@ -2265,12 +2265,10 @@ if (action.type === 'replace_server') {
         const container = document.getElementById("servers-table-container");
         if (!container) return;
 
-        const chkNearby = document.getElementById("chk-nearby-only");
-        const showNearbyOnly = chkNearby ? chkNearby.checked : false;
+        // The list always shows every server, even in Nearby Only mode.
         const chkActive = document.getElementById("chk-active-only");
         const showActiveOnly = chkActive ? chkActive.checked : false;
         const filteredData = data.filter(s =>
-            (!showNearbyOnly || s.distanceAway < 3000) &&
             (!showActiveOnly || (s.isSignalKnown && !s.isQuiet))
         );
 
