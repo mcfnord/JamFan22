@@ -145,14 +145,18 @@ public static class CensusIndex
                 string server = i3 >= 0 ? line.Substring(i2 + 1, i3 - i2 - 1) : line.Substring(i2 + 1).TrimEnd();
                 if (guid.Length != 32) continue;
 
-                // col 3: audible flag (0/1) — only present for fleet-polled ticks
+                // col 3: audibility — '0' = silent, '1'..'f' = the hex COUNT of audible players in the
+                // room (SCHEMAS.md census.csv). Mirrors AddTick(): anything but '0' is audible. Until
+                // 2026-10-21 (FU845) only '1' counted, so every tick where two or more people played
+                // at once — the jam itself — was dropped from the snapshot, and a freshly restarted
+                // process read regular singers as listeners (Marsha K: 2.9% vs 29%).
                 if (i3 >= 0)
                 {
                     var col3 = line.AsSpan(i3 + 1).Trim();
                     if (col3.Length == 1)
                     {
-                        bool isAud = col3[0] == '1';
                         bool isSil = col3[0] == '0';
+                        bool isAud = !isSil && Uri.IsHexDigit(col3[0]);
                         if (isAud || isSil)
                         {
                             snapshotAudible.TryGetValue(guid, out var av);
