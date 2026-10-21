@@ -469,7 +469,10 @@ public static class DailyEssayService
                                  && (g.N ?? "").Trim().Equals(hostName, StringComparison.OrdinalIgnoreCase)
                                  && kv.Value.L - kv.Value.F >= HostMinSpanMinutes;
                     // Priority: -1=host, present and past HostMinSpanMinutes; 0=confirmed active, 1=unknown, 2=listener, 3=confirmed silent (parked — connected but no audio)
-                    string instr = isLis ? "listener" : isParked ? "parked" : g.I is { Length: > 0 } i ? i : "musician";
+                    // A named host keeps their real instrument: hosts MC and sing in phrases, and both the
+                    // lifetime test (isLis) and the per-session one (isParked) read that as silence —
+                    // Marsha K, 2026-10-21 essay, "listening in from the host's chair" (FU845).
+                    string instr = isLis && !isHost ? "listener" : isParked && !isHost ? "parked" : g.I is { Length: > 0 } i ? i : "musician";
                     int pri = isHost ? -1 : isAct ? 0 : isParked ? 3 : isLis ? 2 : 1;
                     int score = kv.Value.T + (webGuids.Contains(kv.Key) ? WebUserTickBonus : 0);
                     return (Name: g.N ?? "", Instr: instr, Ticks: kv.Value.T, Pri: pri, Score: score);
