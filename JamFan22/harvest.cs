@@ -487,12 +487,18 @@ namespace JamFan22
                     }
                 }
 
-                // Cross-join: name → level by channel slot
+                // Cross-join: name → level by POSITION in the client list. The 1015 level list is
+                // compact — one entry per CONNECTED client, in the same channel-ID order as the 1013
+                // client list (server.cpp CreateLevelsForAllConChannels: vecChannelLevels[j]) — so it
+                // is not indexed by channel slot. Until 2026-10-21 (FU845) this read
+                // levelList[channelId]: above a vacant slot every player read the next channel's
+                // level and the topmost read 0 (Studio D 10-21: Marsha K silent 617/617 min after
+                // slot 4 emptied; Eric read her level instead of his own).
                 var nameLevel = new Dictionary<string, int>(clients.Count);
-                foreach (var (channelId, name) in clients)
+                for (int ci = 0; ci < clients.Count; ci++)
                 {
-                    int level = channelId < levelList.Count ? levelList[channelId] : 0;
-                    nameLevel[name] = level;
+                    int level = ci < levelList.Count ? levelList[ci] : 0;
+                    nameLevel[clients[ci].name] = level;
                 }
 
                 // If no named clients, treat as quiet regardless of level nibbles
@@ -551,7 +557,7 @@ namespace JamFan22
                         { int lo = buf2[i] & 0x0F; ll2.Add(lo); if (lo > 0) quiet2 = false;
                           int hi = (buf2[i] >> 4) & 0x0F; if (hi == 0x0F) break; ll2.Add(hi); if (hi > 0) quiet2 = false; }
                     var nl2 = new Dictionary<string, int>();
-                    foreach (var (cid, nm) in clients2) nl2[nm] = cid < ll2.Count ? ll2[cid] : 0;
+                    for (int ci = 0; ci < clients2.Count; ci++) nl2[clients2[ci].name] = ci < ll2.Count ? ll2[ci] : 0;   // by position, not slot — see the direct-poll cross-join (FU845)
                     if (clients2.Count == 0) quiet2 = true;
 
                     if (!m_fleetSilenceStatus.TryGetValue(ipport, out bool p2) || p2 != quiet2)
