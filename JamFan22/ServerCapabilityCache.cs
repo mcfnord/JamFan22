@@ -24,6 +24,14 @@ namespace JamFan22
             return null;
         }
 
+        /// <summary>A server's own CLM_SERVER_FEATURES bit, read from the sampler feed each poll
+        /// cycle: a positive answer from our infrastructure, so no explorer query is needed. Only
+        /// ever asserts true; an absent bit is "unknown" and still goes through FetchAsync.</summary>
+        public static void MarkRawAudio(string ip, long port)
+        {
+            _cache[$"{ip}:{port}"] = (true, DateTime.UtcNow.AddHours(24));
+        }
+
         private static async Task FetchAsync(string ip, int port)
         {
             var key = $"{ip}:{port}";

@@ -20,6 +20,14 @@ namespace JamFan22.Models
         public long index { get; set; }
         public Client[] clients { get; set; }
         public long port2 { get; set; }
+        // CLM_SERVER_FEATURES bits, as the sampler emits them (None/absent when the server
+        // never answered CLM_REQ_SERVER_FEATURES — every 3.12.x server, our JAMFAN rooms included).
+        public Features? features { get; set; }
+    }
+
+    public class Features
+    {
+        public bool raw_audio_available { get; set; }
     }
 
     public class Client

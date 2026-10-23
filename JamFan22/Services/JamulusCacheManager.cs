@@ -419,6 +419,11 @@ namespace JamFan22.Services
 
                         foreach (var server in servers)
                         {
+                            // The sampler relays the server's own raw-audio feature bit (4.0.0 betas and
+                            // dev builds answer it; 3.12.x does not). A set bit is a MAX verdict from our
+                            // own infrastructure — record it before any explorer query is spent on it.
+                            if (server.features?.raw_audio_available == true && server.ip != null)
+                                ServerCapabilityCache.MarkRawAudio(server.ip, server.port);
                             if (server.clients == null || server.clients.Length == 0) continue;
                             networkTotal += server.clients.Length;
                             string serverKey = $"{server.ip}:{server.port}";
