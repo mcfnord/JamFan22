@@ -23,6 +23,11 @@ namespace JamFan22.Models
         // CLM_SERVER_FEATURES bits, as the sampler emits them (None/absent when the server
         // never answered CLM_REQ_SERVER_FEATURES — every 3.12.x server, our JAMFAN rooms included).
         public Features? features { get; set; }
+        // The sampler's own raw-audio verdict (FU861, 2026-10-24): true / false once the sampler has
+        // opened an audio channel to the server from its hole-punched sweep socket and the server
+        // did / did not send RAWAUDIO_SUPPORTED; absent (null) until asked. Every JAMFAN room
+        // answers this, unlike `features`, which no 3.12.x server sends.
+        public bool? rawaudio { get; set; }
     }
 
     public class Features

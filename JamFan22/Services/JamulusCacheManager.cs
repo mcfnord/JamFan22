@@ -419,11 +419,15 @@ namespace JamFan22.Services
 
                         foreach (var server in servers)
                         {
-                            // The sampler relays the server's own raw-audio feature bit (4.0.0 betas and
-                            // dev builds answer it; 3.12.x does not). A set bit is a MAX verdict from our
-                            // own infrastructure — record it before any explorer query is spent on it.
-                            if (server.features?.raw_audio_available == true && server.ip != null)
+                            // MAX sash, from our own infrastructure before any explorer query is spent:
+                            // the server's raw-audio feature bit (4.0.0 betas and dev builds answer it;
+                            // 3.12.x does not), or the sampler's `rawaudio` verdict from an audio channel it
+                            // opened through the hole-punch (FU861: the explorer reaches our AWS rooms only
+                            // because its directory sweeps punch them; the sampler now asks the same way).
+                            if (server.ip != null && (server.features?.raw_audio_available == true || server.rawaudio == true))
                                 ServerCapabilityCache.MarkRawAudio(server.ip, server.port);
+                            else if (server.ip != null && server.rawaudio == false)
+                                ServerCapabilityCache.MarkNoRawAudio(server.ip, server.port);
                             if (server.clients == null || server.clients.Length == 0) continue;
                             networkTotal += server.clients.Length;
                             string serverKey = $"{server.ip}:{server.port}";

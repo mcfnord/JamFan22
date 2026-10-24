@@ -32,6 +32,14 @@ namespace JamFan22
             _cache[$"{ip}:{port}"] = (true, DateTime.UtcNow.AddHours(24));
         }
 
+        /// <summary>The sampler's explicit "no raw audio": it opened an audio channel to the server and
+        /// RAWAUDIO_SUPPORTED never came (a `--noraw` room, or a pre-raw build). A measured negative,
+        /// so it is cached like a positive — and a later positive from either source overwrites it.</summary>
+        public static void MarkNoRawAudio(string ip, long port)
+        {
+            _cache[$"{ip}:{port}"] = (false, DateTime.UtcNow.AddHours(24));
+        }
+
         private static async Task FetchAsync(string ip, int port)
         {
             var key = $"{ip}:{port}";
