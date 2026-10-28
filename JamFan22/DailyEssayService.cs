@@ -543,6 +543,8 @@ public static class DailyEssayService
             var genTs = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
             html += $"\n<p class=\"essay-footer\" data-essay-generated=\"{genTs}\" style=\"font-size:0.8em;color:#aaa;margin-top:1.5em;text-align:right\">Written <time class=\"essay-age\"></time></p>";
         }
+        if (html != null)
+            WriteEssayMeta(centerId, language, allSessions, geoMap, mentionGuids, html);
         return (html, featuredServerKeys, mentionGuids);
     }
 
@@ -699,6 +701,59 @@ public static class DailyEssayService
     }
 
     // census.csv: minutes,guid,ip:port
+    // FU878: one JSON line per generated essay — the sessions the model was shown (ip:port key,
+    // window, every GUID with the name/instrument it carried, the prompt's player list) and the
+    // featured-GUID map. A paragraph is anchored to GUIDs by matching its bolded names INSIDE
+    // this essay's own sessions — never by resolving a room name (mistake 49). The "ts" field is
+    // the footer's data-essay-generated stamp, so a served essay and its line join exactly.
+    // Fail-open: a write error is logged and the essay is served regardless.
+    private const string MetaPath = "data/essay-meta.jsonl";
+    private static readonly object s_metaLock = new();
+    private static void WriteEssayMeta(string centerId, string language, List<SessionEntry> sessions,
+        Dictionary<string, (string N, string I)> geoMap, Dictionary<string, string> mentionGuids, string html)
+    {
+        try
+        {
+            var stamp = System.Text.RegularExpressions.Regex.Match(html, "data-essay-generated=\"([^\"]+)\"");
+            var rec = new Dictionary<string, object?>
+            {
+                ["ts"] = stamp.Success ? stamp.Groups[1].Value : DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                ["center"] = centerId,
+                ["lang"] = language,
+                ["htmlLen"] = html.Length,
+                ["sessions"] = sessions.Select(s =>
+                {
+                    var guids = s.GuidTicks.Select(kv =>
+                    {
+                        geoMap.TryGetValue(kv.Key, out var g);
+                        return new Dictionary<string, object?>
+                        {
+                            ["g"] = kv.Key, ["name"] = g.N, ["instr"] = g.I,
+                            ["ticks"] = kv.Value.T, ["first"] = kv.Value.F, ["last"] = kv.Value.L,
+                        };
+                    }).ToList();
+                    return new Dictionary<string, object?>
+                    {
+                        ["key"] = s.Key, ["name"] = s.Name, ["city"] = s.City, ["nation"] = s.Nation,
+                        ["first"] = s.FirstMin, ["last"] = s.LastMin, ["ticks"] = s.TotalTicks,
+                        ["players"] = s.Players.Select(p => new Dictionary<string, object?>
+                            { ["name"] = p.Name, ["instr"] = p.Instr, ["ticks"] = p.Ticks }).ToList(),
+                        ["guids"] = guids,
+                    };
+                }).ToList(),
+                ["mentions"] = mentionGuids,
+            };
+            var line = JsonSerializer.Serialize(rec, new JsonSerializerOptions
+                { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            lock (s_metaLock) File.AppendAllText(MetaPath, line + "\n");
+            Console.WriteLine($"[ESSAY-META] wrote key={centerId}:{language} ts={rec["ts"]} sessions={sessions.Count} guids={sessions.Sum(s => s.GuidTicks.Count)} mentions={mentionGuids.Count}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ESSAY-META] write failed key={centerId}:{language}: {ex.Message}");
+        }
+    }
+
     private static async Task<List<SessionEntry>> ScanCensusAsync(long cutoff)
     {
         var byServer = new Dictionary<string, SessionEntry>(StringComparer.Ordinal);
