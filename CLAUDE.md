@@ -89,13 +89,20 @@ nginx is installed but **stopped and disabled** (2026-08-10 — operator wanted 
 
 ### Memory and OOM protection
 
-The droplet is `s-2vcpu-8gb-amd`. Measured 2026-09-29: production JamFan22 601–963 MB RSS (p50 813 MB over
-400 heap-dump samples), its `dotnet run` parent 224 MB, the :5000 test instance ~1.2 GB when up, everything
-else under 0.4 GB; the box peaked at 2.48 GB of 7.9 GB over nine days, CPU 4–11%. A downsize to 4 GB is
-planned (`/root/jamfan-command/TODO.md` FOLLOW-UP 669). **These caps assume 8 GB and must be re-set with
-any resize:** `user-0.slice` `MemoryMax=4G` (persisted in `/etc/systemd/system.control/user-0.slice.d/50-MemoryMax.conf`;
-limits all interactive/tmux processes, including ops scripts run via Claude Code, so a runaway script is
-OOM-killed before it starves production) and `jamfan22.service` `MemoryHigh=5G` / `MemoryMax=7G`.
+The droplet is **2 vCPU / 3.9 GB since 2026-10-22 03:04Z** (was `s-2vcpu-8gb-amd`; FOLLOW-UP 669 in
+`/root/jamfan-command/TODO.md`). Measured 2026-09-29 on 8 GB: production JamFan22 601–963 MB RSS (p50 813 MB
+over 400 heap-dump samples), the :5000 test instance ~1.2 GB when up (max 1.31 GB), everything else under
+0.4 GB; the box peaked at 2.48 GB over nine days, CPU 4–11%. Production now runs the published
+`releases/current` DLL directly (no `dotnet run` parent). **Caps, re-set for 4 GB on 2026-10-22:**
+`user-0.slice` `MemoryMax=1.5G` (persisted in `/etc/systemd/system.control/user-0.slice.d/50-MemoryMax.conf`;
+limits all interactive/tmux processes, including ops scripts run via Claude Code and the :5000 instance, so a
+runaway script or build is OOM-killed before it pushes production into swap — a :5000 test plus a build at
+once can hit it). `jamfan22.service` keeps `MemoryHigh=5G` / `MemoryMax=7G` — above RAM, so effectively uncapped — **on purpose**: its cgroup counts
+page cache (24 min after the 10-22 restart: anon 705 MB + file 823 MB, `memory.peak` 2460 MB), so a
+MemoryHigh near 2.2G would throttle production on reclaimable cache. Swap is the 2 GB disk `/swapfile`
+behind **zswap** (zstd/zsmalloc, pool ≤20% RAM), on since 2026-10-22 via `/etc/tmpfiles.d/zswap.conf`;
+`zramswap.service` (never worked: no `zram` module) is disabled, and `/etc/sysctl.d/99-zram.conf`'s
+`swappiness=100` is kept because zswap is now the cheap tier it assumed. Check: `grep -H . /sys/module/zswap/parameters/enabled`.
 `ops/gcdump-monitor.sh` (cron, every 2 h) snapshots both instances' heaps into `heapdumps/` and logs each RSS.
 
 **Forensics after an OOM kill:** `auditd` and `acct` are installed and running.
